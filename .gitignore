@@ -12,3 +12,6 @@ dist/
 
 .DS_Store
 *.log
+
+# SDD scratch workspace
+.superpowers/
