@@ -20,6 +20,26 @@ export function layoutHeight(lineCount: number, size: number, lineHeight: number
   return lineCount * size * lineHeight
 }
 
+/**
+ * Splits a word into grapheme clusters rather than code points, so a hard
+ * character break can never fall inside a multi-code-point cluster (e.g. a
+ * base letter plus a combining diacritic) and strand a combining mark at the
+ * start of the next line.
+ *
+ * `Intl.Segmenter` can in principle segment differently across JS engines.
+ * That is safe here only because `layoutText` runs once per session and both
+ * consumers (the overlay and the PDF writer) read that single output array —
+ * they cannot disagree with each other even if a different browser would have
+ * segmented differently. This reasoning holds only while both consumers share
+ * one JS realm. If line breaking (or export) ever moves server-side, the
+ * server and browser become different realms and this guarantee must be
+ * re-checked.
+ */
+function graphemeClusters(word: string): string[] {
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  return Array.from(segmenter.segment(word), (s) => s.segment)
+}
+
 function breakParagraph(
   paragraph: string, width: number, size: number, metrics: FontMetrics,
 ): string[] {
@@ -48,12 +68,12 @@ function breakParagraph(
     }
 
     let chunk = ''
-    for (const ch of word) {
-      if (chunk !== '' && metrics.widthOfText(chunk + ch, size) > width) {
+    for (const cluster of graphemeClusters(word)) {
+      if (chunk !== '' && metrics.widthOfText(chunk + cluster, size) > width) {
         lines.push(chunk)
-        chunk = ch
+        chunk = cluster
       } else {
-        chunk += ch
+        chunk += cluster
       }
     }
     current = chunk
@@ -66,7 +86,15 @@ function breakParagraph(
 export function layoutText(input: LayoutInput, metrics: FontMetrics): PositionedLine[] {
   if (input.text === '') return []
 
-  const raw = input.text
+  // Normalize CRLF and lone-CR (classic Mac) line endings to LF before
+  // splitting. Left unnormalized, a trailing '\r' rides along as a literal
+  // character in the returned line text -- and that same string is drawn by
+  // both the overlay and the PDF writer, which can disagree on how a bare
+  // '\r' renders (a browser text node silently drops it; a real embedded
+  // font may measure it or show a .notdef box).
+  const normalized = input.text.replace(/\r\n?/g, '\n')
+
+  const raw = normalized
     .split('\n')
     .flatMap((p) => breakParagraph(p, input.width, input.size, metrics))
 

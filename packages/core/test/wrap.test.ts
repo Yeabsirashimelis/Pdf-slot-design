@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { layoutText } from '../src/layout/wrap.js'
+import { layoutHeight, layoutText } from '../src/layout/wrap.js'
 import type { FontMetrics } from '../src/layout/metrics.js'
 
 /** Every glyph is exactly `size` wide. Makes expected breaks arithmetic. */
@@ -63,4 +63,35 @@ test('right alignment pushes to the far edge', () => {
 
 test('empty text produces no lines', () => {
   expect(layoutText({ ...base, text: '', width: 100 }, fixed)).toEqual([])
+})
+
+test('layoutHeight scales linearly with line count', () => {
+  expect(layoutHeight(3, 10, 1.2)).toBeCloseTo(36, 6)
+})
+
+test('CRLF line endings do not leave a trailing carriage return', () => {
+  const lines = layoutText({ ...base, text: 'a\r\nb', width: 100 }, fixed)
+  expect(lines.map((l) => l.text)).toEqual(['a', 'b'])
+})
+
+test('a lone CR (classic Mac line ending) is also normalized', () => {
+  const lines = layoutText({ ...base, text: 'a\rb', width: 100 }, fixed)
+  expect(lines.map((l) => l.text)).toEqual(['a', 'b'])
+})
+
+test('a hard character break never splits a grapheme cluster', () => {
+  // Built from NFD components (base letter + combining acute), not the
+  // precomposed 'é' literal -- otherwise this wouldn't exercise the bug.
+  const e = 'e' + '\u0301'
+  const word = e.repeat(4) // 4 grapheme clusters, 8 UTF-16 code units
+  // width 30 = 3 fixed-width units. Each cluster is 2 units wide, so a
+  // code-point-at-a-time break (the bug) lands on an odd unit offset and
+  // splits a cluster; a cluster-at-a-time break only ever lands on even
+  // offsets, so exactly one cluster fits per line.
+  const lines = layoutText({ ...base, text: word, width: 30 }, fixed)
+  expect(lines.map((l) => l.text)).toEqual([e, e, e, e])
+  // No line may start with an isolated combining mark.
+  for (const line of lines) {
+    expect(line.text.codePointAt(0)).not.toBe(0x0301)
+  }
 })
