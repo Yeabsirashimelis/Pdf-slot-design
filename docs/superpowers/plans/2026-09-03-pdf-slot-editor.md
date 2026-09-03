@@ -20,6 +20,8 @@
 - **Commits:** Conventional Commits, atomic, authored as `Yeabsirashimelis <shimelisyeabsiragithub@gmail.com>`. **Never add `Co-Authored-By`, `Claude-Session`, or any attribution trailer.**
 - **Bundled fonts are static TTFs only.** Variable fonts embed as their default instance, so Bold would render as Regular.
 - **Do not weaken the invariant.** Preview bytes and download bytes must remain the same array.
+- **Supported scripts are Latin and Cyrillic only.** No bundled face contains CJK, Arabic, Hebrew, Devanagari, Thai or emoji. Text containing an unencodable character must be reported to the user with the offending characters named, and must block export — never silently emit `.notdef` boxes, drop characters, or throw at download time.
+- **The preview re-renders on commit (blur / gesture end), never on a timer.**
 
 ## File Structure
 
@@ -583,6 +585,20 @@ sizes."
   export type MetricsProvider = (fontId: FontId) => FontMetrics
   export const KERNING_APPLIED: boolean   // set from Task 3's finding
   ```
+
+  `FontMetrics` additionally exposes:
+
+  ```ts
+  /** Characters in `text` this face cannot encode, deduped, in first-seen order. */
+  unsupportedCharacters(text: string): string[]
+  ```
+
+  Implement it by asking fontkit for each character's glyph and collecting those
+  that map to glyph id 0 (`.notdef`). This is what lets the editor block export
+  with a useful message instead of `pdf-lib` throwing at download time — see the
+  Global Constraint on supported scripts. Add a test asserting that a Latin
+  string returns `[]` and that a CJK string (e.g. `'日本語'`) returns those three
+  characters.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1921,30 +1937,35 @@ keystroke."
 ### Task 16: Settle pipeline and download
 
 **Files:**
-- Create: `apps/web/src/features/editor/pipeline/useSettleRender.ts`
+- Create: `apps/web/src/features/editor/pipeline/useCommitRender.ts`
 - Modify: `apps/web/src/features/editor/Editor.tsx`, `apps/web/src/features/editor/toolbar/Toolbar.tsx`
 
 **Interfaces:**
 - Consumes: `renderPdf` (Task 9), `loadFontBytes` (Task 12).
 - Produces:
   ```ts
-  export function useSettleRender(doc: EditorDocument | null, slots: Slot[]): {
+  export function useCommitRender(doc: EditorDocument | null, slots: Slot[]): {
     bytes: Uint8Array | null
     isRendering: boolean
+    commit(): void          // called on blur / gesture end
   }
   ```
 
-- [ ] **Step 1: Implement the debounce**
+- [ ] **Step 1: Implement the commit trigger**
 
-200ms after the last change to `slots`, call `renderPdf(doc, slots, fonts)` and store the result. Guard against out-of-order completion with a monotonically increasing request id — discard any result whose id is not the latest, or a slow render will overwrite a newer one.
+Re-render when an edit **commits**, not on a timer: the edited slot loses focus, or a drag/resize gesture ends. Call `renderPdf(doc, slots, fonts)` and store the result.
+
+Do **not** use a time debounce. A timer can fire mid-sentence and swap the canvas under someone who is still typing; commit boundaries are cheaper and predictable. No comparable editor regenerates on a keystroke timer.
+
+Guard against out-of-order completion with a monotonically increasing request id — discard any result whose id is not the latest, or a slow render will overwrite a newer one.
 
 - [ ] **Step 2: Render the returned bytes as the preview**
 
 Feed `bytes` into `PageCanvas` in place of `doc.source` once it exists. This is the moment the preview becomes the real file.
 
-- [ ] **Step 3: Hide overlay text once settled**
+- [ ] **Step 3: Hide overlay text once committed**
 
-When a slot is not being actively edited and `bytes` is current, render only its border and handles — the text visible is the canvas's. Keep DOM text while typing.
+When a slot does not have focus and `bytes` is current, render only its border and handles — the visible text is the canvas's. Keep DOM text only while the slot is focused.
 
 - [ ] **Step 4: Wire download to the same array**
 
@@ -1965,17 +1986,18 @@ Do **not** call `renderPdf` here. Downloading anything other than the array alre
 
 - [ ] **Step 5: Verify the invariant by hand**
 
-Place a slot whose text wraps to three lines. Wait for settle. Download. Open the downloaded file in a separate viewer and compare line breaks and position against the screen. They must match exactly.
+Place a slot whose text wraps to three lines. Click away to commit. Download. Open the downloaded file in a separate viewer and compare line breaks and position against the screen. They must match exactly.
 
 - [ ] **Step 6: Commit and push**
 
 ```bash
 git add apps/web
-git commit -m "feat(web): render the real PDF on settle and download those bytes
+git commit -m "feat(web): render the real PDF on commit and download those bytes
 
-The preview becomes a render of the actual output file 200ms after the
-last edit, and download saves that same array rather than regenerating,
-so preview and download cannot diverge."
+The preview becomes a render of the actual output file when an edit
+commits — on blur or gesture end, never on a timer — and download saves
+that same array rather than regenerating, so preview and download cannot
+diverge."
 git push
 ```
 
