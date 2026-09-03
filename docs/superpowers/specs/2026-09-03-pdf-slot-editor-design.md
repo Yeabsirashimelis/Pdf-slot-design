@@ -82,11 +82,20 @@ identical between the two engines on every kerning-sensitive sample checked
 (§7), so the switch changed nothing about layout. Do not reintroduce
 `@pdf-lib/fontkit`. `fontkit`'s ESM build has no default export; import it as
 `import * as fontkit from 'fontkit'` and pass that namespace object straight
-to `registerFontkit` — its named exports already satisfy `@cantoo/pdf-lib`'s
-structural `Fontkit` interface. `@pdf-lib/fontkit` exists specifically
-because upstream fontkit historically had browser-bundling problems; fontkit
-2 claims browser support, but that's unverified here — proving it inside the
-actual Next.js app is Task 12's job, not assumed by this swap.
+to `registerFontkit`. `fontkit` ships no `.d.ts` of its own — without
+`@types/fontkit` 2.0.9 (a devDependency of `@pdf-slot/core`) that import
+resolves to implicit `any` and `tsc --noEmit` fails with TS7016, which means
+nothing checks the import against `@cantoo/pdf-lib`'s structural `Fontkit`
+interface at all. With `@types/fontkit` installed, `tsc --noEmit` (run via
+`npm run typecheck` from the repo root) passes with no cast needed: its
+`create(buffer: Buffer, ...): Font | FontCollection` genuinely satisfies
+`Fontkit`'s `create(buffer: Uint8Array, ...): Font | FontCollection |
+Promise<...>` (`Buffer` is a `Uint8Array` subclass), so the interface match
+is now compiler-verified, not merely observed at runtime. `@pdf-lib/fontkit`
+exists specifically because upstream fontkit historically had
+browser-bundling problems; fontkit 2 claims browser support, but that's
+unverified here — proving it inside the actual Next.js app is Task 12's job,
+not assumed by this swap.
 
 **Rejected on licence (all AGPL, which would impose copyleft on the whole
 codebase):** MuPDF.js, Stirling-PDF, DocuSeal, OpenSign, and Sejda's own SDK.
