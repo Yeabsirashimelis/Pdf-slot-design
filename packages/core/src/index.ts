@@ -1,3 +1,3 @@
 export const CORE_VERSION = '0.0.0'
 
-export * from './fonts/registry.js'
+export * from './fonts/registry'
