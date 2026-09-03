@@ -49,3 +49,52 @@ test('embedFont with subset:true saves without throwing', async () => {
 
   expect(bytes.byteLength).toBeGreaterThan(0)
 })
+
+/**
+ * Pulls the decoded text of every `stream`...`endstream` block that looks
+ * like a content stream (contains `BT`/`ET`) out of a saved PDF's raw
+ * bytes, inflating it first if it's Flate-compressed. Test-only tooling,
+ * not a general PDF parser: good enough to inspect the handful of
+ * text-showing operators this file checks for.
+ */
+function extractContentStreamText(pdfBytes: Uint8Array): string {
+  const buf = Buffer.from(pdfBytes)
+  const text = buf.toString('latin1')
+  const streamRe = /\d+ 0 obj\s*<<([\s\S]*?)>>\s*stream\r?\n/g
+  const chunks: string[] = []
+
+  for (const match of text.matchAll(streamRe)) {
+    const dict = match[1] ?? ''
+    const start = (match.index ?? 0) + match[0].length
+    const end = text.indexOf('endstream', start)
+    if (end === -1) continue
+    const raw = buf.subarray(start, end)
+    const decoded = (dict.includes('FlateDecode') ? inflateSync(raw) : raw).toString('latin1')
+    if (decoded.includes('BT') && decoded.includes('ET')) chunks.push(decoded)
+  }
+
+  return chunks.join('\n')
+}
+
+test('written content stream shows text with Tj, never a kerning TJ array', async () => {
+  // Pins the *other* half of the kerning finding: not just that
+  // widthOfTextAtSize measures without kerning, but that the PDF pdf-lib
+  // actually writes carries none either. A future pdf-lib/fontkit upgrade
+  // that started emitting `[(A) -80 (V)] TJ`-style kerning arrays would
+  // silently invalidate KERNING_APPLIED = false without this test.
+  const doc = await PDFDocument.create()
+  doc.registerFontkit(fontkit)
+  const font = await doc.embedFont(readFileSync(dir + 'PT_Sans-Web-Regular.ttf'), {
+    subset: true,
+  })
+  const page = doc.addPage([200, 200])
+  page.drawText('AV', { x: 0, y: 100, size: 100, font })
+
+  // Uncompressed object streams; the content stream itself may still be
+  // Flate-compressed, which extractContentStreamText() handles.
+  const bytes = await doc.save({ useObjectStreams: false })
+  const streamText = extractContentStreamText(bytes)
+
+  expect(streamText).toMatch(/\bTj\b/)
+  expect(streamText).not.toMatch(/\bTJ\b/)
+})
