@@ -65,11 +65,28 @@ file.
 | Framework | Next.js (App Router), TypeScript | — |
 | Render PDF pages | `pdfjs-dist` | Apache-2.0 |
 | Write PDFs, build PDF from image | `@cantoo/pdf-lib` | MIT |
-| Font embedding + metrics | `@pdf-lib/fontkit` | MIT |
+| Font embedding + metrics | `fontkit` 2.0.4 | MIT |
 | UI components | shadcn/ui + Tailwind | MIT |
 
 `@cantoo/pdf-lib` is a maintained fork of `pdf-lib`, whose last upstream release
 was 2021. Same API.
+
+`@cantoo/pdf-lib` has no bundled fontkit; it's registered externally via
+`registerFontkit`, and originally `@pdf-lib/fontkit` 1.1.1 filled that role.
+That combination crashes inside `TTFSubset.encode` on `doc.save()` whenever a
+font is embedded with `{ subset: true }` — found while characterizing text
+metrics (§7) and confirmed to reproduce independent of any other save option.
+Subsetting isn't optional (§8), so the project switched to upstream
+`fontkit` 2.0.4, which saves cleanly with `subset: true`. Measured widths are
+identical between the two engines on every kerning-sensitive sample checked
+(§7), so the switch changed nothing about layout. Do not reintroduce
+`@pdf-lib/fontkit`. `fontkit`'s ESM build has no default export; import it as
+`import * as fontkit from 'fontkit'` and pass that namespace object straight
+to `registerFontkit` — its named exports already satisfy `@cantoo/pdf-lib`'s
+structural `Fontkit` interface. `@pdf-lib/fontkit` exists specifically
+because upstream fontkit historically had browser-bundling problems; fontkit
+2 claims browser support, but that's unverified here — proving it inside the
+actual Next.js app is Task 12's job, not assumed by this swap.
 
 **Rejected on licence (all AGPL, which would impose copyleft on the whole
 codebase):** MuPDF.js, Stirling-PDF, DocuSeal, OpenSign, and Sejda's own SDK.
@@ -213,14 +230,17 @@ For PT Sans Regular, `font.widthOfTextAtSize()` on kerning-sensitive pairs
 three decimal places, to the naive sum of each glyph's raw advance width:
 `pdf-lib` does not apply GPOS kerning when measuring. The emitted content
 stream confirms the output agrees — `AV` and `iiiii` are each written as a
-single `Tj` on one glyph-code string (e.g. `<00240039> Tj`), never a `TJ`
+single `Tj` on one glyph-code string (e.g. `<00010002> Tj`), never a `TJ`
 array with numeric offsets, so the PDF carries no kerning adjustments for a
 viewer to apply either. Measurement and output are consistent with each
 other, so `widthOfTextAtSize` is a trustworthy stand-in for the PDF's actual
 advance widths and the layout engine can sum it directly. Because kerning is
 absent from the PDF side, the browser overlay must set `font-kerning: none`
 (`KERNING_APPLIED = false`) so it does not add spacing adjustments the export
-doesn't have.
+doesn't have. This was measured twice, against both fontkit engines the
+project has used (`@pdf-lib/fontkit` 1.1.1, then `fontkit` 2.0.4 — see §3):
+the widths and the operator shape are identical between them, so the finding
+holds regardless of which one backs `registerFontkit`.
 
 Note that even if the overlay and the output diverged slightly, the *download*
 would still match the *committed preview*, because both come from the same
@@ -250,7 +270,11 @@ consumers** — the overlay cannot be rendering a different font from the one in
 the output, because there is only one.
 
 Embedded fonts are always subset into the output, so the file renders
-identically on any machine regardless of what is installed.
+identically on any machine regardless of what is installed. Subsetting each
+face saves roughly 235KB per face over embedding it whole — not optional,
+since the export path re-subsets on every render (Task 9). This is also why
+the project runs on `fontkit` 2.0.4 rather than `@pdf-lib/fontkit`: the
+latter crashes on `subset: true` (§3, §7).
 
 Reusing fonts already embedded in the uploaded PDF was considered and rejected:
 embedded fonts are usually subsetted to the glyphs the document already uses, so

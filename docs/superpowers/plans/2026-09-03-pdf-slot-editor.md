@@ -6,7 +6,7 @@
 
 **Architecture:** A framework-free `@pdf-slot/core` package owns text layout, coordinate math and PDF writing; a Next.js app consumes it. Preview and download are the same `Uint8Array` — the app generates the real PDF on a 200ms settle and renders those exact bytes with `pdf.js`, so parity is structural rather than maintained by hand.
 
-**Tech Stack:** Next.js 16 (App Router), TypeScript, `@cantoo/pdf-lib` 2.9.1, `pdfjs-dist` 6.3.289, `@pdf-lib/fontkit` 1.1.1, Vitest 4, shadcn/ui + Tailwind v4, Geist.
+**Tech Stack:** Next.js 16 (App Router), TypeScript, `@cantoo/pdf-lib` 2.9.1, `pdfjs-dist` 6.3.289, `fontkit` 2.0.4, Vitest 4, shadcn/ui + Tailwind v4, Geist. (Originally `@pdf-lib/fontkit` 1.1.1; that combination crashes on `doc.save()` when a font is embedded with `subset: true` — see Task 3's report. Switched to upstream `fontkit` 2.0.4, which does not have this problem and measures identical widths. Do not reintroduce `@pdf-lib/fontkit`.)
 
 **Spec:** `docs/superpowers/specs/2026-09-03-pdf-slot-editor-design.md`
 
@@ -105,7 +105,7 @@ apps/web/
   "scripts": { "test": "vitest run", "test:watch": "vitest" },
   "dependencies": {
     "@cantoo/pdf-lib": "2.9.1",
-    "@pdf-lib/fontkit": "1.1.1"
+    "fontkit": "^2.0.4"
   },
   "devDependencies": {
     "typescript": "^5",
@@ -326,6 +326,8 @@ variable font cannot be substituted later without failing CI."
 
 This task is a **spike**. Its output is a decision and a characterization test, not production code. The probe script is deleted at the end.
 
+> **Completed; superseded on the fontkit engine.** This task originally ran against `@pdf-lib/fontkit` 1.1.1. A follow-up ruling (R-8) found that engine crashes on `doc.save()` with `{ subset: true }` and switched the project to upstream `fontkit` 2.0.4 — see Task 3's report and the Tech Stack line above. The kerning finding (no GPOS kerning, in measurement or output) was re-verified against `fontkit` 2.0.4 and is unchanged. Code samples below (and in Tasks 5, 9, 10) are updated to `import * as fontkit from 'fontkit'` — that package's ESM build has no default export, so `import fontkit from 'fontkit'` throws; the namespace import's named exports (`create`, notably) satisfy `@cantoo/pdf-lib`'s structural `Fontkit` interface directly.
+
 **Files:**
 - Create: `packages/core/spike/kerning-probe.ts` (deleted in Step 6), `packages/core/test/metrics-characterization.test.ts`
 - Modify: `docs/superpowers/specs/2026-09-03-pdf-slot-editor-design.md` (§7 records the finding)
@@ -342,7 +344,7 @@ This task is a **spike**. Its output is a decision and a characterization test, 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { PDFDocument } from '@cantoo/pdf-lib'
-import fontkit from '@pdf-lib/fontkit'
+import * as fontkit from 'fontkit'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
 const ttf = readFileSync(dir + 'PT_Sans-Web-Regular.ttf')
@@ -410,7 +412,7 @@ Replace the "must be settled empirically" paragraph in §7 of the spec with the 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { PDFDocument } from '@cantoo/pdf-lib'
-import fontkit from '@pdf-lib/fontkit'
+import * as fontkit from 'fontkit'
 import { expect, test } from 'vitest'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
@@ -647,7 +649,7 @@ Expected: FAIL — module not found.
 `packages/core/src/layout/metrics.ts`:
 
 ```ts
-import fontkit from '@pdf-lib/fontkit'
+import * as fontkit from 'fontkit'
 import type { FontId } from '../fonts/registry.js'
 
 /**
@@ -1338,7 +1340,7 @@ Expected: FAIL — module not found.
 
 ```ts
 import { PDFDocument, rgb } from '@cantoo/pdf-lib'
-import fontkit from '@pdf-lib/fontkit'
+import * as fontkit from 'fontkit'
 import type { EditorDocument, Slot } from '../document/types.js'
 import type { FontBytes, FontId } from '../fonts/registry.js'
 import { createFontMetrics } from '../layout/metrics.js'
@@ -1527,7 +1529,7 @@ no laid-out line exceeds its slot width."
 ```bash
 export PATH="/home/abel/.nvm/versions/node/v22.23.2/bin:$PATH"
 npm i geist @pdf-slot/core --workspace=web
-npm i @cantoo/pdf-lib@2.9.1 @pdf-lib/fontkit@1.1.1 pdfjs-dist@6.3.289 --workspace=web
+npm i @cantoo/pdf-lib@2.9.1 fontkit@2.0.4 pdfjs-dist@6.3.289 --workspace=web
 ```
 
 `@pdf-slot/core` resolves through the npm workspace to `packages/core`.
