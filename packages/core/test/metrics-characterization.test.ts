@@ -1,9 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { inflateSync } from 'node:zlib'
 import { PDFDocument } from '@cantoo/pdf-lib'
 // fontkit@2.0.4's ESM build has no default export; its named exports
 // (`create`, notably) satisfy @cantoo/pdf-lib's structural `Fontkit`
-// interface directly via a namespace import. See
+// interface directly via a namespace import. fontkit ships no .d.ts of its
+// own -- @types/fontkit (a devDependency of @pdf-slot/core) is what lets
+// `tsc --noEmit` (npm run typecheck) actually verify that match, instead of
+// silently treating this import as `any`. See
 // packages/core/spike/kerning-probe.ts (deleted; ran under Task 3 and its
 // R-8 follow-up) for how this was determined.
 import * as fontkit from 'fontkit'
