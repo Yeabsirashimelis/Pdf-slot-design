@@ -199,11 +199,20 @@ what upholds the guarantee.
 
 ## 8. Fonts
 
-Five bundled faces, shipped as TTFs and embedded with subsetting on export:
+Five bundled faces, shipped as **static** TTFs and embedded with subsetting on
+export:
 
-- Inter Regular / Bold (sans)
-- Source Serif Regular / Bold (serif)
-- JetBrains Mono (mono)
+- PT Sans Regular / Bold (sans)
+- PT Serif Regular / Bold (serif)
+- IBM Plex Mono Regular (mono)
+
+**Why not Inter / Source Serif / JetBrains Mono**, the obvious first picks:
+Google Fonts now ships all three only as *variable* fonts, and `pdf-lib` embeds
+a variable font's default instance only — it cannot select a weight axis. Bold
+would silently come out regular. PT Sans and PT Serif are a matched superfamily
+still distributed as static TTFs, so each weight is a real file. All are OFL.
+
+The UI's own typeface (Geist) is a separate concern and is never embedded.
 
 Each face is loaded once as an `ArrayBuffer` and used for three things: fontkit
 metrics, `@font-face` for the overlay, and `pdf-lib` embedding. **One file, three
