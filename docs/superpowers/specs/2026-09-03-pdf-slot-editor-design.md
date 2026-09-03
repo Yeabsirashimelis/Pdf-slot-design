@@ -207,18 +207,20 @@ Both consumers draw exactly these lines at exactly these origins. The browser
 never wraps: the overlay renders one absolutely-positioned line per entry, with
 `white-space: pre` so CSS cannot re-break it.
 
-**Kerning must be settled empirically before the engine is written.** `pdf-lib`
-measures custom fonts through fontkit, which applies GPOS kerning, but a PDF
-viewer advances glyphs using the font's `Widths` array. Whether kerning
-survives into the rendered output is a property of the library that must be
-measured, not assumed. Whatever the answer, the browser overlay is configured
-to match it (`font-kerning: none` and `font-variant-ligatures: none` if
-`pdf-lib` drops kerning).
-
-This is the first implementation task, and it is a spike: write text with
-`pdf-lib`, render it back with `pdf.js`, and measure actual glyph positions
-against what `wrap.ts` predicted. The layout engine is built against the
-measured behaviour.
+**Kerning was measured, not assumed** (`packages/core/test/metrics-characterization.test.ts`).
+For PT Sans Regular, `font.widthOfTextAtSize()` on kerning-sensitive pairs
+(`AV`, `To`, `Yo`, `WA`, `r.`, `iiiii`, `Hamburgefonstiv`) is identical, to
+three decimal places, to the naive sum of each glyph's raw advance width:
+`pdf-lib` does not apply GPOS kerning when measuring. The emitted content
+stream confirms the output agrees — `AV` and `iiiii` are each written as a
+single `Tj` on one glyph-code string (e.g. `<00240039> Tj`), never a `TJ`
+array with numeric offsets, so the PDF carries no kerning adjustments for a
+viewer to apply either. Measurement and output are consistent with each
+other, so `widthOfTextAtSize` is a trustworthy stand-in for the PDF's actual
+advance widths and the layout engine can sum it directly. Because kerning is
+absent from the PDF side, the browser overlay must set `font-kerning: none`
+(`KERNING_APPLIED = false`) so it does not add spacing adjustments the export
+doesn't have.
 
 Note that even if the overlay and the output diverged slightly, the *download*
 would still match the *committed preview*, because both come from the same
