@@ -6,7 +6,27 @@
 // packages/core/test/metrics-characterization.test.ts for the measured
 // kerning finding this module encodes.
 import * as fontkit from 'fontkit'
+import type { Font, FontCollection } from 'fontkit'
 import type { FontId } from '../fonts/registry'
+
+// @types/fontkit declares create()'s first parameter as Node's `Buffer`.
+// That's stricter than fontkit's actual contract: fontkit@2.0.4's
+// implementation (node_modules/fontkit/src/base.js) does
+// `new DecodeStream(buffer)`, and `restructure`'s DecodeStream only reads
+// bytes off whatever Uint8Array-like it's given -- it never calls a
+// Buffer-specific method (write/toJSON/equals/compare/...). fontkit also
+// ships separate `node` and browser/`module` entry points specifically so
+// it runs without a real Node `Buffer` global, which this package's callers
+// require: createFontMetrics() below is called from browser-only code
+// (Task 15's SlotLines.tsx, in its render path), where `Buffer` does not
+// exist and Next.js does not polyfill it. This overload tells the compiler
+// the truth -- create() also accepts a plain Uint8Array -- instead of
+// forcing a `Buffer.from()` conversion that would crash there, or an
+// `as any`/`as unknown as Buffer` cast that would silence the checker
+// instead of correcting it.
+declare module 'fontkit' {
+  export function create(buffer: Uint8Array, postscriptName?: string): Font | FontCollection
+}
 
 /**
  * Whether pdf-lib's output honours GPOS kerning. Determined empirically in
@@ -44,14 +64,19 @@ function firstFont(parsed: ParsedFont): Extract<ParsedFont, { unitsPerEm: number
 }
 
 export function createFontMetrics(ttf: Uint8Array): FontMetrics {
-  const font = firstFont(fontkit.create(Buffer.from(ttf)))
+  // No Buffer.from() here: this must run in the browser (see the module
+  // augmentation above), where the Node `Buffer` global does not exist.
+  const font = firstFont(fontkit.create(ttf))
 
   const scale = (units: number, size: number) => (units / font.unitsPerEm) * size
 
   return {
     widthOfText(text, size) {
       if (text.length === 0) return 0
-      const glyphs = font.glyphsForString(text)
+      // KERNING_APPLIED drives which glyph list gets summed, so a future
+      // re-measurement that flips the constant changes behaviour here too
+      // instead of silently going stale.
+      const glyphs = KERNING_APPLIED ? font.layout(text).glyphs : font.glyphsForString(text)
       let units = 0
       for (const glyph of glyphs) units += glyph.advanceWidth
       return scale(units, size)
