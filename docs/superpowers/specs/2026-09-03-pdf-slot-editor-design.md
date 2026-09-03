@@ -37,20 +37,26 @@ answer:
    PDF writer consume that output. Neither the browser nor `pdf-lib` performs
    its own wrapping, so neither can disagree about it.
 
-2. **The committed preview is the real file.** ~200ms after the last edit (or
-   immediately on drag-end), the actual output PDF is generated and *those
-   bytes* are rendered to the canvas with `pdf.js`. Download hands back the
-   same byte array — it does not regenerate.
+2. **The committed preview is the real file.** When an edit *commits* — the
+   slot loses focus, or a drag/resize gesture ends — the actual output PDF is
+   generated and *those bytes* are rendered to the canvas with `pdf.js`.
+   Download hands back the same byte array; it does not regenerate.
+
+   The trigger is **state, not time**. An earlier draft of this design used a
+   200ms debounce; that was wrong. A timer can fire mid-thought and swap the
+   canvas under someone who is still typing. Commit boundaries are both
+   cheaper and more predictable, and no comparable editor regenerates on a
+   keystroke timer.
 
 The guarantee is therefore structural: preview and download are not similar
 artifacts produced by similar code, they are one byte array with two consumers.
 
 ### Where browser-rendered text still appears
 
-Only inside the single slot being actively edited, and only between keystroke
-and settle. Every other slot on the page is showing truth-rendered canvas
-output. Once a slot settles, its DOM text is hidden and only selection handles
-remain, so the user is looking at the real file.
+Only inside the slot that currently has focus. Every other slot on the page is
+showing truth-rendered canvas output. The moment a slot commits, its DOM text
+is hidden and only selection handles remain, so the user is looking at the real
+file.
 
 ## 3. Stack
 
@@ -65,9 +71,31 @@ remain, so the user is looking at the real file.
 `@cantoo/pdf-lib` is a maintained fork of `pdf-lib`, whose last upstream release
 was 2021. Same API.
 
-**Rejected:** MuPDF.js — more capable, but AGPL, which would impose copyleft on
-the whole codebase. PDFium/WASM — permissive but render-oriented, and we need
-to write.
+**Rejected on licence (all AGPL, which would impose copyleft on the whole
+codebase):** MuPDF.js, Stirling-PDF, DocuSeal, OpenSign, and Sejda's own SDK.
+
+**Rejected on capability:**
+
+- **`pdf.js` `AnnotationEditorLayer` / FreeText.** Investigated closely, because
+  a single engine that both renders and writes would dissolve this problem
+  rather than solve it. It does not: its editor renders with CSS
+  `font: 10px sans-serif` while `createNewAppearanceStream` hardcodes `/Helv`
+  with WinAnsiEncoding — the same two-engine split we are avoiding, built in. It
+  also never wraps (`value.split("\n")` only), silently shrinks the font on
+  overflow, exposes only size and colour, and emits no appearance stream at all
+  for non-WinAnsi characters, so they render as tofu outside Firefox.
+- **PDFium/WASM** — permissive, but render-oriented; we need to write.
+
+**Examined and not adopted:** `pdfme` (MIT, built on pdf-lib). Its designer is
+close to this product, but it wraps text twice — fontkit in `pdfRender.ts`, CSS
+`pre-wrap` in `uiRender.ts` — and reconciles the two with empirical correction
+factors, including a browser check inside its layout module. That is precisely
+the failure this design exists to prevent. Its MIT-licensed text helpers remain
+worth borrowing from.
+
+**Confirms this approach:** EmbedPDF (Apache-2.0) renders editable DOM while a
+field is focused and committed content from engine rasters — the same split
+described below, arrived at independently.
 
 **Accepted limitation:** `pdf-lib` can add content to a page but cannot edit
 text already in the document. This matches our scope exactly. Editing existing
@@ -226,6 +254,29 @@ Reusing fonts already embedded in the uploaded PDF was considered and rejected:
 embedded fonts are usually subsetted to the glyphs the document already uses, so
 typing a character the original didn't contain produces a missing glyph.
 
+### Script coverage and unsupported characters
+
+Bundling our own fonts means we also own font fallback — a thing a full engine
+like PDFium would have handled for us. That has to be scoped explicitly rather
+than discovered by a user.
+
+**Supported:** Latin and Cyrillic (PT Sans and PT Serif cover both); Latin for
+IBM Plex Mono.
+
+**Not supported:** CJK, Arabic, Hebrew, Devanagari, Thai, and emoji. No bundled
+face contains those glyphs, and a font subset cannot invent them.
+
+**Required behaviour:** when a slot contains a character the selected face
+cannot encode, the editor must say so — naming the offending characters — and
+must not export. It must never silently emit `.notdef` boxes, drop the
+characters, or throw an unhandled error at download time. `pdf-lib` raises on
+unencodable input during `drawText`, so the check belongs earlier: the layout
+engine already walks every character to measure it, and that is where an
+unsupported glyph is cheapest to detect.
+
+This is the single largest functional gap versus a commercial SDK, and it is a
+deliberate trade for a permissive licence and a client-only runtime.
+
 ## 9. Input normalization
 
 All three inputs converge on a `Document` before the editor sees anything, so
@@ -256,10 +307,10 @@ formats it cannot.
 | **Render** | `pdf.js` draws page *N* to canvas at current zoom × `devicePixelRatio`. |
 | **Place** | Click on the canvas → transform to PDF points → new `Slot`, focused. |
 | **Type / drag** | Overlay updates live. `wrap.ts` recomputes on each change — pure arithmetic over cached metrics, microseconds. |
-| **Settle** | 200ms after last keystroke, or immediately on drag-end: `renderPdf()` produces real bytes; `pdf.js` renders them off-screen; canvas swaps once painted. |
+| **Commit** | On blur, or on drag/resize end: `renderPdf()` produces real bytes; `pdf.js` renders them off-screen; canvas swaps once painted. Never on a timer. |
 | **Download** | Saves the held bytes. No regeneration. |
 
-The settle-swap renders off-screen and swaps only when the new canvas is
+The commit-swap renders off-screen and swaps only when the new canvas is
 painted, so the page never blanks. Combined with the shared layout engine the
 transition should be imperceptible.
 
