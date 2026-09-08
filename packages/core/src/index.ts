@@ -2,6 +2,8 @@ export const CORE_VERSION = '0.0.0'
 
 export * from './document/normalize'
 export * from './document/types'
+export * from './document/page-fit'
+export * from './document/image-to-pdf'
 export * from './fonts/registry'
 export * from './geometry/transform'
 export * from './layout/metrics'
