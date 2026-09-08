@@ -19,7 +19,7 @@ import type { LogicalPoint } from './canvas/coordinates'
 import { useEditorStore } from './state/useEditorStore'
 import { SlotOverlay } from './overlay/SlotOverlay'
 import { useCommitRender } from './pipeline/useCommitRender'
-import { Toolbar } from './toolbar/Toolbar'
+import { Toolbar, clampZoom } from './toolbar/Toolbar'
 
 /** Metrics for every bundled face, built once the font bytes are loaded. */
 function useFontMetrics(): Record<FontId, FontMetrics> | null {
@@ -47,8 +47,13 @@ function useFontMetrics(): Record<FontId, FontMetrics> | null {
   return metrics
 }
 
-export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }) {
-  const [pageIndex] = useState(0)
+export function Editor({ doc }: { doc: EditorDocument }) {
+  // Zoom and the current page are the toolbar's (Task 17) to control now --
+  // Editor owns the state because it also needs it to compute the
+  // viewport/transform for rendering and click handling, but nothing above
+  // Editor cares about either value.
+  const [zoom, setZoom] = useState(1)
+  const [pageIndex, setPageIndex] = useState(0)
   const store = useEditorStore()
   const fontMetrics = useFontMetrics()
   const { bytes, isRendering, renderedSlots, error, commit } = useCommitRender(doc, store.slots)
@@ -82,6 +87,12 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
     setPaintedBytes(null)
   }, [doc.id])
   const isPainted = bytes !== null && paintedBytes === bytes
+
+  // A newly loaded document may have fewer pages than the one being
+  // replaced -- reset to its first page rather than pointing past the end.
+  useEffect(() => {
+    setPageIndex(0)
+  }, [doc.id])
 
   // Per-slot, not a single page-wide flag: `renderPdf` always re-renders
   // every slot on the page, so gating on "is *a* render in flight" would
@@ -119,13 +130,25 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
     store.addSlot(atPdf, pageIndex)
   }
 
-  // Keyboard undo/redo. The toolbar (Task 17) will own visible buttons for
-  // this, but store.undo()/redo() need *some* way to be triggered for the
-  // store to be usable at all in this task's slice -- the conventional
-  // Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z bindings are the minimal, standard way to
-  // do that without building toolbar UI. Ignored while a slot's textarea is
-  // focused, so the input's own native undo (e.g. undoing an IME
-  // composition) isn't fought over.
+  // Measured on demand (a click), not tracked continuously -- avoids
+  // depending on ResizeObserver (unavailable in this project's jsdom test
+  // environment) for a value that only matters at the instant the button
+  // is pressed. `rootRef`'s div is a block-level flex container with no
+  // width of its own, so its clientWidth is the real available layout
+  // width, independent of the canvas's own (possibly zoomed-out) size.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const handleFitWidth = () => {
+    const availableWidth = rootRef.current?.clientWidth ?? 0
+    if (availableWidth <= 0 || !page || page.width <= 0) return
+    setZoom(clampZoom(availableWidth / page.width))
+  }
+
+  // Keyboard undo/redo. Task 17's toolbar brief doesn't call for visible
+  // undo/redo buttons (only font/size/colour/align/delete plus zoom and
+  // page navigation), so these Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z bindings
+  // remain the only way to trigger store.undo()/redo(). Ignored while a
+  // slot's textarea is focused, so the input's own native undo (e.g.
+  // undoing an IME composition) isn't fought over.
   const { undo, redo } = store
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -154,8 +177,26 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
   if (!page) return null
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-start' }}>
-      <Toolbar bytes={bytes} isRendering={isRendering} />
+    <div
+      ref={rootRef}
+      style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-start' }}
+    >
+      <Toolbar
+        doc={doc}
+        bytes={bytes}
+        isRendering={isRendering}
+        slots={store.slots}
+        selectedId={store.selectedId}
+        updateSlot={store.updateSlot}
+        removeSlot={store.removeSlot}
+        onCommit={handleCommit}
+        zoom={zoom}
+        onZoomChange={(next) => setZoom(clampZoom(next))}
+        onFitWidth={handleFitWidth}
+        pageIndex={pageIndex}
+        pageCount={doc.pages.length}
+        onPageChange={setPageIndex}
+      />
       <div style={{ position: 'relative', display: 'inline-block' }}>
         {/*
           Once a commit has produced real output bytes, those bytes -- not

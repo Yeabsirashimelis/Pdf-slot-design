@@ -12,9 +12,13 @@ import type { EditorDocument, Slot } from '@pdf-slot/core'
 
 const renderPdfMock = vi.fn<(doc: EditorDocument, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
 
-vi.mock('@pdf-slot/core', () => ({
-  renderPdf: (...args: Parameters<typeof renderPdfMock>) => renderPdfMock(...args),
-}))
+vi.mock('@pdf-slot/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pdf-slot/core')>()
+  return {
+    ...actual,
+    renderPdf: (...args: Parameters<typeof renderPdfMock>) => renderPdfMock(...args),
+  }
+})
 
 vi.mock('../src/lib/fonts/loadFonts', () => ({
   loadFontBytes: () => Promise.resolve({}),
@@ -88,12 +92,28 @@ describe('commit -> preview -> download pipeline', () => {
     renderPdfMock.mockResolvedValue(output)
 
     function Harness() {
-      const { bytes, isRendering, commit } = useCommitRender(makeDoc(), [makeSlot()])
+      const doc = makeDoc()
+      const { bytes, isRendering, commit } = useCommitRender(doc, [makeSlot()])
       return createElement(
         'div',
         null,
         createElement('button', { onClick: commit, 'data-testid': 'commit-button' }, 'Commit'),
-        createElement(Toolbar, { bytes, isRendering }),
+        createElement(Toolbar, {
+          doc,
+          bytes,
+          isRendering,
+          slots: [],
+          selectedId: null,
+          updateSlot: vi.fn(),
+          removeSlot: vi.fn(),
+          onCommit: vi.fn(),
+          zoom: 1,
+          onZoomChange: vi.fn(),
+          onFitWidth: vi.fn(),
+          pageIndex: 0,
+          pageCount: doc.pages.length,
+          onPageChange: vi.fn(),
+        }),
       )
     }
 
