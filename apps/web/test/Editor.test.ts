@@ -125,6 +125,33 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     vi.restoreAllMocks()
   })
 
+  it('tells the user when the fonts fail to load, instead of only logging', async () => {
+    // Without metrics, Editor renders no SlotOverlay at all: clicking the
+    // page creates slots that are invisible and untypeable. A console.error
+    // is not a signal a user can see.
+    //
+    // Declared FIRST in this file on purpose: loadFontBytes() memoises the
+    // successful fetch in a module-level cache that outlives `cleanup()`,
+    // so a later test could never observe a failing fetch. It resets that
+    // cache on rejection, so the tests below still load fonts normally.
+    const { Editor } = await import('../src/features/editor/Editor')
+    const sonner = await import('sonner')
+    const errorSpy = vi.spyOn(sonner.toast, 'error')
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
+
+    const doc = makeDoc()
+    const { container } = render(createElement(Editor, { doc }))
+
+    await waitFor(() => expect(errorSpy).toHaveBeenCalled())
+    expect(String(errorSpy.mock.calls.at(-1)?.[0])).toMatch(/fonts/i)
+    // And the symptom really is what the message claims: no overlay.
+    expect(container.querySelector('textarea')).toBeNull()
+
+    consoleSpy.mockRestore()
+  })
+
   it('feeds PageCanvas the rendered bytes, not doc.source, once a commit lands', async () => {
     const { Editor } = await import('../src/features/editor/Editor')
 

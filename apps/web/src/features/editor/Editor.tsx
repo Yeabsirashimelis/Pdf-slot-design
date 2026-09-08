@@ -50,7 +50,13 @@ function useFontMetrics(): Record<FontId, FontMetrics> | null {
       const entries = FONT_IDS.map((id) => [id, createFontMetrics(bytes[id])] as const)
       setMetrics(Object.fromEntries(entries) as Record<FontId, FontMetrics>)
     })().catch((err) => {
-      if (!cancelled) console.error('Failed to load editor fonts', err)
+      if (cancelled) return
+      console.error('Failed to load editor fonts', err)
+      // Not just a console line: `metrics` stays null, and Editor renders
+      // no SlotOverlay at all without it -- so clicking the page creates
+      // slots that are invisible and untypeable. Silently, the editor
+      // simply stops working. The user has to be told.
+      toast.error('Could not load the editor fonts. Reload the page to try again.')
     })
     return () => {
       cancelled = true
