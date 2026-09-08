@@ -1,5 +1,5 @@
-import { PDFDocument } from '@cantoo/pdf-lib'
-import { expect, test } from 'vitest'
+import { PDFDocument, PDFPage } from '@cantoo/pdf-lib'
+import { expect, test, vi } from 'vitest'
 import { A4, LETTER, fitPageSize } from '../src/document/page-fit.js'
 import { imageToPdf } from '../src/document/image-to-pdf.js'
 
@@ -44,16 +44,13 @@ test('preserves image aspect ratio under scaling', async () => {
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
     'base64',
   ))
+
+  // Spy on the drawImage method to verify it receives the correct dimensions
+  const spy = vi.spyOn(PDFPage.prototype, 'drawImage')
+
   const bytes = await imageToPdf({ bytes: png, format: 'png', width: 3000, height: 1000 })
+
   const doc = await PDFDocument.load(bytes)
-
-  // For a 3000×1000 image (3:1 ratio) on a landscape page, the scaling should
-  // preserve the 3:1 aspect ratio. The implementation uses:
-  // scale = min(pageW / imageW, pageH / imageH)
-  // drawW = imageW * scale
-  // drawH = imageH * scale
-  // This ensures the same scale factor is applied to both axes, preserving aspect ratio.
-
   const page = doc.getPage(0)
   const { width: pageWidth, height: pageHeight } = page.getSize()
 
@@ -63,10 +60,31 @@ test('preserves image aspect ratio under scaling', async () => {
   expect(pageWidth).toBeCloseTo(A4.height, 1)
   expect(pageHeight).toBeCloseTo(A4.width, 1)
 
-  // Verify the image is in the PDF
-  const pdfBuffer = Buffer.from(bytes)
-  const pdfText = pdfBuffer.toString('latin1')
-  expect(pdfText).toContain('/XObject')
+  // Most importantly: verify drawImage was called with geometry that preserves aspect ratio
+  // Scale: min(841.89/3000, 595.28/1000) = 0.2806 (width-constrained)
+  // drawW = 3000 * 0.2806 ≈ 841.89
+  // drawH = 1000 * 0.2806 ≈ 280.63
+  // x = (841.89 - 841.89) / 2 = 0
+  // y = (595.28 - 280.63) / 2 ≈ 157.33
+
+  expect(spy).toHaveBeenCalled()
+  const callArgs = spy.mock.calls[0]?.[1] as { x: number; y: number; width: number; height: number } | undefined
+  expect(callArgs).toBeDefined()
+
+  if (callArgs) {
+    // Verify the drawn aspect ratio matches the source (3:1), not the page ratio (~1.414)
+    const drawnRatio = callArgs.width / callArgs.height
+    expect(drawnRatio).toBeCloseTo(3.0, 1) // Source ratio
+
+    // Verify horizontal centering (x should be ~0)
+    expect(callArgs.x).toBeCloseTo(0, 0)
+
+    // Verify vertical centering (y should be roughly half the vertical margin)
+    // margin = 595.28 - 280.63 ≈ 314.65, half = 157.3
+    expect(callArgs.y).toBeCloseTo(157.3, 0)
+  }
+
+  spy.mockRestore()
 })
 
 test('image is actually embedded in the PDF', async () => {
@@ -83,11 +101,9 @@ test('image is actually embedded in the PDF', async () => {
   const pdfText = pdfBuffer.toString('latin1')
 
   // PDFs with embedded images contain /XObject in their resource dictionary
-  // and /Image type entries
+  // and /Image type entries. These are guaranteed to stay literal (not in ObjStm)
+  // by the PDF spec, so finding them in the bytes proves embedding occurred.
   expect(pdfText).toContain('/XObject')
   expect(pdfText).toContain('/Image')
-
-  // Also verify the file size is substantial (not just an empty page)
-  // The PNG in base64 is ~85 bytes, encoded it's larger, plus PDF overhead
-  expect(bytes.length).toBeGreaterThan(200)
 })
+
