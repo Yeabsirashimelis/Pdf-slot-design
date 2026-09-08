@@ -10,6 +10,36 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-03-pdf-slot-editor-design.md`
 
+> **[SUPERSEDED — post-ship Critical-defect fix, read before touching font
+> metrics]** This plan's `KERNING_APPLIED` story (Tasks 3, 5, the spec-coverage
+> table, and the risk note) is incomplete and, at Task 5 Step 3's code sample,
+> actively wrong. `pdf-lib` answers two separate questions differently:
+> **kerning (GPOS)** is never applied, but **shaping (GSUB — ligature
+> substitution)** *is*, unconditionally, via `font.layout()`. The plan's
+> `widthOfText` — `KERNING_APPLIED ? font.layout(text).glyphs :
+> font.glyphsForString(text)` — measures with kerning-off using
+> `glyphsForString`, which skips shaping too, so a ligature-forming word
+> (`office`: 5 glyphs, 235.40 wide) measured 240.10 wide against what
+> `pdf-lib` actually drew. That is exactly the class of bug this project
+> exists to prevent, and it shipped as a Critical defect.
+>
+> The corrected story, now the only one in force:
+> - The constant is `PDF_APPLIES_KERNING`, not `KERNING_APPLIED` — renamed
+>   because it governs only the overlay's `font-kerning` CSS, not which
+>   glyphs get measured.
+> - **`widthOfText` always measures via `font.layout(text).glyphs`. The
+>   `glyphsForString` branch is gone — there is no branch.** Kerning is
+>   never in the output regardless; shaping always is.
+> - The overlay must **not** set `font-variant-ligatures: none` — it has to
+>   shape the same way `pdf-lib` does.
+>
+> Authoritative account: spec §7 in the file above. Authoritative
+> implementation: `packages/core/src/layout/metrics.ts`. Every stale
+> reference below is marked `[SUPERSEDED]` inline; this plan is kept as a
+> historical record of how the work was executed and is not rewritten
+> wholesale. **Do not copy the Task 5 Step 3 `widthOfText` code sample below
+> — reproducing it reintroduces the bug.**
+
 ## Global Constraints
 
 - **Node 22 required.** npm 10.8.3 on Node 20.10 silently fails to resolve Next 16's optional peers. Always `export PATH="/home/abel/.nvm/versions/node/v22.23.2/bin:$PATH"` before any npm command.
@@ -334,7 +364,7 @@ This task is a **spike**. Its output is a decision and a characterization test, 
 
 **Interfaces:**
 - Consumes: `FONT_FILES` from Task 2.
-- Produces: a documented answer to "does `pdf-lib`'s measured width match what the PDF actually advances?", plus `KERNING_APPLIED: boolean` exported from `packages/core/src/layout/metrics.ts` in Task 5.
+- Produces: a documented answer to "does `pdf-lib`'s measured width match what the PDF actually advances?", plus `KERNING_APPLIED: boolean` exported from `packages/core/src/layout/metrics.ts` in Task 5. **[SUPERSEDED — see the note near the top of this document: the shipped constant is `PDF_APPLIES_KERNING`, and it governs the overlay's `font-kerning` CSS only, not which glyphs are measured.]**
 
 - [ ] **Step 1: Write the probe**
 
@@ -384,6 +414,14 @@ cd packages/core && npx tsx spike/kerning-probe.ts
 Interpretation:
 - **All deltas are 0** → `pdf-lib` does not apply kerning. The browser overlay must set `font-kerning: none`. `KERNING_APPLIED = false`.
 - **Non-zero deltas on `AV`/`To`/`WA`** → `pdf-lib` measures with kerning. Now determine whether the *output* honours it (Step 3) before concluding.
+
+**[SUPERSEDED]** This interpretation only covers kerning. It does not cover
+GSUB shaping (ligatures), which `pdf-lib` applies unconditionally regardless
+of the kerning finding — every sample word above happens to be ligature-free,
+so the spike's deltas being 0 said nothing about shaping. See the note near
+the top of this document and spec §7 for the corrected, two-question
+account (kerning vs. shaping) and `metrics-pdflib-crosscheck.test.ts` for
+the test that actually pins it.
 
 - [ ] **Step 3: Confirm what the written file actually advances**
 
@@ -587,6 +625,7 @@ sizes."
   export type MetricsProvider = (fontId: FontId) => FontMetrics
   export const KERNING_APPLIED: boolean   // set from Task 3's finding
   ```
+  **[SUPERSEDED — shipped as `PDF_APPLIES_KERNING`; see the note near the top of this document. It is not the only thing `widthOfText` needs to know: shaping (GSUB) is applied unconditionally and is not gated by this constant at all.]**
 
   `FontMetrics` additionally exposes:
 
@@ -646,6 +685,19 @@ Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement**
 
+> **[SUPERSEDED — DO NOT COPY THE `widthOfText` BODY BELOW.]** This code
+> sample is exactly the Critical defect described in the note near the top
+> of this document: gating the measurement path (`glyphsForString` vs.
+> `layout()`) on `KERNING_APPLIED` conflates kerning with shaping. `pdf-lib`
+> applies GSUB shaping (ligatures) unconditionally, so `glyphsForString`
+> (which skips shaping) measured `office` at 240.10 while `pdf-lib` actually
+> drew it at 235.40. The real implementation in
+> `packages/core/src/layout/metrics.ts` always measures with
+> `font.layout(text).glyphs` — there is no conditional branch — and exports
+> `PDF_APPLIES_KERNING`, which controls only the overlay's `font-kerning`
+> CSS. Read that file's doc comment for the corrected account before
+> touching this module.
+
 `packages/core/src/layout/metrics.ts`:
 
 ```ts
@@ -679,6 +731,10 @@ export function createFontMetrics(ttf: Uint8Array): FontMetrics {
   return {
     widthOfText(text, size) {
       if (text.length === 0) return 0
+      // [SUPERSEDED] This ternary is the bug. The shipped implementation
+      // always uses `font.layout(text).glyphs` and has no `glyphsForString`
+      // branch — see the warning above and the note near the top of this
+      // document.
       const glyphs = KERNING_APPLIED
         ? font.layout(text).glyphs
         : font.glyphsForString(text)
@@ -696,6 +752,12 @@ export type MetricsProvider = (fontId: FontId) => FontMetrics
 
 If Task 3 found that kerning *is* honoured, set `KERNING_APPLIED = true` and the `layout()` branch is used instead. Do not guess — use the measured value.
 
+**[SUPERSEDED]** There is no `layout()`/`glyphsForString()` branch to flip in
+the shipped code — `layout()` is always used, unconditionally, because
+shaping is always applied. Only the overlay's `font-kerning` CSS (Task 15)
+is parameterised on the (renamed) constant. See the note near the top of
+this document.
+
 - [ ] **Step 4: Run and confirm pass**
 
 Expected: PASS, 5 tests.
@@ -710,6 +772,11 @@ Kerning behaviour is driven by KERNING_APPLIED, set from the measured
 pdf-lib behaviour rather than assumed, so the overlay and the output
 agree on advance widths."
 ```
+
+**[SUPERSEDED]** This is the plan's proposed commit message, kept as
+written for the historical record — the real commit history (and a later
+fix commit) superseded both the constant name and the measurement logic
+it describes. See the note near the top of this document.
 
 ---
 
@@ -1903,6 +1970,14 @@ Keep `past: Slot[][]`, `present: Slot[]`, `future: Slot[][]`, capped at 50 entri
 
 `white-space: pre` and one span per line are what stop CSS re-wrapping text the engine already broke.
 
+**[SUPERSEDED]** Two problems with the style block above, both from the same
+root cause described in the note near the top of this document: the
+constant is `PDF_APPLIES_KERNING`, not `KERNING_APPLIED`; and
+`fontVariantLigatures: 'none'` is wrong and must be dropped. `pdf-lib`
+applies GSUB shaping (ligatures) unconditionally, so disabling ligatures in
+the browser makes the overlay deliberately disagree with the exported PDF —
+the opposite of this project's invariant. See spec §7.
+
 - [ ] **Step 3: Build the overlay box**
 
 `SlotOverlay.tsx` — a positioned `div` with a 1px border when selected, a drag handle on the body, and a resize handle at the right edge that changes `width` only (height is derived). Use pointer events and `setPointerCapture`. Convert deltas through `toPdfLength`; never accumulate screen pixels into state.
@@ -2111,3 +2186,10 @@ git push
 **Type consistency:** `EditorDocument`, `Slot`, `FontId`, `FontBytes`, `PositionedLine`, `Viewport`, `FontMetrics` are defined once and referenced with the same names throughout. `layoutText` takes `originX`/`originY` in every use. `renderPdf(doc, slots, fonts)` has the same signature in Tasks 9, 10 and 16.
 
 **Known risk:** Task 3 may find that `pdf-lib` honours kerning in output. That flips `KERNING_APPLIED` to `true` and the overlay's `fontKerning` to `'normal'` — both already parameterised, so no restructuring follows.
+
+**[SUPERSEDED]** The risk actually realized was a different one this plan
+didn't anticipate: shaping (GSUB/ligatures), not kerning, was the thing left
+unparameterised and wrongly assumed off. See the note near the top of this
+document, spec §7, and `packages/core/src/layout/metrics.ts` for the fix —
+`PDF_APPLIES_KERNING` replaced `KERNING_APPLIED`, and `widthOfText` now
+always measures via `font.layout()`.
