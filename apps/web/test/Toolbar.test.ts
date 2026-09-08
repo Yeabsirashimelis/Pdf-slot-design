@@ -271,3 +271,21 @@ describe('Toolbar zoom and page navigation', () => {
     expect(onPageChange).toHaveBeenCalledWith(1)
   })
 })
+
+describe('Toolbar start-over control (Task 18)', () => {
+  afterEach(() => cleanup())
+
+  it('omits the control entirely when onStartOver is not provided', () => {
+    render(createElement(Toolbar, baseProps()))
+    expect(screen.queryByTestId('start-over-button')).toBeNull()
+  })
+
+  it('calls onStartOver when clicked', () => {
+    const onStartOver = vi.fn()
+    render(createElement(Toolbar, baseProps({ onStartOver })))
+
+    fireEvent.click(screen.getByTestId('start-over-button'))
+
+    expect(onStartOver).toHaveBeenCalledTimes(1)
+  })
+})

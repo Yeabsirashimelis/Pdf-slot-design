@@ -89,6 +89,12 @@ export type ToolbarProps = {
   pageIndex: number
   pageCount: number
   onPageChange(index: number): void
+  /**
+   * Clears the persisted session (Task 18) and returns to the dropzone.
+   * Optional so every existing Toolbar test that doesn't pass it keeps
+   * rendering exactly as before -- the control itself is simply omitted.
+   */
+  onStartOver?(): void
 }
 
 /**
@@ -113,6 +119,7 @@ export function Toolbar({
   pageIndex,
   pageCount,
   onPageChange,
+  onStartOver,
 }: ToolbarProps) {
   const selected = slots.find((slot) => slot.id === selectedId) ?? null
   const [colorPopoverOpen, setColorPopoverOpen] = useState(false)
@@ -382,6 +389,15 @@ export function Toolbar({
         <Button variant="outline" size="sm" onClick={handleDownload} data-testid="download-button">
           {isRendering ? 'Rendering…' : 'Download'}
         </Button>
+
+        {onStartOver && (
+          <>
+            <Separator orientation="vertical" className="h-6" />
+            <Button variant="outline" size="sm" onClick={onStartOver} data-testid="start-over-button">
+              Start over
+            </Button>
+          </>
+        )}
       </div>
     </TooltipProvider>
   )

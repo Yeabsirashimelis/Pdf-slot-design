@@ -55,8 +55,15 @@ export type EditorStore = {
   canRedo: boolean
 }
 
-export function useEditorStore(): EditorStore {
-  const [history, setHistory] = useState<HistoryState>(() => createHistory())
+/**
+ * `initialSlots` seeds the undo history's `present` on first mount only --
+ * it's how a restored session (Task 18) hands its slots back in without
+ * itself being an undo step. Read once, inside useState's lazy initializer;
+ * later changes to the argument are ignored, same as any other initial-value
+ * prop.
+ */
+export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
+  const [history, setHistory] = useState<HistoryState>(() => createHistory(initialSlots))
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const addSlot = useCallback((atPdf: Point, page: number) => {

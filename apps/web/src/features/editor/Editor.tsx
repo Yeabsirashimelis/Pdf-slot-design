@@ -14,12 +14,18 @@ import {
   type Viewport,
 } from '@pdf-slot/core'
 import { loadFontBytes, registerFontFaces } from '@/lib/fonts/loadFonts'
+import { saveSession } from '@/lib/persistence/indexeddb'
 import { PageCanvas } from './canvas/PageCanvas'
 import type { LogicalPoint } from './canvas/coordinates'
 import { useEditorStore } from './state/useEditorStore'
 import { SlotOverlay } from './overlay/SlotOverlay'
 import { useCommitRender } from './pipeline/useCommitRender'
 import { Toolbar, clampZoom } from './toolbar/Toolbar'
+
+/** Debounce window for persisting to IndexedDB: a drag or a fast typist
+ * produces many state updates a second, and writing on every one of them
+ * would thrash storage for no benefit -- see task-18-brief.md. */
+const SAVE_DEBOUNCE_MS = 1000
 
 /** Metrics for every bundled face, built once the font bytes are loaded. */
 function useFontMetrics(): Record<FontId, FontMetrics> | null {
@@ -47,14 +53,26 @@ function useFontMetrics(): Record<FontId, FontMetrics> | null {
   return metrics
 }
 
-export function Editor({ doc }: { doc: EditorDocument }) {
+export function Editor({
+  doc,
+  initialSlots,
+  onStartOver,
+}: {
+  doc: EditorDocument
+  /** Seeds a restored session's slots (Task 18). Omitted for a fresh upload. */
+  initialSlots?: Slot[]
+  /** Clears the persisted session and returns to the dropzone. Optional so
+   * existing callers/tests that don't restore a session need not pass it --
+   * Toolbar simply omits the control in that case. */
+  onStartOver?(): void
+}) {
   // Zoom and the current page are the toolbar's (Task 17) to control now --
   // Editor owns the state because it also needs it to compute the
   // viewport/transform for rendering and click handling, but nothing above
   // Editor cares about either value.
   const [zoom, setZoom] = useState(1)
   const [pageIndex, setPageIndex] = useState(0)
-  const store = useEditorStore()
+  const store = useEditorStore(initialSlots)
   const fontMetrics = useFontMetrics()
   const { bytes, isRendering, renderedSlots, error, commit } = useCommitRender(doc, store.slots)
 
@@ -68,6 +86,25 @@ export function Editor({ doc }: { doc: EditorDocument }) {
     store.commitEdit()
     commit()
   }
+
+  // Debounced persistence to IndexedDB (Task 18): the document bytes and
+  // the current slots are saved ~1s after they last changed, so a reload
+  // restores the session instead of dropping it. Keyed on `store.slots`
+  // itself (a fresh array/object on every add/update/remove, per
+  // editorHistory.ts) rather than on commit boundaries, so a fast typist or
+  // an in-progress drag reschedules the same debounced write instead of
+  // firing one per keystroke/pointermove. Undo/redo history is deliberately
+  // NOT part of what's saved -- it's a bounded, in-memory-only stack, and
+  // restoring it would multiply the stored size for little benefit.
+  // saveSession itself never throws (see indexeddb.ts): a private-browsing
+  // tab or an exhausted quota degrades to "this session just isn't saved",
+  // not a broken editor.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void saveSession(doc, store.slots)
+    }, SAVE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [doc, store.slots])
 
   // A failed render is surfaced rather than silently dropped -- otherwise
   // the edit that failed to render would just vanish (see isSlotCommitted:
@@ -196,6 +233,7 @@ export function Editor({ doc }: { doc: EditorDocument }) {
         pageIndex={pageIndex}
         pageCount={doc.pages.length}
         onPageChange={setPageIndex}
+        onStartOver={onStartOver}
       />
       <div style={{ position: 'relative', display: 'inline-block' }}>
         {/*
