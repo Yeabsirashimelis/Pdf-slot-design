@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { inflateSync } from 'node:zlib'
 import { PDFDocument } from '@cantoo/pdf-lib'
 import { expect, test } from 'vitest'
 import { renderPdf } from '../src/render/pdf.js'
@@ -9,6 +8,7 @@ import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { createFontMetrics } from '../src/layout/metrics.js'
 import { layoutText } from '../src/layout/wrap.js'
 import type { Slot } from '../src/document/types.js'
+import { extractContentStreamText } from './helpers/content-stream.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
 const fonts = Object.fromEntries(
@@ -31,43 +31,19 @@ async function doc() {
 }
 
 /**
- * Pulls the decoded text of every `stream`...`endstream` block that looks
- * like a content stream (contains `BT`/`ET`) out of a saved PDF's raw
- * bytes, inflating it first if it's Flate-compressed. Local copy of the
- * helper in test/render.test.ts and test/metrics-characterization.test.ts
- * (test-only tooling, not exported from src) -- good enough to check for
- * text-showing operators, not a general PDF parser.
- */
-function extractContentStreamText(pdfBytes: Uint8Array): string {
-  const buf = Buffer.from(pdfBytes)
-  const text = buf.toString('latin1')
-  const streamRe = /\d+ 0 obj\s*<<([\s\S]*?)>>\s*stream\r?\n/g
-  const chunks: string[] = []
-
-  for (const match of text.matchAll(streamRe)) {
-    const dict = match[1] ?? ''
-    const start = (match.index ?? 0) + match[0].length
-    const end = text.indexOf('endstream', start)
-    if (end === -1) continue
-    const raw = buf.subarray(start, end)
-    const decoded = (dict.includes('FlateDecode') ? inflateSync(raw) : raw).toString('latin1')
-    if (decoded.includes('BT') && decoded.includes('ET')) chunks.push(decoded)
-  }
-
-  return chunks.join('\n')
-}
-
-/**
  * Each drawn line opens its own `BT ... ET` block. pdf-lib's drawText()
  * writes an unrotated text matrix as `1 0 0 1 x y Tm` immediately before
- * that line's `Tj`, with `y` the baseline it actually placed the glyphs at.
- * Reading `y` off every such `Tm...Tj` pair, in document order, gives the
- * sequence of baselines the export really drew -- independent of the glyph
- * encoding inside the `Tj` string itself.
+ * that line's `Tj`, with `x, y` the position it actually placed the glyphs
+ * at. Reading `x, y` off every such `Tm...Tj` pair, in document order, gives
+ * the sequence of positions the export really drew -- independent of the
+ * glyph encoding inside the `Tj` string itself.
  */
-function extractDrawnBaselines(streamText: string): number[] {
-  const tmThenTj = /1 0 0 1 [\d.-]+ ([\d.-]+) Tm\s*\n<[0-9A-F]*> Tj/g
-  return Array.from(streamText.matchAll(tmThenTj), (m) => Number(m[1]))
+function extractDrawnPositions(streamText: string): Array<{ x: number; y: number }> {
+  const tmThenTj = /1 0 0 1 ([\d.-]+) ([\d.-]+) Tm\s*\n<[0-9A-F]*> Tj/g
+  return Array.from(streamText.matchAll(tmThenTj), (m) => ({
+    x: Number(m[1]),
+    y: Number(m[2]),
+  }))
 }
 
 test('re-rendering unchanged state reproduces identical bytes', async () => {
@@ -100,11 +76,19 @@ test('every laid-out line fits inside its slot width', async () => {
 test("the exported PDF's line breaks match what the layout engine predicted", async () => {
   // Narrow width + long text forces at least three wrapped lines -- enough
   // to actually exercise re-wrapping, not just a single accidental break.
+  // `align: 'right'` is load-bearing here, not cosmetic: for a right-aligned
+  // slot, layoutText() computes each line's `x` as
+  // `originX + (width - widthOfText(line.text))` -- a direct function of
+  // *what that line's text measures as*. A left-aligned slot's `x` is always
+  // `originX` for every line regardless of content, which would make an x
+  // comparison redundant with the line count below. Right-aligning turns the
+  // drawn x-coordinate into a real fingerprint of which words landed on
+  // which line.
   const slot: Slot = {
     id: 'wrap', page: 0, x: 40, y: 760, width: 160,
     text: 'Acme Construction Company Limited Corporation of America',
     fontId: 'sans', size: 14, color: { r: 0, g: 0, b: 0 },
-    align: 'left', lineHeight: 1.2,
+    align: 'right', lineHeight: 1.2,
   }
 
   const metrics = createFontMetrics(fonts[slot.fontId])
@@ -126,21 +110,30 @@ test("the exported PDF's line breaks match what the layout engine predicted", as
   // readable ASCII, and it subsets the embedded face down to only the
   // glyphs used *per drawText call* -- so there is no exposed mapping back
   // from a hex glyph-code string to the original characters without
-  // reimplementing that subset font's cmap. Two checks that don't require
+  // reimplementing that subset font's cmap. Three checks that don't require
   // decoding glyph codes stand in for "same lines, same order":
   //
   //   1. the number of text-showing operators equals the number of lines
   //      layoutText() predicted -- nothing re-wrapped, dropped, or merged.
-  //   2. the baseline y-coordinate pdf-lib actually wrote for each line, in
-  //      document order, matches the baselineY layoutText() computed for
-  //      that same line, in the same order -- so the correspondence is
-  //      positional, not merely a matching count.
+  //      On its own this is count-only: a re-wrap that redistributes the
+  //      same words across the same number of lines would still pass it.
+  //   2. the x-coordinate pdf-lib actually wrote for each line, in document
+  //      order, matches the x layoutText() computed for that same line. As
+  //      explained above, this is content-dependent for a right-aligned
+  //      slot -- a line ending up with different words measures a different
+  //      width and lands at a different x, so this check *does* catch a
+  //      same-count reflow that (1) alone would miss.
+  //   3. the baseline y-coordinate for each line, in document order, matches
+  //      the baselineY layoutText() computed -- confirming vertical/index
+  //      correspondence (line i drawn at line i's height), independent of
+  //      (2)'s horizontal, content-dependent check.
   const tjCount = (streamText.match(/\bTj\b/g) ?? []).length
   expect(tjCount).toBe(predicted.length)
 
-  const drawnBaselines = extractDrawnBaselines(streamText)
-  expect(drawnBaselines).toHaveLength(predicted.length)
+  const drawnPositions = extractDrawnPositions(streamText)
+  expect(drawnPositions).toHaveLength(predicted.length)
   predicted.forEach((line, i) => {
-    expect(drawnBaselines[i]).toBeCloseTo(line.baselineY, 3)
+    expect(drawnPositions[i]?.x).toBeCloseTo(line.x, 3)
+    expect(drawnPositions[i]?.y).toBeCloseTo(line.baselineY, 3)
   })
 })
