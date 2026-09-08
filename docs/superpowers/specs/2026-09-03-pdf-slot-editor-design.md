@@ -233,23 +233,47 @@ Both consumers draw exactly these lines at exactly these origins. The browser
 never wraps: the overlay renders one absolutely-positioned line per entry, with
 `white-space: pre` so CSS cannot re-break it.
 
-**Kerning was measured, not assumed** (`packages/core/test/metrics-characterization.test.ts`).
-For PT Sans Regular, `font.widthOfTextAtSize()` on kerning-sensitive pairs
-(`AV`, `To`, `Yo`, `WA`, `r.`, `iiiii`, `Hamburgefonstiv`) is identical, to
-three decimal places, to the naive sum of each glyph's raw advance width:
-`pdf-lib` does not apply GPOS kerning when measuring. The emitted content
-stream confirms the output agrees — `AV` and `iiiii` are each written as a
-single `Tj` on one glyph-code string (e.g. `<00010002> Tj`), never a `TJ`
-array with numeric offsets, so the PDF carries no kerning adjustments for a
-viewer to apply either. Measurement and output are consistent with each
-other, so `widthOfTextAtSize` is a trustworthy stand-in for the PDF's actual
-advance widths and the layout engine can sum it directly. Because kerning is
-absent from the PDF side, the browser overlay must set `font-kerning: none`
-(`KERNING_APPLIED = false`) so it does not add spacing adjustments the export
-doesn't have. This was measured twice, against both fontkit engines the
-project has used (`@pdf-lib/fontkit` 1.1.1, then `fontkit` 2.0.4 — see §3):
-the widths and the operator shape are identical between them, so the finding
-holds regardless of which one backs `registerFontkit`.
+**Kerning and shaping are separate questions, and `pdf-lib` answers them
+differently.** Both were measured, not assumed
+(`packages/core/test/metrics-characterization.test.ts` for the operator
+shape, `packages/core/test/metrics-pdflib-crosscheck.test.ts` for the
+widths).
+
+*Kerning (GPOS positioning) is not applied.* For PT Sans Regular,
+`font.widthOfTextAtSize()` on kerning-sensitive pairs (`AV`, `To`, `Yo`,
+`WA`, `r.`, `iiiii`, `Hamburgefonstiv`) is identical, to three decimal
+places, to the sum of each glyph's raw advance width. `pdf-lib` reads
+`layout().glyphs[].advanceWidth` and never `positions[].xAdvance`, which is
+where fontkit puts the kern adjustment. The emitted content stream confirms
+the output agrees — `AV` and `iiiii` are each written as a single `Tj` on one
+glyph-code string (e.g. `<00010002> Tj`), never a `TJ` array with numeric
+offsets, so the PDF carries no kerning adjustments for a viewer to apply
+either. Because kerning is absent from the PDF side, the browser overlay
+must set `font-kerning: none` (`PDF_APPLIES_KERNING = false`) so it does not
+add spacing adjustments the export doesn't have.
+
+*Shaping (GSUB substitution) **is** applied.* `CustomFontEmbedder.encodeText`
+and `widthOfTextAtSize` both go through `font.layout(text)`, which runs the
+default OpenType feature set — `liga` included. PT Sans and PT Serif both
+ship `liga`, so `office` is drawn as five glyphs with an `fi` ligature and is
+genuinely narrower than the per-character sum (235.40 vs 240.10 at size 100).
+The layout engine therefore measures with `font.layout(text).glyphs`, not
+`glyphsForString`, and the overlay must **not** set
+`font-variant-ligatures: none` — the browser has to shape the same way the
+exporter does.
+
+The original characterization drew the right conclusion about kerning and the
+wrong one about shaping, because every sample it used (`AV`, `To`, `WA`,
+`iiiii`, `Hamburgefonstiv`, `Acme Construction Company Ltd`) happens to be
+ligature-free, so the delta was 0.00 every time. The cross-check test now
+asserts `createFontMetrics(...).widthOfText` equals `widthOfTextAtSize`
+directly, over ligature-forming words as well as kerning pairs, for every
+bundled face — the assertion the earlier probe never made.
+
+Kerning was measured twice, against both fontkit engines the project has used
+(`@pdf-lib/fontkit` 1.1.1, then `fontkit` 2.0.4 — see §3): the widths and the
+operator shape are identical between them, so that finding holds regardless
+of which one backs `registerFontkit`.
 
 Note that even if the overlay and the output diverged slightly, the *download*
 would still match the *committed preview*, because both come from the same
@@ -304,10 +328,16 @@ face contains those glyphs, and a font subset cannot invent them.
 **Required behaviour:** when a slot contains a character the selected face
 cannot encode, the editor must say so — naming the offending characters — and
 must not export. It must never silently emit `.notdef` boxes, drop the
-characters, or throw an unhandled error at download time. `pdf-lib` raises on
-unencodable input during `drawText`, so the check belongs earlier: the layout
-engine already walks every character to measure it, and that is where an
-unsupported glyph is cheapest to detect.
+characters, or throw an unhandled error at download time. `pdf-lib` does
+**not** raise on unencodable input: `drawText` maps every unmapped code point
+to glyph 0 and `save()` succeeds, so the file downloads looking fine and
+renders a row of empty boxes. Nothing downstream will catch this for us,
+which is precisely why the check has to be ours and has to run before export:
+the layout engine already walks every character to measure it, and that is
+where an unsupported glyph is cheapest to detect
+(`FontMetrics.unsupportedCharacters`). The editor calls it on every slot at
+commit time, reports the offending characters through a toast, and blocks the
+download button while any slot still contains one.
 
 This is the single largest functional gap versus a commercial SDK, and it is a
 deliberate trade for a permissive licence and a client-only runtime.

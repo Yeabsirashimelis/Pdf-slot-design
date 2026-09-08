@@ -29,16 +29,35 @@ declare module 'fontkit' {
 }
 
 /**
- * Whether pdf-lib's output honours GPOS kerning. Determined empirically in
- * Task 3 (see metrics-characterization.test.ts): the content stream pdf-lib
- * writes uses plain `Tj` glyph-code strings, never a `TJ` array with
- * kerning adjustments, and widthOfTextAtSize() measures without kerning
- * too. The two agree, so we measure the same way here.
+ * Whether pdf-lib's output honours GPOS **kerning** — and nothing else.
  *
- * The overlay's CSS must match this: when false it sets `font-kerning: none`
- * (Task 15) so the browser preview agrees with the exported file.
+ * Kerning and shaping are two distinct things, and pdf-lib treats them
+ * differently. Conflating them is exactly the bug this constant's previous
+ * name (`KERNING_APPLIED`) caused, so the distinction is recorded here:
+ *
+ * - **Kerning (GPOS positioning)** — pdf-lib ignores it. `encodeText` and
+ *   `widthOfTextAtSize` both read `font.layout(text).glyphs[].advanceWidth`
+ *   and never touch `positions[].xAdvance`, which is where fontkit puts the
+ *   kern adjustment. The written content stream confirms it: a plain `Tj`
+ *   on one glyph-code string, never a `TJ` array with numeric offsets (see
+ *   metrics-characterization.test.ts). So `false`, and the overlay must set
+ *   `font-kerning: none` (Task 15) to match.
+ * - **Shaping (GSUB substitution, e.g. `liga`)** — pdf-lib *does* apply it,
+ *   because `font.layout()` runs the default feature set. PT Sans and PT
+ *   Serif both ship `liga`, so `office` draws as `of·fi·ce` with an `fi`
+ *   ligature and is genuinely narrower than the sum of its per-character
+ *   advances. `widthOfText` below therefore measures via `layout()` too,
+ *   and the overlay must NOT set `font-variant-ligatures: none` — doing so
+ *   made the browser deliberately disagree with the exporter.
+ *
+ * This constant governs only the first bullet. Measurement is not
+ * parameterised on it: shaping is always applied, kerning never is, because
+ * that is unconditionally what pdf-lib does — see
+ * metrics-pdflib-crosscheck.test.ts, which asserts width agreement directly
+ * against `widthOfTextAtSize` over ligature-forming and kerning-sensitive
+ * words alike.
  */
-export const KERNING_APPLIED = false
+export const PDF_APPLIES_KERNING = false
 
 export type FontMetrics = {
   widthOfText(text: string, size: number): number
@@ -73,10 +92,13 @@ export function createFontMetrics(ttf: Uint8Array): FontMetrics {
   return {
     widthOfText(text, size) {
       if (text.length === 0) return 0
-      // KERNING_APPLIED drives which glyph list gets summed, so a future
-      // re-measurement that flips the constant changes behaviour here too
-      // instead of silently going stale.
-      const glyphs = KERNING_APPLIED ? font.layout(text).glyphs : font.glyphsForString(text)
+      // `layout()`, not `glyphsForString()`: this must reproduce pdf-lib's
+      // own arithmetic exactly, and pdf-lib measures (widthOfTextAtSize) and
+      // encodes (CustomFontEmbedder.encodeText) through `font.layout(text)`.
+      // That applies GSUB shaping — `office` becomes 5 glyphs, not 6 — while
+      // still excluding GPOS kerning, which lives in `positions[].xAdvance`
+      // and is never read here. See PDF_APPLIES_KERNING's comment above.
+      const glyphs = font.layout(text).glyphs
       let units = 0
       for (const glyph of glyphs) units += glyph.advanceWidth
       return scale(units, size)

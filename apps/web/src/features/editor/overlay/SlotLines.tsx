@@ -1,6 +1,6 @@
 import {
   FONT_CSS_FAMILY,
-  KERNING_APPLIED,
+  PDF_APPLIES_KERNING,
   toScreenLength,
   type FontMetrics,
   type PositionedLine,
@@ -16,11 +16,13 @@ import {
  * never a run of text long enough, or a soft-wrap opportunity present, for
  * the browser to re-break.
  *
- * `fontKerning`/`fontVariantLigatures` are set to match exactly how
- * pdf-lib measures and draws text (see KERNING_APPLIED's doc comment in
- * packages/core): if the browser applied kerning or ligature substitution
- * that the PDF writer doesn't, advance widths would disagree and preview
- * would drift from download.
+ * `fontKerning` is set to match exactly how pdf-lib measures and draws
+ * text (see PDF_APPLIES_KERNING's doc comment in packages/core): pdf-lib
+ * ignores GPOS kerning, so the browser must too, or advance widths would
+ * disagree and preview would drift from download. Ligatures are the
+ * opposite case and are deliberately NOT disabled here: pdf-lib runs
+ * `font.layout()`, which applies GSUB `liga`, so the exported page really
+ * does carry ligature glyphs and the overlay has to show the same ones.
  *
  * `left`/`top` are offsets relative to the slot's own top-left corner
  * (`slot.x`, `slot.y`) -- the caller (SlotOverlay) is expected to render
@@ -49,8 +51,7 @@ export function SlotLines({
             fontFamily: FONT_CSS_FAMILY[slot.fontId],
             fontSize: toScreenLength(slot.size, viewport),
             whiteSpace: 'pre',
-            fontKerning: KERNING_APPLIED ? 'normal' : 'none',
-            fontVariantLigatures: 'none',
+            fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
             color: `rgb(${slot.color.r * 255} ${slot.color.g * 255} ${slot.color.b * 255})`,
           }}
         >

@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
 import {
   FONT_CSS_FAMILY,
-  KERNING_APPLIED,
+  PDF_APPLIES_KERNING,
   layoutHeight,
   layoutText,
   toScreenLength,
@@ -260,9 +260,11 @@ export function SlotOverlay({
         affects glyph advance widths or line spacing is mirrored from
         SlotLines/layoutText's inputs exactly: fontFamily (the same
         `@font-face` bytes, not the page's inherited Geist Sans),
-        fontSize, fontKerning/fontVariantLigatures (must match
-        KERNING_APPLIED for the same reason `layoutText`'s width
-        measurement does -- see packages/core/src/layout/metrics.ts), and
+        fontSize, fontKerning (must match PDF_APPLIES_KERNING for the same
+        reason `layoutText`'s width measurement does -- see
+        packages/core/src/layout/metrics.ts; ligature substitution is
+        deliberately left at its default, because pdf-lib applies GSUB and
+        so must the browser), and
         lineHeight as a unitless multiplier (`slot.lineHeight`), which -- since
         fontSize here is already toScreenLength(slot.size, viewport) --
         yields exactly toScreenLength(slot.size * slot.lineHeight, viewport)
@@ -308,8 +310,7 @@ export function SlotOverlay({
           fontFamily: FONT_CSS_FAMILY[slot.fontId],
           fontSize: toScreenLength(slot.size, viewport),
           lineHeight: slot.lineHeight,
-          fontKerning: KERNING_APPLIED ? 'normal' : 'none',
-          fontVariantLigatures: 'none',
+          fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
           overflow: 'hidden',
           whiteSpace: 'pre-wrap',
         }}

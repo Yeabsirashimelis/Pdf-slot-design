@@ -55,7 +55,10 @@ test('written content stream shows text with Tj, never a kerning TJ array', asyn
   // widthOfTextAtSize measures without kerning, but that the PDF pdf-lib
   // actually writes carries none either. A future pdf-lib/fontkit upgrade
   // that started emitting `[(A) -80 (V)] TJ`-style kerning arrays would
-  // silently invalidate KERNING_APPLIED = false without this test.
+  // silently invalidate PDF_APPLIES_KERNING = false without this test.
+  // Note this pins *kerning* only. Shaping (GSUB) is a separate question
+  // with the opposite answer -- pdf-lib does apply it -- and is pinned by
+  // metrics-pdflib-crosscheck.test.ts instead.
   const doc = await PDFDocument.create()
   doc.registerFontkit(fontkit)
   const font = await doc.embedFont(readFileSync(dir + 'PT_Sans-Web-Regular.ttf'), {
