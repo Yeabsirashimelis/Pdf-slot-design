@@ -83,13 +83,21 @@ function readRecord(db: IDBDatabase): Promise<StoredSession | undefined> {
  * function itself stays a plain, directly-testable write.
  *
  * `doc.source` is copied with `.slice()` before it goes anywhere near
- * IndexedDB. This is deliberate, not defensive paranoia: pdf.js's
- * `getDocument({ data })` transfers (detaches) whatever ArrayBuffer it's
- * handed, and a detached buffer's typed-array view reads back as zero
- * bytes -- silently, with no error, and the write itself would still
- * "succeed". Persisting doc.source (never handed to pdf.js un-sliced, see
- * usePdfDocument.ts) and additionally copying it here means the record
- * this function writes can never be a detached buffer.
+ * IndexedDB. This is defence-in-depth, not the thing actually preventing a
+ * detached-buffer write -- `IDBObjectStore.put()` performs its own
+ * structured clone of its argument at write time (per the IndexedDB spec),
+ * so the record it stores is already an independent copy regardless of
+ * whether this `.slice()` runs. (Confirmed empirically: removing it still
+ * leaves indexeddb.test.ts's round-trip test green -- see task-18-report.md's
+ * fix-round-1 entry. Do not read that test as proof this line is load-bearing.)
+ *
+ * The property that actually matters -- doc.source is never a detached
+ * buffer *at the moment this function reads it* -- comes from upstream: the
+ * only place `EditorDocument.source` is ever handed to something that
+ * transfers/detaches ArrayBuffers is pdf.js's `getDocument({ data })`, and
+ * usePdfDocument.ts already passes that call its own `.slice()` copy, never
+ * `doc.source` itself. This `.slice()` just means saveSession never has to
+ * depend on that invariant holding everywhere, forever.
  */
 export async function saveSession(doc: EditorDocument, slots: Slot[]): Promise<void> {
   try {

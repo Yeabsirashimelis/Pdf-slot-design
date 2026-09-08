@@ -20,6 +20,20 @@ vi.mock('pdfjs-dist', () => ({
   getDocument: (...args: unknown[]) => getDocumentMock(...args),
 }))
 
+// Only the "stays usable when IndexedDB is unavailable" suite below drives a
+// real commit (place text, blur) -- the other two suites in this file never
+// reach renderPdf. Mocked at module scope (rather than per-test) because
+// vi.mock is itself hoisted above every import in the file regardless of
+// where it's written.
+const renderPdfMock = vi.fn<(doc: EditorDocument, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
+vi.mock('@pdf-slot/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pdf-slot/core')>()
+  return {
+    ...actual,
+    renderPdf: (...args: Parameters<typeof renderPdfMock>) => renderPdfMock(...args),
+  }
+})
+
 class FakeFontFace {
   family: string
   source: unknown
@@ -138,5 +152,136 @@ describe('Editor: debounced session persistence', () => {
       const slotDiv = container.querySelector('[data-slot-id="restored-slot"]')
       expect(slotDiv).not.toBeNull()
     })
+  })
+})
+
+/**
+ * Fix round 1 (Important #2): indexeddb.test.ts's "storage unavailable"
+ * suite only proves saveSession/loadSession/clearSession resolve rather
+ * than throw -- that's the persistence module in isolation. It does NOT
+ * prove a rendered Editor stays usable: a user with IndexedDB unavailable
+ * must still be able to place text, see it commit, and download real bytes.
+ * This suite renders the real Editor (canvas click, real textarea, real
+ * blur, real Toolbar download button) with `indexedDB` stubbed `undefined`
+ * end to end.
+ */
+describe('Editor: stays usable when IndexedDB is unavailable', () => {
+  beforeEach(() => {
+    vi.stubGlobal('indexedDB', undefined)
+
+    getDocumentMock.mockReset()
+    getDocumentMock.mockReturnValue({
+      promise: Promise.resolve({
+        getPage: vi.fn(async () => ({
+          getViewport: () => ({ width: 100, height: 100 }),
+          render: () => ({ promise: Promise.resolve(), cancel: vi.fn() }),
+        })),
+      }),
+      destroy: vi.fn(),
+    })
+
+    vi.stubGlobal('FontFace', FakeFontFace)
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { add: vi.fn() },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const file = FONT_FILES.find((f) => url.endsWith(f))
+        if (!file) throw new Error(`unexpected fetch in test: ${url}`)
+        const bytes = readFileSync(path.join(FONT_DIR, file))
+        return { ok: true, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }
+      }),
+    )
+
+    renderPdfMock.mockReset()
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('places text, commits it to the canvas, and downloads real rendered bytes -- storage failing never blocks editing', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    const { Editor } = await import('../src/features/editor/Editor')
+    const sonner = await import('sonner')
+    const warnSpy = vi.spyOn(sonner.toast, 'warning')
+
+    const doc = makeDoc()
+    const renderedOutput = new Uint8Array([42, 42, 42, 42])
+    renderPdfMock.mockResolvedValue(renderedOutput)
+
+    // Download plumbing, mirrored from Toolbar.test.ts: a real Blob/URL
+    // constructor extended (not replaced) so jsdom's <a href> assignment
+    // still works, plus a spy on the anchor's click(). Captured on a plain
+    // object (rather than a re-assigned `let`) so TypeScript's control-flow
+    // analysis doesn't narrow the variable to its initial `null` literal at
+    // the read below -- it can't see that FakeBlob's constructor, invoked
+    // indirectly through fireEvent.click(downloadButton), reassigns it.
+    const captured: { blobParts: unknown[] | null } = { blobParts: null }
+    const anchorClick = vi.fn()
+    class FakeURL extends URL {
+      static createObjectURL = vi.fn(() => 'blob:fake-url')
+      static revokeObjectURL = vi.fn()
+    }
+    vi.stubGlobal('URL', FakeURL)
+    class FakeBlob {
+      parts: unknown[]
+      constructor(parts: unknown[]) {
+        this.parts = parts
+        captured.blobParts = parts
+      }
+    }
+    vi.stubGlobal('Blob', FakeBlob)
+    const originalCreateElement = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = originalCreateElement(tag)
+      if (tag === 'a') el.click = anchorClick
+      return el
+    })
+
+    const { container } = render(createElement(Editor, { doc }))
+
+    const canvas = await waitFor(() => {
+      const el = container.querySelector('canvas')
+      if (!el) throw new Error('canvas not mounted yet')
+      return el
+    })
+    fireEvent.click(canvas, { clientX: 50, clientY: 50 })
+
+    const textarea = await waitFor(() => {
+      const el = container.querySelector('textarea')
+      if (!el) throw new Error('textarea not mounted yet')
+      return el
+    })
+    fireEvent.change(textarea, { target: { value: 'Still works offline-storage' } })
+    fireEvent.blur(textarea)
+
+    // The edit actually committed and rendered -- not merely "didn't throw".
+    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(1))
+    const slotDiv = container.querySelector('[data-slot-id]')
+    expect(slotDiv).not.toBeNull()
+    await waitFor(() => expect(slotDiv?.querySelectorAll('span').length).toBe(0))
+
+    // Download still produces the real rendered bytes.
+    const downloadButton = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
+    expect(downloadButton).not.toBeNull()
+    fireEvent.click(downloadButton)
+
+    expect(captured.blobParts).not.toBeNull()
+    expect((captured.blobParts as unknown[])[0]).toBe(renderedOutput)
+    expect(anchorClick).toHaveBeenCalledTimes(1)
+
+    // The degrade path was genuinely exercised, not silently skipped: the
+    // debounced save (which never fired before this point -- nothing here
+    // advanced its timer yet) hits IndexedDB-unavailable and warns once.
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+
+    vi.useRealTimers()
   })
 })

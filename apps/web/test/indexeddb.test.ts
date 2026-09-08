@@ -68,17 +68,29 @@ describe('IndexedDB session persistence', () => {
     expect(restored?.slots).toEqual(slots)
   })
 
-  it('persists an independent copy of doc.source, immune to the original buffer later being detached', async () => {
+  /**
+   * What this proves: a round trip survives the CALLER's reference being
+   * detached after saveSession has already returned -- e.g. a later, unrelated
+   * getDocument({ data }) call elsewhere in the app transferring the same
+   * buffer. It does NOT prove saveSession's own `.slice()` is what makes
+   * this true, and should not be read that way: IDBObjectStore.put() does
+   * its own structured clone at write time (part of the IndexedDB spec), so
+   * the persisted record is already independent of the caller's buffer
+   * regardless of whether saveSession additionally copies it. Confirmed by
+   * removing that `.slice()` and re-running this exact test: it still
+   * passed -- see indexeddb.ts's saveSession doc comment and
+   * task-18-report.md's fix-round-1 entry for the full explanation of why
+   * the `.slice()` is defence-in-depth, not what this test is checking.
+   */
+  it('round-trips even if the caller detaches its own source buffer after saveSession returns', async () => {
     const { saveSession, loadSession } = await import('../src/lib/persistence/indexeddb')
 
     const source = new Uint8Array([1, 2, 3, 4, 5])
     const doc = makeDoc({ source })
     await saveSession(doc, [makeSlot()])
 
-    // Simulate exactly the failure mode the brief warns about: something
-    // downstream (pdf.js's getDocument({ data })) transfers the ArrayBuffer,
-    // detaching it -- structuredClone's transfer option does the same thing
-    // structured-clone-based transfer does in a browser.
+    // structuredClone's transfer option detaches the buffer exactly like a
+    // real getDocument({ data }) call would.
     structuredClone(source.buffer, { transfer: [source.buffer] })
     expect(source.byteLength).toBe(0)
 
