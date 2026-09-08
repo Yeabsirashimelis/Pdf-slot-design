@@ -71,15 +71,21 @@ export type ToolbarProps = {
   isRendering: boolean
   slots: Slot[]
   selectedId: string | null
-  updateSlot(id: string, patch: Partial<Slot>): void
-  removeSlot(id: string): void
   /**
-   * Closes the current undo boundary and re-renders the real output --
-   * every control that changes a slot property calls this right after
-   * `updateSlot`, so the canvas never shows stale content (see
-   * task-16-brief.md and Editor.tsx's `handleCommit`).
+   * Updates the given slot AND closes the undo boundary AND re-renders the
+   * real output, synchronously, before returning -- see
+   * `pipeline/slotCommands.ts`'s `createSlotCommands` (what Editor.tsx
+   * builds this from). Deliberately not split into a separate "update" +
+   * "commit" pair: Toolbar's own controls have no gap between the two
+   * calls (unlike SlotOverlay's onChange/onCommit, which are separated by
+   * further keystroke/pointermove renders), so composing them here
+   * previously left `commit()` reading one render behind -- see
+   * task-17-report.md's fix-round-1 finding. Collapsing the two into one
+   * call that's implemented with `flushSync` means no future control can
+   * reintroduce that gap by forgetting to flush.
    */
-  onCommit(): void
+  updateSlotAndCommit(id: string, patch: Partial<Slot>): void
+  removeSlotAndCommit(id: string): void
   zoom: number
   onZoomChange(zoom: number): void
   /** Sets zoom so the current page's width fills the available viewport
@@ -110,9 +116,8 @@ export function Toolbar({
   isRendering,
   slots,
   selectedId,
-  updateSlot,
-  removeSlot,
-  onCommit,
+  updateSlotAndCommit,
+  removeSlotAndCommit,
   zoom,
   onZoomChange,
   onFitWidth,
@@ -124,19 +129,16 @@ export function Toolbar({
   const selected = slots.find((slot) => slot.id === selectedId) ?? null
   const [colorPopoverOpen, setColorPopoverOpen] = useState(false)
 
-  /** Every control below funnels its change through this: update the
-   * slot, then commit -- never one without the other (see onCommit's own
-   * doc comment; this is the exact bug class Task 16 fixed). */
+  /** Every control below funnels its change through this -- see
+   * `updateSlotAndCommit`'s doc comment on `ToolbarProps`. */
   const applyPatch = (patch: Partial<Slot>) => {
     if (!selected) return
-    updateSlot(selected.id, patch)
-    onCommit()
+    updateSlotAndCommit(selected.id, patch)
   }
 
   const handleDelete = () => {
     if (!selected) return
-    removeSlot(selected.id)
-    onCommit()
+    removeSlotAndCommit(selected.id)
   }
 
   const handleDownload = () => {

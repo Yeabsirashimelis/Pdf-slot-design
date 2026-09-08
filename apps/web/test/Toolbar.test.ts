@@ -38,9 +38,8 @@ function baseProps(overrides: Partial<ToolbarProps> = {}): ToolbarProps {
     isRendering: false,
     slots: [],
     selectedId: null,
-    updateSlot: vi.fn(),
-    removeSlot: vi.fn(),
-    onCommit: vi.fn(),
+    updateSlotAndCommit: vi.fn(),
+    removeSlotAndCommit: vi.fn(),
     zoom: 1,
     onZoomChange: vi.fn(),
     onFitWidth: vi.fn(),
@@ -134,9 +133,17 @@ describe('Toolbar download', () => {
 
 /**
  * Standing requirement: every control here must actually be wired to
- * updateSlot/removeSlot + a commit, not just change its own local
+ * updateSlotAndCommit/removeSlotAndCommit, not just change its own local
  * appearance. These tests fail if a control is stubbed to a no-op -- see
  * task-17-report.md for the confirmed red-then-green run.
+ *
+ * These are deliberately unit tests with mocked collaborators: they prove
+ * the toolbar *calls* updateSlotAndCommit/removeSlotAndCommit with the
+ * right arguments, which is a real and necessary guarantee, but NOT proof
+ * that a real commit lands the right slots at the right time -- that
+ * timing guarantee (the fix-round-1 finding) is covered separately in
+ * toolbarCommitTiming.test.ts against the real store + real
+ * useCommitRender.
  */
 describe('Toolbar controls act on the selected slot', () => {
   afterEach(() => {
@@ -155,14 +162,13 @@ describe('Toolbar controls act on the selected slot', () => {
     expect((screen.getByTestId('delete-button') as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('changing the font select calls updateSlot with the new fontId and commits', async () => {
-    const updateSlot = vi.fn()
-    const onCommit = vi.fn()
+  it('changing the font select calls updateSlotAndCommit with the new fontId', async () => {
+    const updateSlotAndCommit = vi.fn()
     const slot = makeSlot({ id: 'target-slot', fontId: 'sans' })
     render(
       createElement(
         Toolbar,
-        baseProps({ slots: [slot], selectedId: slot.id, updateSlot, onCommit }),
+        baseProps({ slots: [slot], selectedId: slot.id, updateSlotAndCommit }),
       ),
     )
 
@@ -171,60 +177,77 @@ describe('Toolbar controls act on the selected slot', () => {
     fireEvent.pointerDown(option)
     fireEvent.click(option)
 
-    await waitFor(() => expect(updateSlot).toHaveBeenCalledWith('target-slot', { fontId: 'serif' }))
-    expect(onCommit).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(updateSlotAndCommit).toHaveBeenCalledWith('target-slot', { fontId: 'serif' }),
+    )
   })
 
-  it('clicking an alignment option calls updateSlot with the new align and commits', () => {
-    const updateSlot = vi.fn()
-    const onCommit = vi.fn()
+  it('changing the size select calls updateSlotAndCommit with the new size', async () => {
+    const updateSlotAndCommit = vi.fn()
+    const slot = makeSlot({ id: 'target-slot', size: 14 })
+    render(
+      createElement(
+        Toolbar,
+        baseProps({ slots: [slot], selectedId: slot.id, updateSlotAndCommit }),
+      ),
+    )
+
+    fireEvent.click(screen.getByTestId('size-select-trigger'))
+    const option = await waitFor(() => screen.getByTestId('size-option-24'))
+    fireEvent.pointerDown(option)
+    fireEvent.click(option)
+
+    await waitFor(() =>
+      expect(updateSlotAndCommit).toHaveBeenCalledWith('target-slot', { size: 24 }),
+    )
+  })
+
+  it('clicking an alignment option calls updateSlotAndCommit with the new align', () => {
+    const updateSlotAndCommit = vi.fn()
     const slot = makeSlot({ id: 'target-slot', align: 'left' })
     render(
       createElement(
         Toolbar,
-        baseProps({ slots: [slot], selectedId: slot.id, updateSlot, onCommit }),
+        baseProps({ slots: [slot], selectedId: slot.id, updateSlotAndCommit }),
       ),
     )
 
     fireEvent.click(screen.getByTestId('align-center'))
 
-    expect(updateSlot).toHaveBeenCalledWith('target-slot', { align: 'center' })
-    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(updateSlotAndCommit).toHaveBeenCalledWith('target-slot', { align: 'center' })
   })
 
-  it('clicking delete calls removeSlot with the selected id and commits', () => {
-    const removeSlot = vi.fn()
-    const onCommit = vi.fn()
+  it('clicking delete calls removeSlotAndCommit with the selected id', () => {
+    const removeSlotAndCommit = vi.fn()
     const slot = makeSlot({ id: 'target-slot' })
     render(
       createElement(
         Toolbar,
-        baseProps({ slots: [slot], selectedId: slot.id, removeSlot, onCommit }),
+        baseProps({ slots: [slot], selectedId: slot.id, removeSlotAndCommit }),
       ),
     )
 
     fireEvent.click(screen.getByTestId('delete-button'))
 
-    expect(removeSlot).toHaveBeenCalledWith('target-slot')
-    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(removeSlotAndCommit).toHaveBeenCalledWith('target-slot')
   })
 
-  it('choosing a colour swatch calls updateSlot with that RGB and commits', () => {
-    const updateSlot = vi.fn()
-    const onCommit = vi.fn()
+  it('choosing a colour swatch calls updateSlotAndCommit with that RGB', () => {
+    const updateSlotAndCommit = vi.fn()
     const slot = makeSlot({ id: 'target-slot', color: { r: 0, g: 0, b: 0 } })
     render(
       createElement(
         Toolbar,
-        baseProps({ slots: [slot], selectedId: slot.id, updateSlot, onCommit }),
+        baseProps({ slots: [slot], selectedId: slot.id, updateSlotAndCommit }),
       ),
     )
 
     fireEvent.click(screen.getByTestId('color-trigger'))
     fireEvent.click(screen.getByTestId('color-swatch-blue'))
 
-    expect(updateSlot).toHaveBeenCalledWith('target-slot', { color: { r: 37, g: 99, b: 235 } })
-    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(updateSlotAndCommit).toHaveBeenCalledWith('target-slot', {
+      color: { r: 37, g: 99, b: 235 },
+    })
   })
 })
 

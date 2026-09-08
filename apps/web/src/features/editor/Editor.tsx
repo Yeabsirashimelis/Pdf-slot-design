@@ -20,6 +20,7 @@ import type { LogicalPoint } from './canvas/coordinates'
 import { useEditorStore } from './state/useEditorStore'
 import { SlotOverlay } from './overlay/SlotOverlay'
 import { useCommitRender } from './pipeline/useCommitRender'
+import { createSlotCommands } from './pipeline/slotCommands'
 import { Toolbar, clampZoom } from './toolbar/Toolbar'
 
 /** Debounce window for persisting to IndexedDB: a drag or a fast typist
@@ -86,6 +87,17 @@ export function Editor({
     store.commitEdit()
     commit()
   }
+
+  // Toolbar's controls (Task 17) change a slot and commit in the very same
+  // click handler, with no render in between -- unlike SlotOverlay's
+  // onChange/onCommit, which are always separated by further
+  // keystroke/pointermove renders that naturally refresh
+  // useCommitRender's own ref before onCommit fires. Pulled out into
+  // slotCommands.ts (see its doc comment for the full explanation of why
+  // this needs flushSync) so the exact same logic is directly testable
+  // against a real store + real useCommitRender, without mounting the rest
+  // of Editor.
+  const { updateSlotAndCommit, removeSlotAndCommit } = createSlotCommands(store, handleCommit)
 
   // Debounced persistence to IndexedDB (Task 18): the document bytes and
   // the current slots are saved ~1s after they last changed, so a reload
@@ -224,9 +236,8 @@ export function Editor({
         isRendering={isRendering}
         slots={store.slots}
         selectedId={store.selectedId}
-        updateSlot={store.updateSlot}
-        removeSlot={store.removeSlot}
-        onCommit={handleCommit}
+        updateSlotAndCommit={updateSlotAndCommit}
+        removeSlotAndCommit={removeSlotAndCommit}
         zoom={zoom}
         onZoomChange={(next) => setZoom(clampZoom(next))}
         onFitWidth={handleFitWidth}
