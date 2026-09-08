@@ -38,6 +38,22 @@ export function useCommitRender(
    */
   error: Error | null
   commit(): void
+  /**
+   * Resolves once no render is in flight, with the bytes of the render that
+   * just landed (or `null` if none was in flight, or it failed, or it was
+   * superseded and the newer one is what the caller should read from
+   * `bytes`).
+   *
+   * This exists for the download path, and it closes a race that loses the
+   * user's work outright. Pressing Download blurs whatever textarea was
+   * focused, and blur *is* the commit boundary -- so mousedown fires
+   * `commit()`, `renderPdf` starts, and the click that follows a few
+   * milliseconds later reads a `bytes` that has not caught up yet. On a
+   * first edit that value is still `null`, so the download fell back to
+   * `doc.source` and saved the *unedited* file. Awaiting here means the
+   * click waits for the render its own mousedown started.
+   */
+  flush(): Promise<Uint8Array | null>
 } {
   const [bytes, setBytes] = useState<Uint8Array | null>(null)
   const [isRendering, setIsRendering] = useState(false)
@@ -71,6 +87,14 @@ export function useCommitRender(
   // newer one and silently desync the preview from what a download would
   // produce.
   const latestRequestId = useRef(0)
+
+  // The currently in-flight render, or null. Written only from `commit()`
+  // and from that render's own completion -- never during render, which
+  // eslint-plugin-react-hooks's `refs` rule forbids. It deliberately holds
+  // a promise that RESOLVES on failure (to `null`) rather than rejecting,
+  // so a caller awaiting it never has to catch: `commit()`'s own catch
+  // branch is still the single place a render failure is reported.
+  const inFlight = useRef<Promise<Uint8Array | null> | null>(null)
 
   // A newly loaded document invalidates the committed output that
   // belonged to the previous one. Adjusted synchronously during render --
@@ -117,16 +141,17 @@ export function useCommitRender(
     const isStale = () =>
       latestRequestId.current !== requestId || docRef.current?.id !== currentDoc.id
 
-    void (async () => {
+    const pending: Promise<Uint8Array | null> = (async () => {
       try {
         const fonts = await loadFontBytes()
         const result = await renderPdf(currentDoc, currentSlots, fonts)
-        if (isStale()) return
+        if (isStale()) return null
         setBytes(result)
         setRenderedSlots(currentSlots)
         setIsRendering(false)
+        return result
       } catch (err) {
-        if (isStale()) return
+        if (isStale()) return null
         setIsRendering(false)
         // Deliberately does NOT touch bytes/renderedSlots: the previous
         // successful render (if any) stays the one that's painted and
@@ -134,9 +159,36 @@ export function useCommitRender(
         // visible (see Editor.tsx's isSlotCommitted) instead of vanishing.
         setError(err instanceof Error ? err : new Error(String(err)))
         console.error('Failed to render PDF', err)
+        return null
       }
     })()
+
+    // Assigned after the IIFE is constructed but before any of its
+    // continuations can run (the first `await` inside it yields at least a
+    // microtask), so `flush()` can never observe a gap where a render is
+    // running with nothing recorded here.
+    inFlight.current = pending
+    void pending.then(() => {
+      if (inFlight.current === pending) inFlight.current = null
+    })
   }, [])
 
-  return { bytes, isRendering, renderedSlots, error, commit }
+  const flush = useCallback(async (): Promise<Uint8Array | null> => {
+    // Loops rather than awaiting once: a commit that lands while we're
+    // waiting replaces `inFlight.current`, and the newer render is the one
+    // whose bytes the caller must have. Terminates because each iteration
+    // awaits a promise that is already running and `commit()` is only
+    // called from user interactions, which cannot fire while this
+    // microtask chain is draining.
+    let result: Uint8Array | null = null
+    while (inFlight.current) {
+      const pending = inFlight.current
+      const bytes = await pending
+      if (bytes !== null) result = bytes
+      if (inFlight.current === pending) break
+    }
+    return result
+  }, [])
+
+  return { bytes, isRendering, renderedSlots, error, commit, flush }
 }

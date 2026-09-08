@@ -103,7 +103,7 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
       useEffect(() => {
         select(slot.id)
       }, [select])
-      const { bytes, isRendering, commit } = useCommitRender(doc, store.slots)
+      const { bytes, isRendering, commit, flush } = useCommitRender(doc, store.slots)
       const handleCommit = () => {
         store.commitEdit()
         commit()
@@ -113,6 +113,8 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
         doc,
         bytes,
         isRendering,
+        flush,
+        downloadBlockedReason: null,
         slots: store.slots,
         selectedId: store.selectedId,
         updateSlotAndCommit,
@@ -163,7 +165,7 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
       useEffect(() => {
         select(slot.id)
       }, [select])
-      const { bytes, isRendering, commit } = useCommitRender(doc, store.slots)
+      const { bytes, isRendering, commit, flush } = useCommitRender(doc, store.slots)
       const handleCommit = () => {
         store.commitEdit()
         commit()
@@ -173,6 +175,8 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
         doc,
         bytes,
         isRendering,
+        flush,
+        downloadBlockedReason: null,
         slots: store.slots,
         selectedId: store.selectedId,
         updateSlotAndCommit,

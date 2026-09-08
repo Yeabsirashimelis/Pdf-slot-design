@@ -128,6 +128,67 @@ describe('Editor: debounced session persistence', () => {
     vi.useRealTimers()
   })
 
+  it('flushes the pending write on unmount instead of dropping it', async () => {
+    // The debounce effect's cleanup cancels the timer, and cleanup also
+    // runs on unmount -- so without an explicit flush, closing the tab (or
+    // any unmount) silently discarded up to a second of edits, in the
+    // feature whose entire purpose is not losing them.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const { Editor } = await import('../src/features/editor/Editor')
+    const { loadSession } = await import('../src/lib/persistence/indexeddb')
+
+    const doc = makeDoc()
+    const { container, unmount } = render(createElement(Editor, { doc }))
+
+    const canvas = await waitFor(() => {
+      const el = container.querySelector('canvas')
+      if (!el) throw new Error('canvas not mounted yet')
+      return el
+    })
+    fireEvent.click(canvas, { clientX: 50, clientY: 50 })
+
+    // Well inside the debounce window: nothing has been written yet.
+    await vi.advanceTimersByTimeAsync(200)
+    expect(await loadSession()).toBeNull()
+
+    unmount()
+
+    await waitFor(async () => {
+      const restored = await loadSession()
+      expect(restored?.slots.length).toBe(1)
+    })
+
+    vi.useRealTimers()
+  })
+
+  it('flushes the pending write on beforeunload', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const { Editor } = await import('../src/features/editor/Editor')
+    const { loadSession } = await import('../src/lib/persistence/indexeddb')
+
+    const doc = makeDoc()
+    const { container } = render(createElement(Editor, { doc }))
+
+    const canvas = await waitFor(() => {
+      const el = container.querySelector('canvas')
+      if (!el) throw new Error('canvas not mounted yet')
+      return el
+    })
+    fireEvent.click(canvas, { clientX: 50, clientY: 50 })
+
+    await vi.advanceTimersByTimeAsync(200)
+    expect(await loadSession()).toBeNull()
+
+    window.dispatchEvent(new Event('beforeunload'))
+
+    await waitFor(async () => {
+      const restored = await loadSession()
+      expect(restored?.slots.length).toBe(1)
+    })
+
+    vi.useRealTimers()
+  })
+
   it('restores a session on mount via initialSlots -- the restored slot renders without re-clicking the canvas', async () => {
     const { Editor } = await import('../src/features/editor/Editor')
 
@@ -271,6 +332,9 @@ describe('Editor: stays usable when IndexedDB is unavailable', () => {
     const downloadButton = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
     expect(downloadButton).not.toBeNull()
     fireEvent.click(downloadButton)
+    // Download awaits any in-flight render before building the Blob (see
+    // Toolbar's `flush` prop), so the Blob exists a microtask later.
+    await waitFor(() => expect(captured.blobParts).not.toBeNull())
 
     expect(captured.blobParts).not.toBeNull()
     expect((captured.blobParts as unknown[])[0]).toBe(renderedOutput)

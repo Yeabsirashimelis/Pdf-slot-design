@@ -36,6 +36,11 @@ function baseProps(overrides: Partial<ToolbarProps> = {}): ToolbarProps {
     doc,
     bytes: null,
     isRendering: false,
+    // Nothing in flight by default. The download path awaits this, so every
+    // download assertion below has to await a microtask before the Blob
+    // exists -- see the `flush` doc comment on ToolbarProps.
+    flush: vi.fn(async () => null),
+    downloadBlockedReason: null,
     slots: [],
     selectedId: null,
     updateSlotAndCommit: vi.fn(),
@@ -103,11 +108,12 @@ describe('Toolbar download', () => {
     vi.restoreAllMocks()
   })
 
-  it('saves exactly the array it was given -- the same reference, not a copy or a re-derivation', () => {
+  it('saves exactly the array it was given -- the same reference, not a copy or a re-derivation', async () => {
     const bytes = new Uint8Array([5, 6, 7])
     render(createElement(Toolbar, baseProps({ bytes })))
 
     fireEvent.click(screen.getByTestId('download-button'))
+    await waitFor(() => expect(capturedBlobParts).not.toBeNull())
 
     expect(capturedBlobParts).not.toBeNull()
     expect((capturedBlobParts as unknown[])[0]).toBe(bytes)
@@ -116,7 +122,7 @@ describe('Toolbar download', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url')
   })
 
-  it('falls back to doc.source when nothing has been committed yet -- an unedited upload is still a legitimate download', () => {
+  it('falls back to doc.source when nothing has been committed yet -- an unedited upload is still a legitimate download', async () => {
     const doc = makeDoc({ source: new Uint8Array([9, 9, 9]) })
     render(createElement(Toolbar, baseProps({ doc, bytes: null })))
 
@@ -124,6 +130,7 @@ describe('Toolbar download', () => {
     expect(button.disabled).toBe(false)
 
     fireEvent.click(button)
+    await waitFor(() => expect(capturedBlobParts).not.toBeNull())
 
     expect(capturedBlobParts).not.toBeNull()
     expect((capturedBlobParts as unknown[])[0]).toBe(doc.source)
@@ -264,6 +271,29 @@ describe('Toolbar controls act on the selected slot', () => {
     expect(updateSlotAndCommit).toHaveBeenCalledWith('target-slot', {
       color: { r: 37 / 255, g: 99 / 255, b: 235 / 255 },
     })
+  })
+})
+
+describe('Toolbar export gate', () => {
+  it('disables Download and explains why when a reason is given', () => {
+    render(
+      createElement(
+        Toolbar,
+        baseProps({ downloadBlockedReason: 'The selected font can\'t draw “日”.' }),
+      ),
+    )
+
+    expect((screen.getByTestId('download-button') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('does not build a Blob at all while blocked', async () => {
+    const flush = vi.fn(async () => null)
+    render(createElement(Toolbar, baseProps({ downloadBlockedReason: 'nope', flush })))
+
+    fireEvent.click(screen.getByTestId('download-button'))
+    await Promise.resolve()
+
+    expect(flush).not.toHaveBeenCalled()
   })
 })
 

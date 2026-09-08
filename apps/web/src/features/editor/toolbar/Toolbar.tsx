@@ -77,6 +77,23 @@ export type ToolbarProps = {
   /** The real, already-rendered output PDF, if a commit has happened yet. */
   bytes: Uint8Array | null
   isRendering: boolean
+  /**
+   * Settles any render already in flight and yields its bytes, so Download
+   * cannot save a stale file. Pressing Download blurs the focused textarea,
+   * and blur *is* the commit boundary: the mousedown starts `renderPdf`,
+   * and the click that follows would otherwise read a `bytes` prop that has
+   * not caught up -- `null` on a first edit, which fell through to
+   * `doc.source` and saved the document without the user's text in it. See
+   * `pipeline/useCommitRender.ts`'s `flush`.
+   */
+  flush(): Promise<Uint8Array | null>
+  /**
+   * When non-null, Download is disabled and this explains why. Spec §8's
+   * export gate: a slot containing characters no bundled face can encode
+   * must not be exported as `.notdef` boxes. Editor owns the check (it owns
+   * the font metrics); Toolbar only refuses to hand out the file.
+   */
+  downloadBlockedReason: string | null
   slots: Slot[]
   selectedId: string | null
   /**
@@ -122,6 +139,8 @@ export function Toolbar({
   doc,
   bytes,
   isRendering,
+  flush,
+  downloadBlockedReason,
   slots,
   selectedId,
   updateSlotAndCommit,
@@ -149,13 +168,21 @@ export function Toolbar({
     removeSlotAndCommit(selected.id)
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
+    if (downloadBlockedReason) return
+    // Wait for whatever this very click's own mousedown set going: blurring
+    // the focused textarea is the commit boundary, so a render is typically
+    // already in flight by the time the click lands, and `bytes` below is
+    // one render behind it. `flush()` resolves to those fresher bytes, or
+    // to null when nothing was in flight.
+    const rendered = await flush()
     // Falls back to the unedited source: a user who uploads and
     // immediately downloads without editing anything still gets a file,
     // rather than a dead button (see task-17-brief.md's deferred-item
-    // fix). Once a commit has happened, `bytes` is the real output and
-    // takes priority -- never re-derived, exactly like Task 16 required.
-    const data = bytes ?? doc.source
+    // fix). Otherwise the real output wins -- never re-derived, exactly
+    // like Task 16 required; `flush()` returns bytes an already-running
+    // `renderPdf` produced, it never starts one.
+    const data = rendered ?? bytes ?? doc.source
     const blob = new Blob([data as Uint8Array<ArrayBuffer>], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -396,9 +423,24 @@ export function Toolbar({
 
         <Separator orientation="vertical" className="h-6" />
 
-        <Button variant="outline" size="sm" onClick={handleDownload} data-testid="download-button">
-          {isRendering ? 'Rendering…' : 'Download'}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={downloadBlockedReason !== null}
+                onClick={() => {
+                  void handleDownload()
+                }}
+                data-testid="download-button"
+              >
+                {isRendering ? 'Rendering…' : 'Download'}
+              </Button>
+            }
+          />
+          <TooltipContent>{downloadBlockedReason ?? 'Download the edited PDF'}</TooltipContent>
+        </Tooltip>
 
         {onStartOver && (
           <>
