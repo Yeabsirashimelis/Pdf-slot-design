@@ -75,6 +75,13 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
     vi.restoreAllMocks()
   })
 
+  // Explicit 20s timeout (third arg below), not because this test does
+  // anything slow -- there's no canvas, pdf.js, or font loading here, see
+  // the suite-level comment above -- but a real base-ui Select's
+  // open-then-pick interaction in jsdom was observed to occasionally take
+  // longer than vitest's 5s default under a loaded machine, and this test
+  // exists to catch a real timing bug, not to be flaky about test-runner
+  // scheduling.
   it('changing the font via the toolbar renders the NEW fontId, not the pre-edit one', async () => {
     const { useEditorStore } = await import('../src/features/editor/state/useEditorStore')
     const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
@@ -139,7 +146,7 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
     // commit() read useCommitRender's ref one render behind the click that
     // changed it.
     expect(renderedSlots[0].fontId).toBe('mono')
-  })
+  }, 20000)
 
   it('deleting the selected slot via the toolbar never lets its text reappear from a stale render', async () => {
     const { useEditorStore } = await import('../src/features/editor/state/useEditorStore')
@@ -194,5 +201,5 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
     // included -- once that in-flight render resolves it overwrites
     // `bytes` with a PDF that still contains the "deleted" text.
     expect(renderedSlots).toHaveLength(0)
-  })
+  }, 20000)
 })
