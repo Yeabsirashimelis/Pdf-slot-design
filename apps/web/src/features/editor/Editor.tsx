@@ -132,16 +132,24 @@ export function Editor({
   // drawing that page) are two separate async stages, so `bytes` having
   // changed is not by itself proof the canvas shows it yet.
   const [paintedBytes, setPaintedBytes] = useState<Uint8Array | null>(null)
-  useEffect(() => {
-    setPaintedBytes(null)
-  }, [doc.id])
   const isPainted = bytes !== null && paintedBytes === bytes
 
-  // A newly loaded document may have fewer pages than the one being
-  // replaced -- reset to its first page rather than pointing past the end.
-  useEffect(() => {
+  // A new document invalidates both of these: `paintedBytes` belonged to
+  // the old doc's canvas, and a newly loaded document may have fewer pages
+  // than the one being replaced (pageIndex must not point past its end).
+  // Adjusted synchronously during render -- comparing to the doc id this
+  // render last reset for and resetting in the same pass -- rather than in
+  // an effect (React's documented pattern for resetting state when a prop
+  // changes: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
+  // This avoids both the eslint-plugin-react-hooks `set-state-in-effect`
+  // warning and an extra render cycle where stale paintedBytes/pageIndex
+  // would briefly still be visible after the doc swap.
+  const [resetForDocId, setResetForDocId] = useState(doc.id)
+  if (doc.id !== resetForDocId) {
+    setResetForDocId(doc.id)
+    setPaintedBytes(null)
     setPageIndex(0)
-  }, [doc.id])
+  }
 
   // Per-slot, not a single page-wide flag: `renderPdf` always re-renders
   // every slot on the page, so gating on "is *a* render in flight" would
@@ -162,8 +170,13 @@ export function Editor({
   // void (per the brief's interface) and doesn't hand back the new slot's
   // id, so this is what connects "a slot was just created" to "focus it":
   // the store also auto-selects a newly added slot, so the next slot whose
-  // id matches store.selectedId while this flag is set is the one to focus.
-  const pendingFocusRef = useRef(false)
+  // id matches store.selectedId while this flag is set is the one to
+  // focus. Real state, not a ref: the eslint-plugin-react-hooks `refs`
+  // rule forbids reading a ref's `.current` during render (JSX below
+  // reads this), and `handleCanvasClick` sets it and `store.addSlot`
+  // selects the new slot in the very same synchronous handler, so both
+  // updates land in the same batched re-render regardless.
+  const [awaitingFocusAfterClick, setAwaitingFocusAfterClick] = useState(false)
 
   const page = doc.pages[pageIndex]
   const viewport: Viewport = { zoom, pageHeight: page?.height ?? 0 }
@@ -175,7 +188,7 @@ export function Editor({
 
   const handleCanvasClick = (screen: LogicalPoint) => {
     const atPdf = toPdfPoint(screen, viewport)
-    pendingFocusRef.current = true
+    setAwaitingFocusAfterClick(true)
     store.addSlot(atPdf, pageIndex)
   }
 
@@ -276,9 +289,9 @@ export function Editor({
                 viewport={viewport}
                 metrics={fontMetrics[slot.fontId]}
                 selected={store.selectedId === slot.id}
-                autoFocus={pendingFocusRef.current && store.selectedId === slot.id}
+                autoFocus={awaitingFocusAfterClick && store.selectedId === slot.id}
                 onFocused={() => {
-                  pendingFocusRef.current = false
+                  setAwaitingFocusAfterClick(false)
                 }}
                 onSelect={() => store.select(slot.id)}
                 onChange={(patch) => store.updateSlot(slot.id, patch)}
