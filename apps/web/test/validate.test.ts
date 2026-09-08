@@ -41,7 +41,7 @@ describe('validateFile', () => {
     expect(validateFile(file)).toBe('Upload a PDF, or a PNG, JPEG, WebP or HEIC image.')
   })
 
-  it('rejects a text file renamed to .pdf when its declared type is not application/pdf', () => {
+  it('accepts a text file renamed to .pdf -- the extension alone is enough for this metadata check', () => {
     // Extension alone is one of the two accepted signals (see the .pdf-by-
     // extension case above); a renamed .txt still passes this metadata
     // check by design -- validateFile only rules out what it can tell from

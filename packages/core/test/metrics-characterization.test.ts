@@ -11,7 +11,7 @@ import { PDFDocument } from '@cantoo/pdf-lib'
 // R-8 follow-up) for how this was determined.
 import * as fontkit from 'fontkit'
 import { expect, test } from 'vitest'
-import { extractContentStreamText } from './helpers/content-stream.js'
+import { requireContentStreamText } from './helpers/content-stream.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
 
@@ -68,9 +68,9 @@ test('written content stream shows text with Tj, never a kerning TJ array', asyn
   page.drawText('AV', { x: 0, y: 100, size: 100, font })
 
   // Uncompressed object streams; the content stream itself may still be
-  // Flate-compressed, which extractContentStreamText() handles.
+  // Flate-compressed, which requireContentStreamText() handles.
   const bytes = await doc.save({ useObjectStreams: false })
-  const streamText = extractContentStreamText(bytes)
+  const streamText = requireContentStreamText(bytes)
 
   expect(streamText).toMatch(/\bTj\b/)
   expect(streamText).not.toMatch(/\bTJ\b/)

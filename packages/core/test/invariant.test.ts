@@ -8,7 +8,7 @@ import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { createFontMetrics } from '../src/layout/metrics.js'
 import { layoutText } from '../src/layout/wrap.js'
 import type { Slot } from '../src/document/types.js'
-import { extractContentStreamText } from './helpers/content-stream.js'
+import { requireContentStreamText } from './helpers/content-stream.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
 const fonts = Object.fromEntries(
@@ -104,7 +104,7 @@ test("the exported PDF's line breaks match what the layout engine predicted", as
 
   const d = await doc()
   const out = await renderPdf(d, [slot], fonts)
-  const streamText = extractContentStreamText(out)
+  const streamText = requireContentStreamText(out)
 
   // pdf-lib draws each line as a glyph-code hex string (`<0001...> Tj`), not
   // readable ASCII, and it subsets the embedded face down to only the

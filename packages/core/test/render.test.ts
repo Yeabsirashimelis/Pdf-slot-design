@@ -6,7 +6,7 @@ import { renderPdf } from '../src/render/pdf.js'
 import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { normalizePdf } from '../src/document/normalize.js'
 import type { Slot } from '../src/document/types.js'
-import { extractContentStreamText } from './helpers/content-stream.js'
+import { extractContentStreamText, requireContentStreamText } from './helpers/content-stream.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
 const fonts = Object.fromEntries(
@@ -57,17 +57,26 @@ test('written content stream contains a text-showing operator for the drawn text
   // pass against a build that draws nothing -- this checks the one thing
   // renderPdf exists to do: that text actually lands in the page's content
   // stream. A no-op drawText would leave no BT/ET block at all, so
-  // extractContentStreamText() would return '' and this would fail.
+  // extractContentStreamText() would return null and this would fail.
   const doc = await blankDoc()
   const out = await renderPdf(doc, [slot()], fonts)
-  expect(extractContentStreamText(out)).toMatch(/\bTj\b/)
+  expect(requireContentStreamText(out)).toMatch(/\bTj\b/)
 })
 
 test('empty slot text draws nothing and does not throw', async () => {
   const doc = await blankDoc()
   const out = await renderPdf(doc, [slot({ text: '' })], fonts)
   expect(out.byteLength).toBeGreaterThan(0)
-  expect(extractContentStreamText(out)).not.toMatch(/\bTj\b/)
+  // toBeNull, not `.not.toMatch(/Tj/)`: a negative match against the
+  // extractor's old '' return passed vacuously -- including if the
+  // extractor itself had broken.
+  expect(extractContentStreamText(out)).toBeNull()
+
+  // Positive control, on the same extractor and the same document. Without
+  // it the assertion above would still be green if extractContentStreamText
+  // had stopped matching anything at all.
+  const drawn = await renderPdf(doc, [slot({ text: 'x' })], fonts)
+  expect(requireContentStreamText(drawn)).toMatch(/\bTj\b/)
 })
 
 test('a slot with empty text does not embed its font', async () => {
@@ -98,7 +107,7 @@ test('a non-black slot colour renders instead of throwing', async () => {
     [slot({ color: { r: 37 / 255, g: 99 / 255, b: 235 / 255 } })],
     fonts,
   )
-  expect(extractContentStreamText(out)).toMatch(/\bTj\b/)
+  expect(requireContentStreamText(out)).toMatch(/\bTj\b/)
 })
 
 test('an out-of-range slot colour fails loudly at export', async () => {

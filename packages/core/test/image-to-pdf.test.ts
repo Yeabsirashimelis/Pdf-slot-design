@@ -1,7 +1,36 @@
-import { PDFDocument, PDFPage } from '@cantoo/pdf-lib'
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFPage,
+  PDFRawStream,
+  PDFStream,
+  decodePDFRawStream,
+} from '@cantoo/pdf-lib'
 import { expect, test, vi } from 'vitest'
 import { A4, LETTER, fitPageSize } from '../src/document/page-fit.js'
 import { imageToPdf } from '../src/document/image-to-pdf.js'
+
+/**
+ * The page's own content stream, decoded. pdf-lib writes `Contents` as an
+ * array of stream references, so this resolves each one and concatenates
+ * them -- the operators that actually paint this page, as opposed to
+ * whatever objects happen to exist elsewhere in the file.
+ */
+function pageContentStream(page: PDFPage): string {
+  const contents = page.node.context.lookup(page.node.Contents(), PDFArray)
+  return contents
+    .asArray()
+    .map((ref) => {
+      const stream = page.node.context.lookup(ref, PDFStream)
+      if (!(stream instanceof PDFRawStream)) {
+        throw new Error('Expected an undecoded raw content stream on the page')
+      }
+      return Buffer.from(decodePDFRawStream(stream).decode()).toString('latin1')
+    })
+    .join('\n')
+}
 
 test('portrait photo maps to portrait A4 or Letter', () => {
   const s = fitPageSize(3024, 4032)         // 3:4
@@ -87,23 +116,26 @@ test('preserves image aspect ratio under scaling', async () => {
   spy.mockRestore()
 })
 
-test('image is actually embedded in the PDF', async () => {
-  // 1x1 red PNG.
+test('the image is placed on the page, not merely present in the file', async () => {
+  // The previous version of this test asserted only that the saved bytes
+  // contained /XObject and /Image. They do -- embedPng() followed by save()
+  // emits both with no drawImage() call at all, verified. That proves an
+  // image object exists somewhere in the file, which is not the
+  // requirement. This checks the page: its resource dictionary names
+  // exactly one XObject, and the page's own content stream invokes that
+  // same name with `Do`.
   const png = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
     'base64',
   ))
   const bytes = await imageToPdf({ bytes: png, format: 'png', width: 1700, height: 2200 })
   const doc = await PDFDocument.load(bytes)
+  const page = doc.getPage(0)
 
-  // Check that the PDF bytes contain image stream data (embedded image)
-  const pdfBuffer = Buffer.from(bytes)
-  const pdfText = pdfBuffer.toString('latin1')
+  const xobjects = page.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict)
+  expect(xobjects).toBeDefined()
+  const names = xobjects!.keys().map((key) => key.asString())
+  expect(names).toHaveLength(1)
 
-  // PDFs with embedded images contain /XObject in their resource dictionary
-  // and /Image type entries. These are guaranteed to stay literal (not in ObjStm)
-  // by the PDF spec, so finding them in the bytes proves embedding occurred.
-  expect(pdfText).toContain('/XObject')
-  expect(pdfText).toContain('/Image')
+  expect(pageContentStream(page)).toContain(`${names[0]} Do`)
 })
-
