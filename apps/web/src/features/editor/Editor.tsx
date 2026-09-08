@@ -158,12 +158,47 @@ export function Editor({
   // saveSession itself never throws (see indexeddb.ts): a private-browsing
   // tab or an exhausted quota degrades to "this session just isn't saved",
   // not a broken editor.
+  //
+  // The pending write is also held in a ref so it can be *flushed* rather
+  // than dropped when the editor goes away: this effect's cleanup runs on
+  // every slot change (that is how the debounce works), so it must not
+  // write there, but an unmount or a tab close would otherwise silently
+  // discard up to a second of edits -- in the feature whose whole purpose
+  // is not losing them. The flush lives in its own mount-scoped effect
+  // below.
+  const pendingSaveRef = useRef<{ doc: EditorDocument; slots: Slot[] } | null>(null)
   useEffect(() => {
+    pendingSaveRef.current = { doc, slots: store.slots }
     const timer = setTimeout(() => {
+      pendingSaveRef.current = null
       void saveSession(doc, store.slots)
     }, SAVE_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [doc, store.slots])
+
+  useEffect(() => {
+    const flushSave = () => {
+      const pending = pendingSaveRef.current
+      if (!pending) return
+      pendingSaveRef.current = null
+      void saveSession(pending.doc, pending.slots)
+    }
+    // `beforeunload` covers a deliberate close/reload. `visibilitychange`
+    // to hidden covers the cases it does not: a discarded background tab,
+    // and mobile, where `beforeunload` is unreliable or never fires. Both
+    // only ever write an *already pending* debounced save, so the extra
+    // listener costs nothing on an idle tab.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushSave()
+    }
+    window.addEventListener('beforeunload', flushSave)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('beforeunload', flushSave)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      flushSave()
+    }
+  }, [])
 
   // A failed render is surfaced rather than silently dropped -- otherwise
   // the edit that failed to render would just vanish (see isSlotCommitted:
@@ -232,6 +267,17 @@ export function Editor({
     () => store.slots.filter((slot) => slot.page === pageIndex),
     [store.slots, pageIndex],
   )
+
+  // "Start over" deletes the persisted session, so the pending debounced
+  // write must be dropped rather than flushed -- otherwise the unmount
+  // flush below writes the session straight back after it was cleared, and
+  // "start over" quietly doesn't.
+  const handleStartOver = onStartOver
+    ? () => {
+        pendingSaveRef.current = null
+        onStartOver()
+      }
+    : undefined
 
   const handleCanvasClick = (screen: LogicalPoint) => {
     const atPdf = toPdfPoint(screen, viewport)
@@ -306,7 +352,7 @@ export function Editor({
         pageIndex={pageIndex}
         pageCount={doc.pages.length}
         onPageChange={setPageIndex}
-        onStartOver={onStartOver}
+        onStartOver={handleStartOver}
       />
       <div style={{ position: 'relative', display: 'inline-block' }}>
         {/*
