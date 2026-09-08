@@ -5,7 +5,10 @@ import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import {
   FONT_IDS,
+  collectUnsupportedCharacters,
   createFontMetrics,
+  describeUnsupportedCharacters,
+  findUnsupportedSlots,
   toPdfPoint,
   type EditorDocument,
   type FontId,
@@ -27,6 +30,9 @@ import { Toolbar, clampZoom } from './toolbar/Toolbar'
  * produces many state updates a second, and writing on every one of them
  * would thrash storage for no benefit -- see task-18-brief.md. */
 const SAVE_DEBOUNCE_MS = 1000
+
+/** Stable id so the unsupported-character toast is replaced, not stacked. */
+const UNSUPPORTED_TOAST_ID = 'unsupported-characters'
 
 /** Metrics for every bundled face, built once the font bytes are loaded. */
 function useFontMetrics(): Record<FontId, FontMetrics> | null {
@@ -75,7 +81,42 @@ export function Editor({
   const [pageIndex, setPageIndex] = useState(0)
   const store = useEditorStore(initialSlots)
   const fontMetrics = useFontMetrics()
-  const { bytes, isRendering, renderedSlots, error, commit } = useCommitRender(doc, store.slots)
+  const { bytes, isRendering, renderedSlots, error, commit, flush } = useCommitRender(doc, store.slots)
+
+  // Spec §8's export gate. Per slot, with that slot's own face, because the
+  // answer depends on `fontId` and not on the text alone. Derived during
+  // render (rather than only checked at commit) because the Download button
+  // has to stay disabled for as long as the offending text is present, not
+  // just for the instant after a commit.
+  const unsupportedSlots = useMemo(
+    () => (fontMetrics ? findUnsupportedSlots(store.slots, (id) => fontMetrics[id]) : []),
+    [fontMetrics, store.slots],
+  )
+  const unsupportedCharacters = useMemo(
+    () => collectUnsupportedCharacters(unsupportedSlots),
+    [unsupportedSlots],
+  )
+  const downloadBlockedReason =
+    unsupportedCharacters.length > 0
+      ? `The selected font can't draw ${describeUnsupportedCharacters(unsupportedCharacters)}. Remove or replace ${unsupportedCharacters.length === 1 ? 'it' : 'them'} to download.`
+      : null
+
+  // Named characters, surfaced the moment they appear rather than only at
+  // the next commit boundary. pdf-lib will not raise on this input -- it
+  // draws .notdef boxes and saves happily -- so nothing downstream would
+  // ever tell the user, and by the time they press the (now disabled)
+  // Download button they would have no idea why. Driven off the derived
+  // reason rather than read inside handleCommit, because a commit-time read
+  // has to come from a ref to stay current across Toolbar's flushSync path
+  // (a font change is exactly what turns supported text unsupported), and
+  // eslint-plugin-react-hooks's `refs` rule forbids handing such a closure
+  // to createSlotCommands. A stable toast id means a changed set replaces
+  // the message instead of stacking another copy, and dismissing on the
+  // way back to null clears it as soon as the text is fixed.
+  useEffect(() => {
+    if (downloadBlockedReason) toast.error(downloadBlockedReason, { id: UNSUPPORTED_TOAST_ID })
+    else toast.dismiss(UNSUPPORTED_TOAST_ID)
+  }, [downloadBlockedReason])
 
   // The single wiring point for "an edit committed": store.commitEdit()
   // closes the undo boundary (Task 13/14's concern) and commit() re-renders
@@ -247,6 +288,8 @@ export function Editor({
         doc={doc}
         bytes={bytes}
         isRendering={isRendering}
+        flush={flush}
+        downloadBlockedReason={downloadBlockedReason}
         slots={store.slots}
         selectedId={store.selectedId}
         updateSlotAndCommit={updateSlotAndCommit}

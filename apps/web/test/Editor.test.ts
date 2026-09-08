@@ -68,7 +68,7 @@ function makeDoc(): EditorDocument {
 }
 
 /** Renders Editor, places one slot via a real click, types real text into it. */
-async function placeAndTypeIntoASlot(container: HTMLElement) {
+async function placeAndTypeIntoASlot(container: HTMLElement, text = 'Hello world') {
   const canvas = await waitFor(() => {
     const el = container.querySelector('canvas')
     if (!el) throw new Error('canvas not mounted yet')
@@ -83,7 +83,7 @@ async function placeAndTypeIntoASlot(container: HTMLElement) {
     return el
   })
 
-  fireEvent.change(textarea, { target: { value: 'Hello world' } })
+  fireEvent.change(textarea, { target: { value: text } })
   return textarea
 }
 
@@ -148,6 +148,75 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
       // goes back to feeding PageCanvas doc.source after a commit.
       expect(Array.from(data)).toEqual(Array.from(renderedOutput))
     })
+  })
+
+  it('blocks download and names the offending characters for unsupported text', async () => {
+    // Spec §8's export gate, end to end through the real Editor. pdf-lib
+    // does NOT raise on this input -- it would draw .notdef boxes and save
+    // happily -- so if Editor doesn't check, nothing does.
+    const { Editor } = await import('../src/features/editor/Editor')
+    const sonner = await import('sonner')
+    const errorSpy = vi.spyOn(sonner.toast, 'error')
+
+    const doc = makeDoc()
+    renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
+
+    const { container } = render(createElement(Editor, { doc }))
+    const textarea = await placeAndTypeIntoASlot(container, 'Hello 日本語')
+
+    const downloadButton = await waitFor(() => {
+      const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
+      if (!el.disabled) throw new Error('download not blocked yet')
+      return el
+    })
+    expect(downloadButton.disabled).toBe(true)
+
+    const message = errorSpy.mock.calls.at(-1)?.[0]
+    expect(typeof message).toBe('string')
+    expect(message).toContain('日')
+    expect(message).toContain('本')
+    expect(message).toContain('語')
+
+    // And it clears the moment the text is fixed.
+    fireEvent.change(textarea, { target: { value: 'Hello world' } })
+    await waitFor(() => {
+      const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
+      expect(el.disabled).toBe(false)
+    })
+  })
+
+  it('blocks download for a pasted tab character', async () => {
+    // The ordinary path into this: pasting a cell out of a spreadsheet.
+    // The textarea shows a tab stop; the PDF would show a .notdef box.
+    const { Editor } = await import('../src/features/editor/Editor')
+
+    const doc = makeDoc()
+    renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
+
+    const { container } = render(createElement(Editor, { doc }))
+    await placeAndTypeIntoASlot(container, 'Name\tValue')
+
+    await waitFor(() => {
+      const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
+      expect(el.disabled).toBe(true)
+    })
+  })
+
+  it('leaves download alone for Latin and Cyrillic text across several lines', async () => {
+    const { Editor } = await import('../src/features/editor/Editor')
+
+    const doc = makeDoc()
+    renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
+
+    const { container } = render(createElement(Editor, { doc }))
+    // Newlines share the CJK case's glyph id 0 but are consumed by
+    // layoutText and never drawn, so they must not block anything.
+    const textarea = await placeAndTypeIntoASlot(container, 'Привет мир\nHello world')
+    fireEvent.blur(textarea)
+
+    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(1))
+    const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
+    expect(el.disabled).toBe(false)
   })
 
   it('hides the committed slot\'s own DOM text once the canvas has painted it', async () => {
