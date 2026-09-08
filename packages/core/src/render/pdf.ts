@@ -21,6 +21,12 @@ export async function renderPdf(
 
   const pages = pdf.getPages()
   const embedded = new Map<FontId, Awaited<ReturnType<typeof pdf.embedFont>>>()
+  // Scoped to this render call only: createFontMetrics() re-parses the TTF
+  // (~150-250 KB per face), so without this a document with many slots on
+  // one font would pay that cost once per slot instead of once per font. No
+  // cache lives longer than a single renderPdf() call -- a module-level or
+  // cross-call cache would need invalidation nobody has asked for.
+  const metrics = new Map<FontId, ReturnType<typeof createFontMetrics>>()
 
   for (const slot of slots) {
     if (slot.text === '') continue
@@ -33,13 +39,19 @@ export async function renderPdf(
       embedded.set(slot.fontId, font)
     }
 
+    let slotMetrics = metrics.get(slot.fontId)
+    if (!slotMetrics) {
+      slotMetrics = createFontMetrics(fonts[slot.fontId])
+      metrics.set(slot.fontId, slotMetrics)
+    }
+
     const lines = layoutText(
       {
         text: slot.text, size: slot.size, width: slot.width,
         align: slot.align, lineHeight: slot.lineHeight,
         originX: slot.x, originY: slot.y,
       },
-      createFontMetrics(fonts[slot.fontId]),
+      slotMetrics,
     )
 
     for (const line of lines) {
@@ -55,6 +67,10 @@ export async function renderPdf(
   }
 
   // Pin every source of nondeterminism so repeated renders are byte-identical.
+  // No explicit `/ID` fix is needed alongside these: @cantoo/pdf-lib's
+  // generateRandomFileId() (core/security/PDFSecurity.js) is only reachable
+  // from convertToPDFA() and PDFSecurity's own encryption setup, neither of
+  // which this function calls, so plain save() never stamps a random /ID.
   pdf.setCreationDate(EPOCH)
   pdf.setModificationDate(EPOCH)
   return pdf.save({ useObjectStreams: false })

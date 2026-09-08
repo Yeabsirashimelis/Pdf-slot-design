@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { inflateSync } from 'node:zlib'
 import { PDFDocument } from '@cantoo/pdf-lib'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { renderPdf } from '../src/render/pdf.js'
 import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { normalizePdf } from '../src/document/normalize.js'
@@ -24,6 +25,33 @@ const slot = (over: Partial<Slot> = {}): Slot => ({
   color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2,
   ...over,
 })
+
+/**
+ * Pulls the decoded text of every `stream`...`endstream` block that looks
+ * like a content stream (contains `BT`/`ET`) out of a saved PDF's raw
+ * bytes, inflating it first if it's Flate-compressed. Local copy of the
+ * helper in test/metrics-characterization.test.ts (test-only tooling, not
+ * exported from src) -- good enough to check for the presence of a
+ * text-showing operator, not a general PDF parser.
+ */
+function extractContentStreamText(pdfBytes: Uint8Array): string {
+  const buf = Buffer.from(pdfBytes)
+  const text = buf.toString('latin1')
+  const streamRe = /\d+ 0 obj\s*<<([\s\S]*?)>>\s*stream\r?\n/g
+  const chunks: string[] = []
+
+  for (const match of text.matchAll(streamRe)) {
+    const dict = match[1] ?? ''
+    const start = (match.index ?? 0) + match[0].length
+    const end = text.indexOf('endstream', start)
+    if (end === -1) continue
+    const raw = buf.subarray(start, end)
+    const decoded = (dict.includes('FlateDecode') ? inflateSync(raw) : raw).toString('latin1')
+    if (decoded.includes('BT') && decoded.includes('ET')) chunks.push(decoded)
+  }
+
+  return chunks.join('\n')
+}
 
 test('output is a loadable PDF with the original page count', async () => {
   const doc = await blankDoc()
@@ -51,10 +79,38 @@ test('a slot on a page that does not exist is ignored, not fatal', async () => {
   expect((await PDFDocument.load(out)).getPageCount()).toBe(1)
 })
 
-test('empty slot text produces no drawing but no error', async () => {
+test('written content stream contains a text-showing operator for the drawn text', async () => {
+  // Container-shaped assertions (page count, page size, byte length) all
+  // pass against a build that draws nothing -- this checks the one thing
+  // renderPdf exists to do: that text actually lands in the page's content
+  // stream. A no-op drawText would leave no BT/ET block at all, so
+  // extractContentStreamText() would return '' and this would fail.
+  const doc = await blankDoc()
+  const out = await renderPdf(doc, [slot()], fonts)
+  expect(extractContentStreamText(out)).toMatch(/\bTj\b/)
+})
+
+test('empty slot text draws nothing and does not throw', async () => {
   const doc = await blankDoc()
   const out = await renderPdf(doc, [slot({ text: '' })], fonts)
   expect(out.byteLength).toBeGreaterThan(0)
+  expect(extractContentStreamText(out)).not.toMatch(/\bTj\b/)
+})
+
+test('a slot with empty text does not embed its font', async () => {
+  // Exercises what the `slot.text === ''` guard in pdf.ts actually buys:
+  // layoutText('') already returns [] unconditionally, so a drawing
+  // assertion alone can't tell the guard apart from its absence -- deleting
+  // the guard would still draw nothing. This is the guard's real, otherwise
+  // untested effect: skipping a wasted embedFont call for the empty slot.
+  const doc = await blankDoc()
+  const embedSpy = vi.spyOn(PDFDocument.prototype, 'embedFont')
+  try {
+    await renderPdf(doc, [slot({ text: '' })], fonts)
+    expect(embedSpy).not.toHaveBeenCalled()
+  } finally {
+    embedSpy.mockRestore()
+  }
 })
 
 test('rendering is deterministic for identical input', async () => {
@@ -62,4 +118,20 @@ test('rendering is deterministic for identical input', async () => {
   const a = await renderPdf(doc, [slot()], fonts)
   const b = await renderPdf(doc, [slot()], fonts)
   expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true)
+})
+
+test('font metrics are parsed once per fontId, not once per slot', async () => {
+  const doc = await blankDoc()
+  const metrics = await import('../src/layout/metrics.js')
+  const spy = vi.spyOn(metrics, 'createFontMetrics')
+  try {
+    await renderPdf(
+      doc,
+      [slot({ id: 's1', text: 'one' }), slot({ id: 's2', text: 'two', y: 600 })],
+      fonts,
+    )
+    expect(spy).toHaveBeenCalledTimes(1)
+  } finally {
+    spy.mockRestore()
+  }
 })
