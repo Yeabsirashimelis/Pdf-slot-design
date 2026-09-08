@@ -5,6 +5,8 @@
 
 import { useEffect, useRef, type ChangeEvent, type PointerEvent } from 'react'
 import {
+  FONT_CSS_FAMILY,
+  KERNING_APPLIED,
   layoutHeight,
   layoutText,
   toScreenLength,
@@ -220,6 +222,26 @@ export function SlotOverlay({
         deliberately has no pointerdown handler of its own -- the body div's
         handler above both arms drag-detection and (by not calling
         preventDefault) leaves this element's native focus-on-click intact.
+
+        Its own wrap geometry (which character falls on which row) is a
+        SEPARATE concern from the invisible-text trick above, and matters
+        for the caret alone: a click/keystroke's row is determined by the
+        browser's own `white-space: pre-wrap` reflow of this element, not by
+        `layoutText`. If this textarea measured text with a different font
+        than `SlotLines` does, its wrap points -- and therefore the caret's
+        row -- could disagree with where the glyphs the user is looking at
+        actually break, even though the rendered glyphs themselves stay
+        correct (SlotLines is unaffected either way). So every property that
+        affects glyph advance widths or line spacing is mirrored from
+        SlotLines/layoutText's inputs exactly: fontFamily (the same
+        `@font-face` bytes, not the page's inherited Geist Sans),
+        fontSize, fontKerning/fontVariantLigatures (must match
+        KERNING_APPLIED for the same reason `layoutText`'s width
+        measurement does -- see packages/core/src/layout/metrics.ts), and
+        lineHeight as a unitless multiplier (`slot.lineHeight`), which -- since
+        fontSize here is already toScreenLength(slot.size, viewport) --
+        yields exactly toScreenLength(slot.size * slot.lineHeight, viewport)
+        px per row, the same per-line step `layoutText` uses for baselineY.
       */}
       <textarea
         ref={textareaRef}
@@ -245,8 +267,11 @@ export function SlotOverlay({
           background: 'transparent',
           color: 'transparent',
           caretColor: `rgb(${slot.color.r * 255} ${slot.color.g * 255} ${slot.color.b * 255})`,
-          fontFamily: 'inherit',
+          fontFamily: FONT_CSS_FAMILY[slot.fontId],
           fontSize: toScreenLength(slot.size, viewport),
+          lineHeight: slot.lineHeight,
+          fontKerning: KERNING_APPLIED ? 'normal' : 'none',
+          fontVariantLigatures: 'none',
           overflow: 'hidden',
           whiteSpace: 'pre-wrap',
         }}
