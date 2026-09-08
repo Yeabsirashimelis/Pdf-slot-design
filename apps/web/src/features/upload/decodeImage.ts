@@ -15,20 +15,29 @@ export async function decodeImage(file: File): Promise<EncodedImage> {
     throw new Error('This browser cannot read that image format.')
   }
 
-  const canvas = document.createElement('canvas')
-  canvas.width = bitmap.width
-  canvas.height = bitmap.height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Could not create a canvas to read the image.')
-  ctx.drawImage(bitmap, 0, 0)
+  // `bitmap` holds off-heap/GPU pixel memory once decoded successfully, and
+  // nothing else releases it. A single try/finally around every remaining
+  // exit path (success and both throws below) means it is released exactly
+  // once no matter which path is taken, and a third failure path added
+  // later inherits the release for free instead of needing its own close().
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Could not create a canvas to read the image.')
+    ctx.drawImage(bitmap, 0, 0)
 
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) throw new Error('Could not convert the image.')
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!blob) throw new Error('Could not convert the image.')
 
-  return {
-    bytes: new Uint8Array(await blob.arrayBuffer()),
-    format: 'png',
-    width: bitmap.width,
-    height: bitmap.height,
+    return {
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+      format: 'png',
+      width: bitmap.width,
+      height: bitmap.height,
+    }
+  } finally {
+    bitmap.close()
   }
 }

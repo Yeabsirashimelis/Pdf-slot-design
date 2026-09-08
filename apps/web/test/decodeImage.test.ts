@@ -24,7 +24,7 @@ afterEach(() => {
 
 describe('decodeImage', () => {
   it('draws the decoded bitmap onto a canvas sized to it, and returns its PNG bytes', async () => {
-    const bitmap = { width: 40, height: 20 }
+    const bitmap = { width: 40, height: 20, close: vi.fn() }
     vi.stubGlobal(
       'createImageBitmap',
       vi.fn(async () => bitmap),
@@ -47,6 +47,9 @@ describe('decodeImage', () => {
     expect(result.width).toBe(40)
     expect(result.height).toBe(20)
     expect(Array.from(result.bytes)).toEqual(Array.from(pngBytes))
+    // The decoded bitmap holds off-heap/GPU pixel memory; it must be
+    // released once decodeImage is done with it, success or not.
+    expect(bitmap.close).toHaveBeenCalledTimes(1)
   })
 
   it('rejects with a clear message when the browser cannot decode the format', async () => {
@@ -63,10 +66,11 @@ describe('decodeImage', () => {
     )
   })
 
-  it('rejects when a 2d canvas context is unavailable', async () => {
+  it('rejects when a 2d canvas context is unavailable, and still releases the bitmap', async () => {
+    const bitmap = { width: 1, height: 1, close: vi.fn() }
     vi.stubGlobal(
       'createImageBitmap',
-      vi.fn(async () => ({ width: 1, height: 1 })),
+      vi.fn(async () => bitmap),
     )
     // Not mocked: jsdom's own getContext('2d') already returns null.
 
@@ -74,12 +78,18 @@ describe('decodeImage', () => {
     await expect(decodeImage(file)).rejects.toThrow(
       'Could not create a canvas to read the image.',
     )
+    // The bitmap was successfully decoded before this failure -- an
+    // implementation that only calls close() on the return statement below
+    // (rather than in a finally) would leak it here. This is the case that
+    // matters: it is the one a scattered close() would miss.
+    expect(bitmap.close).toHaveBeenCalledTimes(1)
   })
 
-  it('rejects when the canvas cannot produce a blob', async () => {
+  it('rejects when the canvas cannot produce a blob, and still releases the bitmap', async () => {
+    const bitmap = { width: 1, height: 1, close: vi.fn() }
     vi.stubGlobal(
       'createImageBitmap',
-      vi.fn(async () => ({ width: 1, height: 1 })),
+      vi.fn(async () => bitmap),
     )
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
       drawImage: vi.fn(),
@@ -88,5 +98,6 @@ describe('decodeImage', () => {
 
     const file = new File([new Uint8Array([0])], 'photo.png', { type: 'image/png' })
     await expect(decodeImage(file)).rejects.toThrow('Could not convert the image.')
+    expect(bitmap.close).toHaveBeenCalledTimes(1)
   })
 })
