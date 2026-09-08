@@ -275,7 +275,7 @@ describe('Toolbar controls act on the selected slot', () => {
 })
 
 describe('Toolbar export gate', () => {
-  it('disables Download and explains why when a reason is given', () => {
+  it('marks Download aria-disabled and explains why when a reason is given', () => {
     render(
       createElement(
         Toolbar,
@@ -283,14 +283,27 @@ describe('Toolbar export gate', () => {
       ),
     )
 
-    expect((screen.getByTestId('download-button') as HTMLButtonElement).disabled).toBe(true)
+    const button = screen.getByTestId('download-button') as HTMLButtonElement
+    // Not the native `disabled` attribute -- that would make the button
+    // unfocusable and pointer-events-none, so the Tooltip explaining the
+    // block could never open. `aria-disabled` keeps it focusable/hoverable;
+    // `handleDownload`'s own guard (exercised below) does the blocking. See
+    // the `downloadBlockedReason` doc comment on ToolbarProps.
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
   })
 
-  it('does not build a Blob at all while blocked', async () => {
+  it('does not build a Blob at all while blocked -- the click reaches handleDownload, whose own guard stops it', async () => {
     const flush = vi.fn(async () => null)
     render(createElement(Toolbar, baseProps({ downloadBlockedReason: 'nope', flush })))
 
-    fireEvent.click(screen.getByTestId('download-button'))
+    const button = screen.getByTestId('download-button') as HTMLButtonElement
+    // The button is only aria-disabled, so the browser (and jsdom) still
+    // dispatches the click -- unlike a native `disabled` button, which
+    // would swallow it before any handler ran and let this assertion pass
+    // vacuously. What actually stops the download here is the `if
+    // (downloadBlockedReason) return` guard inside handleDownload.
+    fireEvent.click(button)
     await Promise.resolve()
 
     expect(flush).not.toHaveBeenCalled()

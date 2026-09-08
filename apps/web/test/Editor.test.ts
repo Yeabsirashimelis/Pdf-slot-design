@@ -191,12 +191,16 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     const { container } = render(createElement(Editor, { doc }))
     const textarea = await placeAndTypeIntoASlot(container, 'Hello 日本語')
 
+    // The button is `aria-disabled`, not natively `disabled` -- see the
+    // `downloadBlockedReason` doc comment on ToolbarProps: a native
+    // `disabled` attribute would make the button unfocusable and suppress
+    // pointer events, so the Tooltip explaining the block could never open.
     const downloadButton = await waitFor(() => {
       const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
-      if (!el.disabled) throw new Error('download not blocked yet')
+      if (el.getAttribute('aria-disabled') !== 'true') throw new Error('download not blocked yet')
       return el
     })
-    expect(downloadButton.disabled).toBe(true)
+    expect(downloadButton.getAttribute('aria-disabled')).toBe('true')
 
     const message = errorSpy.mock.calls.at(-1)?.[0]
     expect(typeof message).toBe('string')
@@ -208,7 +212,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     fireEvent.change(textarea, { target: { value: 'Hello world' } })
     await waitFor(() => {
       const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
-      expect(el.disabled).toBe(false)
+      expect(el.getAttribute('aria-disabled')).toBe('false')
     })
   })
 
@@ -225,7 +229,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
 
     await waitFor(() => {
       const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
-      expect(el.disabled).toBe(true)
+      expect(el.getAttribute('aria-disabled')).toBe('true')
     })
   })
 
@@ -243,7 +247,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
 
     await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(1))
     const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
-    expect(el.disabled).toBe(false)
+    expect(el.getAttribute('aria-disabled')).toBe('false')
   })
 
   it('hides the committed slot\'s own DOM text once the canvas has painted it', async () => {

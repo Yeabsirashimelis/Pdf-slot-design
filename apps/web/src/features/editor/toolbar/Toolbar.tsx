@@ -88,10 +88,18 @@ export type ToolbarProps = {
    */
   flush(): Promise<Uint8Array | null>
   /**
-   * When non-null, Download is disabled and this explains why. Spec §8's
+   * When non-null, Download is blocked and this explains why. Spec §8's
    * export gate: a slot containing characters no bundled face can encode
    * must not be exported as `.notdef` boxes. Editor owns the check (it owns
    * the font metrics); Toolbar only refuses to hand out the file.
+   *
+   * The button stays `aria-disabled`, not natively `disabled`: a native
+   * `disabled` attribute makes the element unfocusable and suppresses
+   * pointer events, so a Tooltip anchored to it could never open by hover
+   * or keyboard. Blocking is enforced by the `if (downloadBlockedReason)
+   * return` guard at the top of `handleDownload` instead, and the reason
+   * is surfaced twice -- in the Tooltip on hover/focus, and via the
+   * `sonner` toast Editor raises for the same value (see Editor.tsx).
    */
   downloadBlockedReason: string | null
   slots: Slot[]
@@ -429,7 +437,8 @@ export function Toolbar({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={downloadBlockedReason !== null}
+                className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                aria-disabled={downloadBlockedReason !== null}
                 onClick={() => {
                   void handleDownload()
                 }}
