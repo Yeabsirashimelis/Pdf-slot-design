@@ -15,6 +15,7 @@ import {
 import {
   FONT_IDS,
   FONT_LABELS,
+  rgbToCss,
   type Align,
   type EditorDocument,
   type FontId,
@@ -32,16 +33,27 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
  * is the toolbar's own convention (a standard print/editor size ramp). */
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 60, 72]
 
-/** Small fixed colour palette for the swatch grid, Sejda-style. */
-const COLOR_SWATCHES: { label: string; color: RGB }[] = [
+/**
+ * Small fixed colour palette for the swatch grid, Sejda-style.
+ *
+ * Components are **0–1**, the range `RGB` is defined in (see its doc comment
+ * in `@pdf-slot/core`) -- not CSS bytes. These values go straight into
+ * `Slot.color`, which `renderPdf` hands to pdf-lib's `rgb()`. Authoring them
+ * as 0–255 (as this list originally did) made pdf-lib throw on export and
+ * made the overlay's own 255-scaling clamp the text to white, so every
+ * non-black swatch broke both halves of the guarantee at once. Exported so
+ * `test/Toolbar.test.ts` can assert the range over the whole list rather
+ * than one swatch at a time.
+ */
+export const COLOR_SWATCHES: { label: string; color: RGB }[] = [
   { label: 'Black', color: { r: 0, g: 0, b: 0 } },
-  { label: 'White', color: { r: 255, g: 255, b: 255 } },
-  { label: 'Red', color: { r: 220, g: 38, b: 38 } },
-  { label: 'Orange', color: { r: 234, g: 88, b: 12 } },
-  { label: 'Yellow', color: { r: 202, g: 138, b: 4 } },
-  { label: 'Green', color: { r: 22, g: 163, b: 74 } },
-  { label: 'Blue', color: { r: 37, g: 99, b: 235 } },
-  { label: 'Purple', color: { r: 124, g: 58, b: 237 } },
+  { label: 'White', color: { r: 1, g: 1, b: 1 } },
+  { label: 'Red', color: { r: 220 / 255, g: 38 / 255, b: 38 / 255 } },
+  { label: 'Orange', color: { r: 234 / 255, g: 88 / 255, b: 12 / 255 } },
+  { label: 'Yellow', color: { r: 202 / 255, g: 138 / 255, b: 4 / 255 } },
+  { label: 'Green', color: { r: 22 / 255, g: 163 / 255, b: 74 / 255 } },
+  { label: 'Blue', color: { r: 37 / 255, g: 99 / 255, b: 235 / 255 } },
+  { label: 'Purple', color: { r: 124 / 255, g: 58 / 255, b: 237 / 255 } },
 ]
 
 export const ZOOM_MIN = 0.25
@@ -53,10 +65,6 @@ const ZOOM_STEP = 0.25
  * buttons here, rather than duplicating the range. */
 export function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom))
-}
-
-function rgbToCss(color: RGB): string {
-  return `rgb(${color.r}, ${color.g}, ${color.b})`
 }
 
 function sameColor(a: RGB, b: RGB): boolean {

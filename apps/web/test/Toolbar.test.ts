@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorDocument, Slot } from '@pdf-slot/core'
-import { Toolbar, type ToolbarProps } from '../src/features/editor/toolbar/Toolbar'
+import { COLOR_SWATCHES, Toolbar, type ToolbarProps } from '../src/features/editor/toolbar/Toolbar'
 
 function makeDoc(overrides: Partial<EditorDocument> = {}): EditorDocument {
   return {
@@ -232,6 +232,20 @@ describe('Toolbar controls act on the selected slot', () => {
     expect(removeSlotAndCommit).toHaveBeenCalledWith('target-slot')
   })
 
+  it('every swatch is in RGB\'s 0-1 range, not CSS bytes', () => {
+    // The palette is the only place in the app where an RGB literal is
+    // hand-authored, and it was authored in 0-255 -- which made pdf-lib's
+    // rgb() throw on export and the overlay clamp the preview text to
+    // white. Asserting the range over the whole list (rather than one
+    // swatch's exact value) is what stops a new swatch reintroducing it.
+    for (const swatch of COLOR_SWATCHES) {
+      for (const component of [swatch.color.r, swatch.color.g, swatch.color.b]) {
+        expect(component, swatch.label).toBeGreaterThanOrEqual(0)
+        expect(component, swatch.label).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+
   it('choosing a colour swatch calls updateSlotAndCommit with that RGB', () => {
     const updateSlotAndCommit = vi.fn()
     const slot = makeSlot({ id: 'target-slot', color: { r: 0, g: 0, b: 0 } })
@@ -245,8 +259,10 @@ describe('Toolbar controls act on the selected slot', () => {
     fireEvent.click(screen.getByTestId('color-trigger'))
     fireEvent.click(screen.getByTestId('color-swatch-blue'))
 
+    // 0-1, per RGB's contract -- #2563eb expressed the way pdf-lib's rgb()
+    // and the overlay both require, not as CSS bytes.
     expect(updateSlotAndCommit).toHaveBeenCalledWith('target-slot', {
-      color: { r: 37, g: 99, b: 235 },
+      color: { r: 37 / 255, g: 99 / 255, b: 235 / 255 },
     })
   })
 })

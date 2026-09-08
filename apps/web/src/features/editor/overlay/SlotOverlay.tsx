@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent } from
 import {
   FONT_CSS_FAMILY,
   PDF_APPLIES_KERNING,
+  rgbToCss,
   layoutHeight,
   layoutText,
   toScreenLength,
@@ -306,7 +307,7 @@ export function SlotOverlay({
           margin: 0,
           background: 'transparent',
           color: 'transparent',
-          caretColor: `rgb(${slot.color.r * 255} ${slot.color.g * 255} ${slot.color.b * 255})`,
+          caretColor: rgbToCss(slot.color),
           fontFamily: FONT_CSS_FAMILY[slot.fontId],
           fontSize: toScreenLength(slot.size, viewport),
           lineHeight: slot.lineHeight,

@@ -1,6 +1,7 @@
 import {
   FONT_CSS_FAMILY,
   PDF_APPLIES_KERNING,
+  rgbToCss,
   toScreenLength,
   type FontMetrics,
   type PositionedLine,
@@ -52,7 +53,7 @@ export function SlotLines({
             fontSize: toScreenLength(slot.size, viewport),
             whiteSpace: 'pre',
             fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
-            color: `rgb(${slot.color.r * 255} ${slot.color.g * 255} ${slot.color.b * 255})`,
+            color: rgbToCss(slot.color),
           }}
         >
           {line.text}

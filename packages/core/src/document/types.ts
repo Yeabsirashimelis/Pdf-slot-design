@@ -1,6 +1,16 @@
 import type { FontId } from '../fonts/registry'
 import type { Align } from '../layout/wrap'
 
+/**
+ * A colour, **components 0–1**, not 0–255.
+ *
+ * This is the range `pdf-lib`'s `rgb()` takes, and `render/pdf.ts` passes
+ * these values to it verbatim; anything outside 0–1 makes it throw
+ * ("`red` must be at least 0 and at most 1"). Browser-side consumers must
+ * scale to CSS bytes, which is what `rgbToCss` (document/color.ts) is for --
+ * never hand-write the conversion, and never author a palette in byte
+ * values.
+ */
 export type RGB = { r: number; g: number; b: number }
 export type PageSize = { width: number; height: number }
 

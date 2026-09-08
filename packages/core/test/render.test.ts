@@ -86,6 +86,26 @@ test('a slot with empty text does not embed its font', async () => {
   }
 })
 
+test('a non-black slot colour renders instead of throwing', async () => {
+  // pdf-lib's rgb() asserts each component is within 0-1 and throws
+  // otherwise ("`red` must be at least 0 and at most 1"). Every existing
+  // render test used pure black, whose 0/0/0 is valid in either
+  // convention, so nothing here noticed when the toolbar's palette was
+  // authored in CSS bytes and every coloured slot crashed the export.
+  const doc = await blankDoc()
+  const out = await renderPdf(
+    doc,
+    [slot({ color: { r: 37 / 255, g: 99 / 255, b: 235 / 255 } })],
+    fonts,
+  )
+  expect(extractContentStreamText(out)).toMatch(/\bTj\b/)
+})
+
+test('an out-of-range slot colour fails loudly at export', async () => {
+  const doc = await blankDoc()
+  await expect(renderPdf(doc, [slot({ color: { r: 37, g: 99, b: 235 } })], fonts)).rejects.toThrow()
+})
+
 test('rendering is deterministic for identical input', async () => {
   const doc = await blankDoc()
   const a = await renderPdf(doc, [slot()], fonts)
