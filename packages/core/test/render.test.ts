@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { inflateSync } from 'node:zlib'
 import { PDFDocument } from '@cantoo/pdf-lib'
 import { expect, test, vi } from 'vitest'
 import { renderPdf } from '../src/render/pdf.js'
 import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { normalizePdf } from '../src/document/normalize.js'
 import type { Slot } from '../src/document/types.js'
+import { extractContentStreamText } from './helpers/content-stream.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
 const fonts = Object.fromEntries(
@@ -25,33 +25,6 @@ const slot = (over: Partial<Slot> = {}): Slot => ({
   color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2,
   ...over,
 })
-
-/**
- * Pulls the decoded text of every `stream`...`endstream` block that looks
- * like a content stream (contains `BT`/`ET`) out of a saved PDF's raw
- * bytes, inflating it first if it's Flate-compressed. Local copy of the
- * helper in test/metrics-characterization.test.ts (test-only tooling, not
- * exported from src) -- good enough to check for the presence of a
- * text-showing operator, not a general PDF parser.
- */
-function extractContentStreamText(pdfBytes: Uint8Array): string {
-  const buf = Buffer.from(pdfBytes)
-  const text = buf.toString('latin1')
-  const streamRe = /\d+ 0 obj\s*<<([\s\S]*?)>>\s*stream\r?\n/g
-  const chunks: string[] = []
-
-  for (const match of text.matchAll(streamRe)) {
-    const dict = match[1] ?? ''
-    const start = (match.index ?? 0) + match[0].length
-    const end = text.indexOf('endstream', start)
-    if (end === -1) continue
-    const raw = buf.subarray(start, end)
-    const decoded = (dict.includes('FlateDecode') ? inflateSync(raw) : raw).toString('latin1')
-    if (decoded.includes('BT') && decoded.includes('ET')) chunks.push(decoded)
-  }
-
-  return chunks.join('\n')
-}
 
 test('output is a loadable PDF with the original page count', async () => {
   const doc = await blankDoc()

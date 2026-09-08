@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { inflateSync } from 'node:zlib'
 import { PDFDocument } from '@cantoo/pdf-lib'
 // fontkit@2.0.4's ESM build has no default export; its named exports
 // (`create`, notably) satisfy @cantoo/pdf-lib's structural `Fontkit`
@@ -12,6 +11,7 @@ import { PDFDocument } from '@cantoo/pdf-lib'
 // R-8 follow-up) for how this was determined.
 import * as fontkit from 'fontkit'
 import { expect, test } from 'vitest'
+import { extractContentStreamText } from './helpers/content-stream.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
 
@@ -49,32 +49,6 @@ test('embedFont with subset:true saves without throwing', async () => {
 
   expect(bytes.byteLength).toBeGreaterThan(0)
 })
-
-/**
- * Pulls the decoded text of every `stream`...`endstream` block that looks
- * like a content stream (contains `BT`/`ET`) out of a saved PDF's raw
- * bytes, inflating it first if it's Flate-compressed. Test-only tooling,
- * not a general PDF parser: good enough to inspect the handful of
- * text-showing operators this file checks for.
- */
-function extractContentStreamText(pdfBytes: Uint8Array): string {
-  const buf = Buffer.from(pdfBytes)
-  const text = buf.toString('latin1')
-  const streamRe = /\d+ 0 obj\s*<<([\s\S]*?)>>\s*stream\r?\n/g
-  const chunks: string[] = []
-
-  for (const match of text.matchAll(streamRe)) {
-    const dict = match[1] ?? ''
-    const start = (match.index ?? 0) + match[0].length
-    const end = text.indexOf('endstream', start)
-    if (end === -1) continue
-    const raw = buf.subarray(start, end)
-    const decoded = (dict.includes('FlateDecode') ? inflateSync(raw) : raw).toString('latin1')
-    if (decoded.includes('BT') && decoded.includes('ET')) chunks.push(decoded)
-  }
-
-  return chunks.join('\n')
-}
 
 test('written content stream shows text with Tj, never a kerning TJ array', async () => {
   // Pins the *other* half of the kerning finding: not just that
