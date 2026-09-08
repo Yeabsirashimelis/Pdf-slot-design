@@ -10,11 +10,22 @@ export function PageCanvas({
   pageIndex,
   zoom,
   onCanvasClick,
+  onRendered,
 }: {
   bytes: Uint8Array
   pageIndex: number
   zoom: number
   onCanvasClick(screen: LogicalPoint): void
+  /**
+   * Called with the exact `bytes` this component was given, once pdf.js has
+   * actually finished painting them to the canvas. Rendering the real PDF
+   * (Task 16's renderPdf) and painting it are two separate async stages --
+   * loading the document (usePdfDocument) and then drawing the requested
+   * page -- so callers that need to know "is this specific content on
+   * screen yet", not just "has a render been requested", must wait for
+   * this rather than inferring it from `bytes` having changed.
+   */
+  onRendered?(bytes: Uint8Array): void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pdf = usePdfDocument(bytes)
@@ -47,6 +58,7 @@ export function PageCanvas({
 
       renderTask = page.render({ canvas, viewport })
       await renderTask.promise
+      if (!cancelled) onRendered?.(bytes)
     })().catch((err) => {
       // Cancelling the previous render (below) rejects its promise with a
       // benign RenderingCancelledException -- only unexpected failures are
@@ -58,7 +70,7 @@ export function PageCanvas({
       cancelled = true
       renderTask?.cancel()
     }
-  }, [pdf, pageIndex, zoom])
+  }, [pdf, pageIndex, zoom, bytes, onRendered])
 
   const handleClick = (event: MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current

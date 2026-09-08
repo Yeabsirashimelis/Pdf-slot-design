@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
+import { toast } from 'sonner'
 import {
   FONT_IDS,
   createFontMetrics,
@@ -8,6 +10,7 @@ import {
   type EditorDocument,
   type FontId,
   type FontMetrics,
+  type Slot,
   type Viewport,
 } from '@pdf-slot/core'
 import { loadFontBytes, registerFontFaces } from '@/lib/fonts/loadFonts'
@@ -48,7 +51,7 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
   const [pageIndex] = useState(0)
   const store = useEditorStore()
   const fontMetrics = useFontMetrics()
-  const { bytes, isRendering, commit } = useCommitRender(doc, store.slots)
+  const { bytes, isRendering, renderedSlots, error, commit } = useCommitRender(doc, store.slots)
 
   // The single wiring point for "an edit committed": store.commitEdit()
   // closes the undo boundary (Task 13/14's concern) and commit() re-renders
@@ -61,12 +64,38 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
     commit()
   }
 
-  // Once a committed render exists and isn't stale (no render in flight),
-  // every unfocused slot's own DOM text can be hidden -- the canvas is
-  // showing the real thing. While a render is in flight, the canvas still
-  // shows the *previous* commit, so hiding text now would blank a slot's
-  // glyphs for the gap between blur and that render finishing.
-  const textCommitted = bytes !== null && !isRendering
+  // A failed render is surfaced rather than silently dropped -- otherwise
+  // the edit that failed to render would just vanish (see isSlotCommitted:
+  // bytes/renderedSlots don't advance on failure, so the DOM text for the
+  // slot that failed stays visible on its own; this toast is what tells the
+  // user *why* the canvas didn't just update).
+  useEffect(() => {
+    if (error) toast.error(error.message || 'Failed to render the PDF.')
+  }, [error])
+
+  // Tracks which exact `bytes` value pdf.js has actually finished painting
+  // -- rendering (renderPdf resolving) and painting (pdf.js loading +
+  // drawing that page) are two separate async stages, so `bytes` having
+  // changed is not by itself proof the canvas shows it yet.
+  const [paintedBytes, setPaintedBytes] = useState<Uint8Array | null>(null)
+  useEffect(() => {
+    setPaintedBytes(null)
+  }, [doc.id])
+  const isPainted = bytes !== null && paintedBytes === bytes
+
+  // Per-slot, not a single page-wide flag: `renderPdf` always re-renders
+  // every slot on the page, so gating on "is *a* render in flight" would
+  // hide-then-reshow every OTHER already-committed slot's DOM text (over
+  // its own still-correct, unchanged canvas glyphs -- a double-struck
+  // flash) merely because a *different* slot is mid-edit. `applyUpdateSlot`
+  // only replaces the one edited slot's object; every other slot keeps its
+  // reference, so comparing by identity against the slot array that
+  // `bytes` was actually rendered from tells each slot, independently,
+  // whether *its own* current content is what's painted.
+  const isSlotCommitted = (slot: Slot): boolean => {
+    if (!isPainted || !renderedSlots) return false
+    return renderedSlots.find((s) => s.id === slot.id) === slot
+  }
 
   // Set right before a canvas click creates a new slot, so the SlotOverlay
   // that mounts for it knows to grab focus once. addSlot() itself returns
@@ -104,12 +133,23 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
       if (!isModified || event.key.toLowerCase() !== 'z') return
       if (event.target instanceof HTMLTextAreaElement) return
       event.preventDefault()
-      if (event.shiftKey) redo()
-      else undo()
+      // commit() reads the current slots through a ref that useCommitRender
+      // updates during its own render (see pipeline/useCommitRender.ts) --
+      // it does NOT read React state directly. undo()/redo() schedule a
+      // state update that, left alone, applies asynchronously, so calling
+      // commit() right after them would still see the PRE-undo slots and
+      // render/paint the wrong content while the store itself had already
+      // moved on. flushSync forces that update (and this component's
+      // re-render, which refreshes the ref) to happen synchronously first.
+      flushSync(() => {
+        if (event.shiftKey) redo()
+        else undo()
+      })
+      commit()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [undo, redo])
+  }, [undo, redo, commit])
 
   if (!page) return null
 
@@ -124,7 +164,13 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
           not a separate approximation of it. Before the first commit, the
           canvas still shows the unedited source PDF.
         */}
-        <PageCanvas bytes={bytes ?? doc.source} pageIndex={pageIndex} zoom={zoom} onCanvasClick={handleCanvasClick} />
+        <PageCanvas
+          bytes={bytes ?? doc.source}
+          pageIndex={pageIndex}
+          zoom={zoom}
+          onCanvasClick={handleCanvasClick}
+          onRendered={setPaintedBytes}
+        />
         {/*
           pointerEvents: 'none' on this wrapper (and 'auto' on each
           SlotOverlay below) is what lets a click on empty canvas fall
@@ -147,7 +193,7 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
                 onSelect={() => store.select(slot.id)}
                 onChange={(patch) => store.updateSlot(slot.id, patch)}
                 onCommit={handleCommit}
-                textCommitted={textCommitted}
+                textCommitted={isSlotCommitted(slot)}
               />
             ))}
         </div>

@@ -82,6 +82,14 @@ export function SlotOverlay({
   const dragRef = useRef<DragState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [focused, setFocused] = useState(false)
+  // Armed right before the drag-promotion blur below, so that blur's own
+  // onBlur handler can tell "I was blurred to stop fighting a drag" apart
+  // from "the user actually clicked/tabbed away" -- only the latter should
+  // call onCommit(). Without this, a move-drag fired onCommit() twice (once
+  // mid-drag from this blur, once for real at gesture end), paying for two
+  // full renders (font subsetting included) per drag and splitting one
+  // gesture into two undo entries.
+  const suppressNextBlurCommitRef = useRef(false)
 
   useEffect(() => {
     if (autoFocus) {
@@ -159,6 +167,7 @@ export function SlotOverlay({
           origin: pending.origin,
         }
         onSelect()
+        suppressNextBlurCommitRef.current = true
         textareaRef.current?.blur()
       }
     }
@@ -265,6 +274,13 @@ export function SlotOverlay({
         onChange={handleTextChange}
         onBlur={() => {
           setFocused(false)
+          if (suppressNextBlurCommitRef.current) {
+            // This blur was fired programmatically to clear the caret for
+            // an in-progress drag, not by the user leaving the field --
+            // the drag's own pointerup (endDrag) is the real commit point.
+            suppressNextBlurCommitRef.current = false
+            return
+          }
           onCommit()
         }}
         // Selecting on focus (rather than only from a drag/resize gesture)
