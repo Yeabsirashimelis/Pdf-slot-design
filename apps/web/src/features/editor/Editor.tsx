@@ -15,6 +15,8 @@ import { PageCanvas } from './canvas/PageCanvas'
 import type { LogicalPoint } from './canvas/coordinates'
 import { useEditorStore } from './state/useEditorStore'
 import { SlotOverlay } from './overlay/SlotOverlay'
+import { useCommitRender } from './pipeline/useCommitRender'
+import { Toolbar } from './toolbar/Toolbar'
 
 /** Metrics for every bundled face, built once the font bytes are loaded. */
 function useFontMetrics(): Record<FontId, FontMetrics> | null {
@@ -46,6 +48,25 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
   const [pageIndex] = useState(0)
   const store = useEditorStore()
   const fontMetrics = useFontMetrics()
+  const { bytes, isRendering, commit } = useCommitRender(doc, store.slots)
+
+  // The single wiring point for "an edit committed": store.commitEdit()
+  // closes the undo boundary (Task 13/14's concern) and commit() re-renders
+  // the real PDF from the now-final slots (this task's). Both fire from the
+  // same trigger -- a slot's textarea blurring, or a drag/resize gesture
+  // ending -- so they're combined here rather than making every caller
+  // remember to invoke both.
+  const handleCommit = () => {
+    store.commitEdit()
+    commit()
+  }
+
+  // Once a committed render exists and isn't stale (no render in flight),
+  // every unfocused slot's own DOM text can be hidden -- the canvas is
+  // showing the real thing. While a render is in flight, the canvas still
+  // shows the *previous* commit, so hiding text now would blank a slot's
+  // glyphs for the gap between blur and that render finishing.
+  const textCommitted = bytes !== null && !isRendering
 
   // Set right before a canvas click creates a new slot, so the SlotOverlay
   // that mounts for it knows to grab focus once. addSlot() itself returns
@@ -93,32 +114,43 @@ export function Editor({ doc, zoom = 1 }: { doc: EditorDocument; zoom?: number }
   if (!page) return null
 
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
-      <PageCanvas bytes={doc.source} pageIndex={pageIndex} zoom={zoom} onCanvasClick={handleCanvasClick} />
-      {/*
-        pointerEvents: 'none' on this wrapper (and 'auto' on each
-        SlotOverlay below) is what lets a click on empty canvas fall
-        through to PageCanvas's own onClick instead of being swallowed by
-        an overlay layer that covers the whole page.
-      */}
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-        {fontMetrics &&
-          pageSlots.map((slot) => (
-            <SlotOverlay
-              key={slot.id}
-              slot={slot}
-              viewport={viewport}
-              metrics={fontMetrics[slot.fontId]}
-              selected={store.selectedId === slot.id}
-              autoFocus={pendingFocusRef.current && store.selectedId === slot.id}
-              onFocused={() => {
-                pendingFocusRef.current = false
-              }}
-              onSelect={() => store.select(slot.id)}
-              onChange={(patch) => store.updateSlot(slot.id, patch)}
-              onCommit={store.commitEdit}
-            />
-          ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-start' }}>
+      <Toolbar bytes={bytes} isRendering={isRendering} />
+      <div style={{ position: 'relative', display: 'inline-block' }}>
+        {/*
+          Once a commit has produced real output bytes, those bytes -- not
+          doc.source -- are what pdf.js paints: from this point on the
+          preview literally is a picture of the file a download would save,
+          not a separate approximation of it. Before the first commit, the
+          canvas still shows the unedited source PDF.
+        */}
+        <PageCanvas bytes={bytes ?? doc.source} pageIndex={pageIndex} zoom={zoom} onCanvasClick={handleCanvasClick} />
+        {/*
+          pointerEvents: 'none' on this wrapper (and 'auto' on each
+          SlotOverlay below) is what lets a click on empty canvas fall
+          through to PageCanvas's own onClick instead of being swallowed by
+          an overlay layer that covers the whole page.
+        */}
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          {fontMetrics &&
+            pageSlots.map((slot) => (
+              <SlotOverlay
+                key={slot.id}
+                slot={slot}
+                viewport={viewport}
+                metrics={fontMetrics[slot.fontId]}
+                selected={store.selectedId === slot.id}
+                autoFocus={pendingFocusRef.current && store.selectedId === slot.id}
+                onFocused={() => {
+                  pendingFocusRef.current = false
+                }}
+                onSelect={() => store.select(slot.id)}
+                onChange={(patch) => store.updateSlot(slot.id, patch)}
+                onCommit={handleCommit}
+                textCommitted={textCommitted}
+              />
+            ))}
+        </div>
       </div>
     </div>
   )

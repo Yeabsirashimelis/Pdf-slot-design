@@ -3,7 +3,7 @@
 // space), and shadcn has no equivalent component. See CLAUDE.md.
 'use client'
 
-import { useEffect, useRef, type ChangeEvent, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
 import {
   FONT_CSS_FAMILY,
   KERNING_APPLIED,
@@ -48,6 +48,7 @@ export function SlotOverlay({
   onSelect,
   onChange,
   onCommit,
+  textCommitted = false,
 }: {
   slot: Slot
   viewport: Viewport
@@ -61,6 +62,15 @@ export function SlotOverlay({
   onChange(patch: Partial<Slot>): void
   /** Ends the current gesture (drag, resize, or text edit), closing its undo boundary. */
   onCommit(): void
+  /**
+   * True once the on-canvas render (pdf.js painting the real, committed PDF
+   * bytes) reflects this slot's current text. While true and the slot isn't
+   * focused, this overlay renders only its border/handles -- the glyphs the
+   * user sees are the canvas's, not a DOM approximation of them. Rendering
+   * both at once would show two overlapping (and not necessarily
+   * pixel-identical) copies of the same text.
+   */
+  textCommitted?: boolean
 }) {
   // A pointerdown on the body arms `pendingRef` without committing to
   // anything yet -- the textarea sits on top of (and covers) the entire
@@ -71,6 +81,7 @@ export function SlotOverlay({
   const pendingRef = useRef<PendingPointer | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [focused, setFocused] = useState(false)
 
   useEffect(() => {
     if (autoFocus) {
@@ -104,6 +115,11 @@ export function SlotOverlay({
   const screenOrigin = toScreenPoint({ x: slot.x, y: slot.y }, viewport)
   const screenWidth = toScreenLength(slot.width, viewport)
   const screenHeight = toScreenLength(boxHeight, viewport)
+
+  // While focused, the canvas is necessarily stale (it reflects the last
+  // *committed* text, not each keystroke), so this slot's own DOM text stays
+  // the source of truth for live feedback until it commits again.
+  const hideDomText = textCommitted && !focused
 
   const endDrag = (pointerId: number) => {
     const drag = dragRef.current
@@ -213,7 +229,7 @@ export function SlotOverlay({
         boxSizing: 'border-box',
       }}
     >
-      <SlotLines slot={slot} lines={lines} viewport={viewport} metrics={metrics} />
+      {!hideDomText && <SlotLines slot={slot} lines={lines} viewport={viewport} metrics={metrics} />}
       {/*
         Invisible input surface layered over the rendered lines: its own
         text is transparent (only the caret is visible), so the glyphs the
@@ -247,12 +263,18 @@ export function SlotOverlay({
         ref={textareaRef}
         value={slot.text}
         onChange={handleTextChange}
-        onBlur={onCommit}
+        onBlur={() => {
+          setFocused(false)
+          onCommit()
+        }}
         // Selecting on focus (rather than only from a drag/resize gesture)
         // is what makes a plain click on an unselected slot show it as
         // selected (border, resize handle) even though the click's own
         // pointerdown never crosses the drag threshold.
-        onFocus={onSelect}
+        onFocus={() => {
+          setFocused(true)
+          onSelect()
+        }}
         spellCheck={false}
         style={{
           position: 'absolute',
