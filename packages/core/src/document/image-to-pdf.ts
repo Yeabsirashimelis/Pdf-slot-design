@@ -18,6 +18,13 @@ export async function imageToPdf(image: EncodedImage): Promise<Uint8Array> {
     ? await doc.embedPng(image.bytes)
     : await doc.embedJpg(image.bytes)
 
-  page.drawImage(embedded, { x: 0, y: 0, width: size.width, height: size.height })
+  // Scale image to fit within the page while preserving aspect ratio
+  const scale = Math.min(size.width / image.width, size.height / image.height)
+  const drawW = image.width * scale
+  const drawH = image.height * scale
+  const x = (size.width - drawW) / 2
+  const y = (size.height - drawH) / 2
+
+  page.drawImage(embedded, { x, y, width: drawW, height: drawH })
   return doc.save()
 }
