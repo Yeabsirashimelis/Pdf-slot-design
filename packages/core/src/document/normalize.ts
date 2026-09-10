@@ -1,4 +1,5 @@
 import { EncryptedPDFError, PDFDocument } from '@cantoo/pdf-lib'
+import { displayedPageSize, normalizeRotation } from '../geometry/rotation'
 import { EncryptedPdfError, InvalidPdfError, type EditorDocument } from './types'
 
 const PDF_HEADER = [0x25, 0x50, 0x44, 0x46] // %PDF
@@ -21,10 +22,12 @@ export async function normalizePdf(bytes: Uint8Array, id: string): Promise<Edito
     return {
       id,
       source: bytes,
-      pages: doc.getPages().map((p) => {
-        const { width, height } = p.getSize()
-        return { width, height }
-      }),
+      // The size the page is *displayed* at, `/Rotate` applied -- the same
+      // page pdf.js paints on the canvas and the user places slots on. See
+      // geometry/rotation.ts for the two spaces involved.
+      pages: doc
+        .getPages()
+        .map((p) => displayedPageSize(p.getSize(), normalizeRotation(p.getRotation().angle))),
     }
   } catch (cause) {
     // @cantoo/pdf-lib exports EncryptedPDFError as part of its public API

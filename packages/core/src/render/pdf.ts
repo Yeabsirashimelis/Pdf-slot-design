@@ -1,4 +1,4 @@
-import { PDFDocument, rgb } from '@cantoo/pdf-lib'
+import { PDFDocument, degrees, rgb } from '@cantoo/pdf-lib'
 // fontkit@2.0.4's ESM build has no default export; its named exports
 // (`create`, notably) satisfy @cantoo/pdf-lib's structural `Fontkit`
 // interface directly via a namespace import. Never `@pdf-lib/fontkit`:
@@ -7,6 +7,7 @@ import { PDFDocument, rgb } from '@cantoo/pdf-lib'
 import * as fontkit from 'fontkit'
 import type { EditorDocument, Slot } from '../document/types'
 import type { FontBytes, FontId } from '../fonts/registry'
+import { normalizeRotation, toUnrotatedPoint } from '../geometry/rotation'
 import { createFontMetrics } from '../layout/metrics'
 import { layoutText } from '../layout/wrap'
 
@@ -54,11 +55,19 @@ export async function renderPdf(
       slotMetrics,
     )
 
+    // Slots (and so `lines`) are in the page's *displayed* space; the
+    // content stream is in its unrotated user space. Map each baseline
+    // origin across and turn the text by the same angle, so it reads
+    // upright once a viewer applies `/Rotate` -- see geometry/rotation.ts.
+    const rotation = normalizeRotation(page.getRotation().angle)
+    const unrotatedSize = page.getSize()
     for (const line of lines) {
       if (line.text === '') continue
+      const origin = toUnrotatedPoint({ x: line.x, y: line.baselineY }, unrotatedSize, rotation)
       page.drawText(line.text, {
-        x: line.x,
-        y: line.baselineY,
+        x: origin.x,
+        y: origin.y,
+        rotate: degrees(rotation),
         size: slot.size,
         font,
         color: rgb(slot.color.r, slot.color.g, slot.color.b),

@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { PDFDocument } from '@cantoo/pdf-lib'
+import { PDFDocument, degrees } from '@cantoo/pdf-lib'
 import { expect, test, vi } from 'vitest'
 import { renderPdf } from '../src/render/pdf.js'
 import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { normalizePdf } from '../src/document/normalize.js'
 import type { Slot } from '../src/document/types.js'
+import { createFontMetrics } from '../src/layout/metrics.js'
 import { extractContentStreamText, requireContentStreamText } from './helpers/content-stream.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
@@ -136,4 +137,50 @@ test('font metrics are parsed once per fontId, not once per slot', async () => {
   } finally {
     spy.mockRestore()
   }
+})
+
+/**
+ * Reads every text matrix pdf-lib wrote immediately before a `Tj`, as the
+ * six numbers of the `Tm` operator. The first four are the rotation part
+ * (cos, sin, -sin, cos) and the last two the position -- so this tells
+ * both *where* and *in which direction* the export drew each line.
+ */
+function extractTextMatrices(streamText: string): number[][] {
+  const tmThenTj = /([\d.e-]+) ([\d.e-]+) ([\d.e-]+) ([\d.e-]+) ([\d.e-]+) ([\d.e-]+) Tm\s*\n<[0-9A-F]*> Tj/g
+  return Array.from(streamText.matchAll(tmThenTj), (m) => m.slice(1, 7).map(Number))
+}
+
+test('on a /Rotate 90 page, text is drawn where the user placed it on the displayed page', async () => {
+  // The slot model is in *displayed* page space (what the canvas shows and
+  // the user clicks on); the page's content stream is in its unrotated
+  // user space. Without mapping between the two, a slot placed on a
+  // rotated page exports a quarter turn off, somewhere else on the page.
+  const d = await PDFDocument.create()
+  d.addPage([612, 792]).setRotation(degrees(90))
+  const doc = await normalizePdf(await d.save(), 'rotated')
+  expect(doc.pages[0]).toEqual({ width: 792, height: 612 })
+
+  // 100pt from the left edge, 500pt up from the bottom of the *displayed*
+  // (landscape) page. Rotation 90 turns that into unrotated
+  // (612 - 500, 100) = (112, 100), with the baseline running "up" the
+  // unrotated page so it reads left-to-right once the viewer rotates it.
+  const out = await renderPdf(doc, [slot({ x: 100, y: 500, text: 'Hi' })], fonts)
+  const [tm] = extractTextMatrices(requireContentStreamText(out))
+  expect(tm).toBeDefined()
+  const [a, b, c, dd, x, y] = tm!
+  expect(a).toBeCloseTo(0, 6)
+  expect(b).toBeCloseTo(1, 6)
+  expect(c).toBeCloseTo(-1, 6)
+  expect(dd).toBeCloseTo(0, 6)
+  // y is the baseline: slot top (500) minus the face's ascender at 14pt.
+  expect(x).toBeCloseTo(612 - (500 - createFontMetrics(fonts.sans).ascender(14)), 2)
+  expect(y).toBeCloseTo(100, 2)
+})
+
+test('on an unrotated page the text matrix stays the identity rotation', async () => {
+  const out = await renderPdf(await blankDoc(), [slot({ x: 100, y: 500, text: 'Hi' })], fonts)
+  const [tm] = extractTextMatrices(requireContentStreamText(out))
+  const [a, b, c, dd, x] = tm!
+  expect([a, b, c, dd]).toEqual([1, 0, 0, 1])
+  expect(x).toBeCloseTo(100, 2)
 })

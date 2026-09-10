@@ -1,4 +1,4 @@
-import { PDFDocument } from '@cantoo/pdf-lib'
+import { PDFDocument, degrees } from '@cantoo/pdf-lib'
 import { expect, test } from 'vitest'
 import { normalizePdf } from '../src/document/normalize.js'
 import { InvalidPdfError } from '../src/document/types.js'
@@ -44,4 +44,19 @@ test('rejects truncated PDF bytes as invalid', async () => {
   // detection logic are exercised by manual verification instead (see
   // Task 13), not by this suite.
   await expect(normalizePdf(bytes.slice(0, 20), 'x')).rejects.toBeInstanceOf(InvalidPdfError)
+})
+
+test('reports the size the page is displayed at, not its unrotated media box', async () => {
+  // A portrait media box with /Rotate 90 is shown landscape -- by every
+  // viewer, and by pdf.js on the editor's canvas. The overlay positions
+  // slots against the canvas, so the size it is told must be the shown
+  // one, or every slot lands on a page that isn't there.
+  const doc = await PDFDocument.create()
+  doc.addPage([612, 792]).setRotation(degrees(90))
+  doc.addPage([612, 792]).setRotation(degrees(180))
+  doc.addPage([612, 792]).setRotation(degrees(-90))
+  const d = await normalizePdf(await doc.save(), 'rotated')
+  expect(d.pages[0]).toEqual({ width: 792, height: 612 })
+  expect(d.pages[1]).toEqual({ width: 612, height: 792 })
+  expect(d.pages[2]).toEqual({ width: 792, height: 612 })
 })
