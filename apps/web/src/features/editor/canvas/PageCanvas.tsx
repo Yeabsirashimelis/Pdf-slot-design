@@ -51,14 +51,28 @@ export function PageCanvas({
       const dpr = window.devicePixelRatio || 1
       const viewport = page.getViewport({ scale: zoom * dpr })
 
+      // Painted offscreen, then copied across in one step. Setting
+      // `canvas.width` wipes a canvas, and pdf.js only starts drawing once
+      // the worker has produced the page's operator list -- so painting
+      // straight into the on-screen canvas blanked the whole page for a
+      // few frames on every commit (each one hands this component fresh
+      // bytes), a visible blink each time an edit landed. The visible
+      // canvas now keeps showing the previous page until the new one is
+      // complete, and the resize + drawImage below run in the same task,
+      // so there is never a frame with nothing on it.
+      const offscreen = document.createElement('canvas')
+      offscreen.width = viewport.width
+      offscreen.height = viewport.height
+      renderTask = page.render({ canvas: offscreen, viewport })
+      await renderTask.promise
+      if (cancelled) return
+
       canvas.width = viewport.width
       canvas.height = viewport.height
       canvas.style.width = `${viewport.width / dpr}px`
       canvas.style.height = `${viewport.height / dpr}px`
-
-      renderTask = page.render({ canvas, viewport })
-      await renderTask.promise
-      if (!cancelled) onRendered?.(bytes)
+      canvas.getContext('2d')?.drawImage(offscreen, 0, 0)
+      onRendered?.(bytes)
     })().catch((err) => {
       // Cancelling the previous render (below) rejects its promise with a
       // benign RenderingCancelledException -- only unexpected failures are
