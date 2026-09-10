@@ -135,6 +135,24 @@ export function Editor({
     commit()
   }
 
+  // A restored session (Task 18) arrives with slots but no render: every
+  // other way slots come to exist passes through a commit boundary (blur,
+  // drag end, a toolbar control), but seeding the store from IndexedDB
+  // does not. Left alone, `bytes` stayed null until the user's next edit,
+  // so the preview showed DOM text over the *source* canvas and Download
+  // -- with nothing in flight for flush() to wait on -- fell through to
+  // doc.source and saved the original file with none of the user's text.
+  // Rendering once on mount puts a restored session in the same state a
+  // fresh edit leaves behind: the canvas is a picture of the download.
+  // Keyed on `initialSlots` identity (page.tsx holds it in state, so it is
+  // stable across re-renders) rather than on `store.slots`, which is a
+  // fresh array on every keystroke. commit() reads the slots through
+  // useCommitRender's ref, which that hook's own deps-less effect has
+  // already synced by the time this one runs (it is declared earlier).
+  useEffect(() => {
+    if (initialSlots && initialSlots.length > 0) commit()
+  }, [initialSlots, commit])
+
   // Toolbar's controls (Task 17) change a slot and commit in the very same
   // click handler, with no render in between -- unlike SlotOverlay's
   // onChange/onCommit, which are always separated by further

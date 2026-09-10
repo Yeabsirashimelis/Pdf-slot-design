@@ -214,6 +214,68 @@ describe('Editor: debounced session persistence', () => {
       expect(slotDiv).not.toBeNull()
     })
   })
+
+  it('downloads the restored slots, not the unedited source, when nothing was touched since the reload', async () => {
+    // The bug this pins: a restored session seeded the store with slots but
+    // never committed them, so `bytes` stayed null until the next blur or
+    // drag end. Reload, press Download with no textarea focused -> nothing
+    // in flight for flush() to wait on -> handleDownload fell through to
+    // doc.source and saved the original file with none of the user's text.
+    const { Editor } = await import('../src/features/editor/Editor')
+
+    const doc = makeDoc()
+    const restoredSlot: Slot = {
+      id: 'restored-slot',
+      page: 0,
+      x: 50,
+      y: 700,
+      width: 200,
+      text: 'Restored text',
+      fontId: 'sans',
+      size: 14,
+      color: { r: 0, g: 0, b: 0 },
+      align: 'left',
+      lineHeight: 1.2,
+    }
+    const renderedOutput = new Uint8Array([42, 42, 42, 42])
+    renderPdfMock.mockReset()
+    renderPdfMock.mockResolvedValue(renderedOutput)
+
+    const captured: { blobParts: unknown[] | null } = { blobParts: null }
+    const anchorClick = vi.fn()
+    class FakeURL extends URL {
+      static createObjectURL = vi.fn(() => 'blob:fake-url')
+      static revokeObjectURL = vi.fn()
+    }
+    vi.stubGlobal('URL', FakeURL)
+    class FakeBlob {
+      constructor(parts: unknown[]) {
+        captured.blobParts = parts
+      }
+    }
+    vi.stubGlobal('Blob', FakeBlob)
+    const originalCreateElement = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = originalCreateElement(tag)
+      if (tag === 'a') el.click = anchorClick
+      return el
+    })
+
+    const { container } = render(createElement(Editor, { doc, initialSlots: [restoredSlot] }))
+
+    // The restored slots are rendered on mount, with exactly those slots.
+    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(1))
+    expect(renderPdfMock.mock.calls[0][1]).toEqual([restoredSlot])
+
+    // No click on the page, no typing, no blur: straight to Download.
+    const downloadButton = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
+    fireEvent.click(downloadButton)
+    await waitFor(() => expect(captured.blobParts).not.toBeNull())
+
+    expect((captured.blobParts as unknown[])[0]).toBe(renderedOutput)
+    expect((captured.blobParts as unknown[])[0]).not.toBe(doc.source)
+    expect(anchorClick).toHaveBeenCalledTimes(1)
+  })
 })
 
 /**
