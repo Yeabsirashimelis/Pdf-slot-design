@@ -235,8 +235,19 @@ export function SlotOverlay({
         height: screenHeight,
         pointerEvents: 'auto',
         cursor: 'move',
-        border: selected ? '1px solid #0070f3' : '1px solid transparent',
-        boxSizing: 'border-box',
+        // An outline (drawn inward), NOT a border. Absolutely positioned
+        // children -- the textarea at `inset: 0` and SlotLines' spans --
+        // are placed against this box's *padding* box, and a border (even
+        // a transparent one) shrinks that by its width on every side. That
+        // left the textarea 2px narrower and shorter than the slot
+        // `layoutText` laid out: it wrapped a row earlier than the spans
+        // and then scrolled internally to keep its caret visible, which is
+        // the caret/line jump seen while typing. It also shifted every
+        // glyph 1px right and down from the slot's true origin. An outline
+        // paints over the box without taking part in layout, so all three
+        // (box, textarea, spans) keep exactly the same rectangle.
+        outline: selected ? '1px solid #0070f3' : 'none',
+        outlineOffset: -1,
       }}
     >
       {!hideDomText && <SlotLines slot={slot} lines={lines} viewport={viewport} metrics={metrics} />}
