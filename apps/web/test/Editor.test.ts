@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { createElement } from 'react'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorDocument, Slot } from '@pdf-slot/core'
 
@@ -269,5 +269,73 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     await waitFor(() => {
       expect(slotDiv?.querySelectorAll('span').length).toBe(0)
     })
+  })
+
+  it('keeps an untouched slot on the canvas while another slot\'s commit is still painting', async () => {
+    // Between a commit's bytes landing and pdf.js finishing painting them,
+    // the canvas still shows the *previous* render. A slot that did not
+    // change between the two is drawn correctly on that canvas already --
+    // re-showing its DOM text for the duration is a double-struck blink
+    // of every committed slot on every commit. Only the slot whose own
+    // content changed has anything to show in that window.
+    const { Editor } = await import('../src/features/editor/Editor')
+
+    const doc = makeDoc()
+    renderPdfMock.mockImplementation(async (_doc, slots) => new Uint8Array([slots.length, 7, 7]))
+
+    // Paints: #1 is doc.source on mount, #2 slot A's commit, #3 slot B's.
+    // From the third on, the paint is held open until released.
+    let releasePaint: (() => void) | null = null
+    let paints = 0
+    getDocumentMock.mockImplementation(() => ({
+      promise: Promise.resolve({
+        getPage: vi.fn(async () => ({
+          getViewport: () => ({ width: 100, height: 100 }),
+          render: () => {
+            paints += 1
+            const promise =
+              paints < 3
+                ? Promise.resolve()
+                : new Promise<void>((resolve) => {
+                    releasePaint = resolve
+                  })
+            return { promise, cancel: vi.fn() }
+          },
+        })),
+      }),
+      destroy: vi.fn(),
+    }))
+
+    const { container } = render(createElement(Editor, { doc }))
+
+    // Slot A: place, type, commit, and wait until the canvas shows it.
+    const textareaA = await placeAndTypeIntoASlot(container, 'first')
+    fireEvent.blur(textareaA)
+    const slotA = textareaA.closest('[data-slot-id]') as HTMLElement
+    await waitFor(() => expect(slotA.querySelectorAll('span').length).toBe(0))
+
+    // Slot B: place and commit. Its paint is now held open.
+    const canvas = container.querySelector('canvas') as HTMLCanvasElement
+    fireEvent.click(canvas, { clientX: 200, clientY: 200 })
+    const textareaB = await waitFor(() => {
+      const all = container.querySelectorAll('textarea')
+      if (all.length < 2) throw new Error('second slot not mounted yet')
+      return all[1] as HTMLTextAreaElement
+    })
+    fireEvent.change(textareaB, { target: { value: 'second' } })
+    fireEvent.blur(textareaB)
+    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(releasePaint).not.toBeNull())
+
+    // Mid-paint: B (changed) shows its DOM text; A (unchanged) must not.
+    const slotB = textareaB.closest('[data-slot-id]') as HTMLElement
+    expect(slotB.querySelectorAll('span').length).toBeGreaterThan(0)
+    expect(slotA.querySelectorAll('span').length).toBe(0)
+
+    await act(async () => {
+      releasePaint!()
+    })
+    await waitFor(() => expect(slotB.querySelectorAll('span').length).toBe(0))
+    expect(slotA.querySelectorAll('span').length).toBe(0)
   })
 })

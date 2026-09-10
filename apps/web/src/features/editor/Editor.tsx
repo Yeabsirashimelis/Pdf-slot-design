@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import {
@@ -227,14 +227,27 @@ export function Editor({
     if (error) toast.error(error.message || 'Failed to render the PDF.')
   }, [error])
 
-  // Tracks which exact `bytes` value pdf.js has actually finished painting
-  // -- rendering (renderPdf resolving) and painting (pdf.js loading +
-  // drawing that page) are two separate async stages, so `bytes` having
-  // changed is not by itself proof the canvas shows it yet.
-  const [paintedBytes, setPaintedBytes] = useState<Uint8Array | null>(null)
-  const isPainted = bytes !== null && paintedBytes === bytes
+  // Tracks the slot array the canvas *currently shows* -- rendering
+  // (renderPdf resolving) and painting (pdf.js loading + drawing that
+  // page) are two separate async stages, so `bytes`/`renderedSlots` having
+  // advanced is not by itself proof the canvas shows them yet. Recorded
+  // when PageCanvas reports the paint done: at that moment the painted
+  // bytes are still the current ones (PageCanvas cancels a paint the
+  // instant its bytes are superseded, and never reports a cancelled one),
+  // so `renderedSlots` is exactly the array those bytes came from. Read
+  // through a ref so `handlePainted` stays referentially stable -- it is
+  // in PageCanvas's effect deps, and a fresh identity per render would
+  // re-run that effect (and repaint the page) on every keystroke.
+  const [paintedSlots, setPaintedSlots] = useState<Slot[] | null>(null)
+  const renderedSlotsRef = useRef(renderedSlots)
+  useEffect(() => {
+    renderedSlotsRef.current = renderedSlots
+  })
+  const handlePainted = useCallback(() => {
+    setPaintedSlots(renderedSlotsRef.current)
+  }, [])
 
-  // A new document invalidates both of these: `paintedBytes` belonged to
+  // A new document invalidates both of these: `paintedSlots` belonged to
   // the old doc's canvas, and a newly loaded document may have fewer pages
   // than the one being replaced (pageIndex must not point past its end).
   // Adjusted synchronously during render -- comparing to the doc id this
@@ -242,12 +255,12 @@ export function Editor({
   // an effect (React's documented pattern for resetting state when a prop
   // changes: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
   // This avoids both the eslint-plugin-react-hooks `set-state-in-effect`
-  // warning and an extra render cycle where stale paintedBytes/pageIndex
+  // warning and an extra render cycle where stale paintedSlots/pageIndex
   // would briefly still be visible after the doc swap.
   const [resetForDocId, setResetForDocId] = useState(doc.id)
   if (doc.id !== resetForDocId) {
     setResetForDocId(doc.id)
-    setPaintedBytes(null)
+    setPaintedSlots(null)
     setPageIndex(0)
   }
 
@@ -257,12 +270,17 @@ export function Editor({
   // its own still-correct, unchanged canvas glyphs -- a double-struck
   // flash) merely because a *different* slot is mid-edit. `applyUpdateSlot`
   // only replaces the one edited slot's object; every other slot keeps its
-  // reference, so comparing by identity against the slot array that
-  // `bytes` was actually rendered from tells each slot, independently,
-  // whether *its own* current content is what's painted.
+  // reference, so comparing by identity against the slot array the canvas
+  // is actually *showing* tells each slot, independently, whether its own
+  // current content is what's painted. Against `paintedSlots`, not
+  // `renderedSlots`: between a commit's bytes landing and pdf.js finishing
+  // the paint, the canvas still shows the previous render -- and a slot
+  // unchanged since then is drawn correctly on it already. Gating on the
+  // newer array (or on "are the latest bytes painted yet") re-showed every
+  // committed slot's DOM text for that window, on every commit.
   const isSlotCommitted = (slot: Slot): boolean => {
-    if (!isPainted || !renderedSlots) return false
-    return renderedSlots.find((s) => s.id === slot.id) === slot
+    if (!paintedSlots) return false
+    return paintedSlots.find((s) => s.id === slot.id) === slot
   }
 
   // Set right before a canvas click creates a new slot, so the SlotOverlay
@@ -385,7 +403,7 @@ export function Editor({
           pageIndex={pageIndex}
           zoom={zoom}
           onCanvasClick={handleCanvasClick}
-          onRendered={setPaintedBytes}
+          onRendered={handlePainted}
         />
         {/*
           pointerEvents: 'none' on this wrapper (and 'auto' on each
