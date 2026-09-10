@@ -3,6 +3,7 @@
 import { useEffect, useRef, type MouseEvent } from 'react'
 import type { RenderTask } from 'pdfjs-dist'
 import { usePdfDocument } from './usePdfDocument'
+import { useDevicePixelRatio } from './useDevicePixelRatio'
 import { toLogicalPoint, type LogicalPoint } from './coordinates'
 
 export function PageCanvas({
@@ -29,6 +30,10 @@ export function PageCanvas({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pdf = usePdfDocument(bytes)
+  // Reactive, not read once inside the effect: browser zoom changes the
+  // ratio, and a backing store painted for the old one is stretched to
+  // fit -- the page went blurry after Ctrl +/- until the next commit.
+  const dpr = useDevicePixelRatio()
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -48,7 +53,6 @@ export function PageCanvas({
       // then dividing the CSS size back out is what keeps the page sharp
       // when zoomed on a retina display while the overlay still speaks
       // logical pixels -- `devicePixelRatio` never leaves this file.
-      const dpr = window.devicePixelRatio || 1
       const viewport = page.getViewport({ scale: zoom * dpr })
 
       // Painted offscreen, then copied across in one step. Setting
@@ -84,7 +88,7 @@ export function PageCanvas({
       cancelled = true
       renderTask?.cancel()
     }
-  }, [pdf, pageIndex, zoom, bytes, onRendered])
+  }, [pdf, pageIndex, zoom, dpr, bytes, onRendered])
 
   const handleClick = (event: MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
