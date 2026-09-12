@@ -1,4 +1,4 @@
-import { PDFDocument, degrees, rgb } from '@cantoo/pdf-lib'
+import { PDFBool, PDFDocument, PDFName, PDFStream, degrees, rgb, type PDFPage } from '@cantoo/pdf-lib'
 // fontkit@2.0.4's ESM build has no default export; its named exports
 // (`create`, notably) satisfy @cantoo/pdf-lib's structural `Fontkit`
 // interface directly via a namespace import. Never `@pdf-lib/fontkit`:
@@ -14,13 +14,89 @@ import { layoutText } from '../layout/wrap'
 /** Fixed so identical input yields identical bytes. */
 const EPOCH = new Date(0)
 
+/**
+ * Key set on the dictionary of every content stream this tool adds to a
+ * page, so a later `renderPdfIncremental` can tell its own text apart from
+ * the document's original content and replace exactly that. Private keys
+ * in a stream dictionary are legal PDF (ISO 32000-1 §7.3.7 says readers
+ * ignore entries they don't recognise) and every viewer ignores this one.
+ */
+export const SLOT_STREAM_MARKER = 'PdfSlotText'
+
+/**
+ * From scratch: the original document plus every slot, written out as a
+ * whole new file. This is the render whose bytes the preview is proven
+ * against (see test/invariant.test.ts).
+ */
 export async function renderPdf(
   doc: EditorDocument, slots: Slot[], fonts: FontBytes,
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(doc.source)
+  await drawSlots(pdf, slots, fonts)
+  return finish(pdf, (p) => p.save({ useObjectStreams: false }))
+}
+
+/**
+ * On top of a file this tool already produced (or the untouched source):
+ * strips the text this tool drew before, draws the current slots, and
+ * appends only that as an incremental update -- `previous` comes back as
+ * an exact byte prefix of the result, the way "Save" (not "Export") works
+ * in every PDF editor. Far cheaper than re-writing a large scan on every
+ * download, and the original bytes are never rewritten.
+ *
+ * Equivalent to `renderPdf(source, slots)` in what is drawn (see
+ * test/incremental.test.ts), not in bytes: superseded streams and font
+ * subsets stay in the file as dead history, as with any incremental
+ * update. Fonts are re-embedded (subset) per increment rather than
+ * reusing an earlier embed, because a subset only carries the glyphs the
+ * earlier text used.
+ */
+export async function renderPdfIncremental(
+  previous: Uint8Array, slots: Slot[], fonts: FontBytes,
+): Promise<Uint8Array> {
+  const pdf = await PDFDocument.load(previous, { forIncrementalUpdate: true })
+  for (const page of pdf.getPages()) stripSlotStreams(pdf, page)
+  await drawSlots(pdf, slots, fonts)
+  return finish(pdf, (p) => p.save())
+}
+
+/** Removes this tool's earlier content streams from a page's Contents. */
+function stripSlotStreams(pdf: PDFDocument, page: PDFPage): void {
+  const contents = page.node.normalizedEntries().Contents
+  if (!contents) return
+  for (let i = contents.size() - 1; i >= 0; i--) {
+    const obj = pdf.context.lookup(contents.get(i))
+    if (obj instanceof PDFStream && obj.dict.has(PDFName.of(SLOT_STREAM_MARKER))) contents.remove(i)
+  }
+}
+
+/** Marks the content stream most recently added to `page` as this tool's. */
+function markLatestSlotStream(pdf: PDFDocument, page: PDFPage): void {
+  const contents = page.node.normalizedEntries().Contents
+  if (!contents || contents.size() === 0) return
+  const obj = pdf.context.lookup(contents.get(contents.size() - 1))
+  if (obj instanceof PDFStream) obj.dict.set(PDFName.of(SLOT_STREAM_MARKER), PDFBool.True)
+}
+
+async function finish(pdf: PDFDocument, save: (p: PDFDocument) => Promise<Uint8Array>): Promise<Uint8Array> {
+  // Pin every source of nondeterminism so repeated renders are byte-identical.
+  // No explicit `/ID` fix is needed alongside these: @cantoo/pdf-lib's
+  // generateRandomFileId() (core/security/PDFSecurity.js) is only reachable
+  // from convertToPDFA() and PDFSecurity's own encryption setup, neither of
+  // which this function calls, so plain save() never stamps a random /ID.
+  pdf.setCreationDate(EPOCH)
+  pdf.setModificationDate(EPOCH)
+  return save(pdf)
+}
+
+async function drawSlots(pdf: PDFDocument, slots: Slot[], fonts: FontBytes): Promise<void> {
   pdf.registerFontkit(fontkit)
 
   const pages = pdf.getPages()
+  // Pages this call drew on: each gets exactly one new content stream
+  // (pdf-lib creates it on the page's first drawText and reuses it after),
+  // which is marked once all drawing is done.
+  const touched = new Set<PDFPage>()
   const embedded = new Map<FontId, Awaited<ReturnType<typeof pdf.embedFont>>>()
   // Scoped to this render call only: createFontMetrics() re-parses the TTF
   // (~150-250 KB per face), so without this a document with many slots on
@@ -72,15 +148,9 @@ export async function renderPdf(
         font,
         color: rgb(slot.color.r, slot.color.g, slot.color.b),
       })
+      touched.add(page)
     }
   }
 
-  // Pin every source of nondeterminism so repeated renders are byte-identical.
-  // No explicit `/ID` fix is needed alongside these: @cantoo/pdf-lib's
-  // generateRandomFileId() (core/security/PDFSecurity.js) is only reachable
-  // from convertToPDFA() and PDFSecurity's own encryption setup, neither of
-  // which this function calls, so plain save() never stamps a random /ID.
-  pdf.setCreationDate(EPOCH)
-  pdf.setModificationDate(EPOCH)
-  return pdf.save({ useObjectStreams: false })
+  for (const page of touched) markLatestSlotStream(pdf, page)
 }
