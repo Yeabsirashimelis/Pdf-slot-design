@@ -21,12 +21,19 @@ import type { EditorDocument, Slot } from '@pdf-slot/core'
  */
 
 const renderPdfMock = vi.fn<(doc: EditorDocument, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
+// After a first output exists, later renders are increments on top of it
+// (see useCommitRender). Mocked to hand back fresh bytes per call so a
+// second commit in these tests produces a distinct `bytes` value.
+const renderPdfIncrementalMock =
+  vi.fn<(previous: Uint8Array, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
 
 vi.mock('@pdf-slot/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pdf-slot/core')>()
   return {
     ...actual,
     renderPdf: (...args: Parameters<typeof renderPdfMock>) => renderPdfMock(...args),
+    renderPdfIncremental: (...args: Parameters<typeof renderPdfIncrementalMock>) =>
+      renderPdfIncrementalMock(...args),
   }
 })
 
@@ -87,9 +94,19 @@ async function placeAndTypeIntoASlot(container: HTMLElement, text = 'Hello world
   return textarea
 }
 
+/**
+ * These run Editor in verification mode (`renderOnCommit: true`): every
+ * commit renders the real PDF and the canvas paints it. Off by default
+ * in the product (the overlay is the preview; one render on download),
+ * this mode is how the overlay is proven equal to the output.
+ */
 describe('Editor wiring: commit makes the canvas (not doc.source) the truth', () => {
   beforeEach(() => {
     renderPdfMock.mockReset()
+    renderPdfIncrementalMock.mockReset()
+    renderPdfIncrementalMock.mockImplementation(
+      async (previous, slots) => new Uint8Array([...previous, slots.length]),
+    )
     getDocumentMock.mockReset()
 
     vi.stubGlobal('FontFace', FakeFontFace)
@@ -142,7 +159,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
 
     const doc = makeDoc()
-    const { container } = render(createElement(Editor, { doc }))
+    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
 
     await waitFor(() => expect(errorSpy).toHaveBeenCalled())
     expect(String(errorSpy.mock.calls.at(-1)?.[0])).toMatch(/fonts/i)
@@ -159,7 +176,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     const renderedOutput = new Uint8Array([9, 9, 9, 9, 9])
     renderPdfMock.mockResolvedValue(renderedOutput)
 
-    const { container } = render(createElement(Editor, { doc }))
+    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
 
     const textarea = await placeAndTypeIntoASlot(container)
     fireEvent.blur(textarea)
@@ -188,7 +205,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     const doc = makeDoc()
     renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
 
-    const { container } = render(createElement(Editor, { doc }))
+    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
     const textarea = await placeAndTypeIntoASlot(container, 'Hello 日本語')
 
     // The button is `aria-disabled`, not natively `disabled` -- see the
@@ -224,7 +241,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     const doc = makeDoc()
     renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
 
-    const { container } = render(createElement(Editor, { doc }))
+    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
     await placeAndTypeIntoASlot(container, 'Name\tValue')
 
     await waitFor(() => {
@@ -239,7 +256,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     const doc = makeDoc()
     renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
 
-    const { container } = render(createElement(Editor, { doc }))
+    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
     // Newlines share the CJK case's glyph id 0 but are consumed by
     // layoutText and never drawn, so they must not block anything.
     const textarea = await placeAndTypeIntoASlot(container, 'Привет мир\nHello world')
@@ -256,7 +273,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     const doc = makeDoc()
     renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
 
-    const { container } = render(createElement(Editor, { doc }))
+    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
 
     const textarea = await placeAndTypeIntoASlot(container)
     fireEvent.blur(textarea)
@@ -281,7 +298,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     const { Editor } = await import('../src/features/editor/Editor')
 
     const doc = makeDoc()
-    renderPdfMock.mockImplementation(async (_doc, slots) => new Uint8Array([slots.length, 7, 7]))
+    renderPdfMock.mockResolvedValue(new Uint8Array([7, 7]))
 
     // Paints: #1 is doc.source on mount, #2 slot A's commit, #3 slot B's.
     // From the third on, the paint is held open until released.
@@ -306,7 +323,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
       destroy: vi.fn(),
     }))
 
-    const { container } = render(createElement(Editor, { doc }))
+    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
 
     // Slot A: place, type, commit, and wait until the canvas shows it.
     const textareaA = await placeAndTypeIntoASlot(container, 'first')
@@ -324,7 +341,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     })
     fireEvent.change(textareaB, { target: { value: 'second' } })
     fireEvent.blur(textareaB)
-    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(renderPdfIncrementalMock).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(releasePaint).not.toBeNull())
 
     // Mid-paint: B (changed) shows its DOM text; A (unchanged) must not.
@@ -337,5 +354,51 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     })
     await waitFor(() => expect(slotB.querySelectorAll('span').length).toBe(0))
     expect(slotA.querySelectorAll('span').length).toBe(0)
+  })
+
+  it('by default a commit renders nothing -- the one render happens on Download', async () => {
+    // The product mode (2026-09-12 direction): editing costs nothing, the
+    // overlay stays the preview, and pressing Download performs the single
+    // render of the current slots.
+    const { Editor } = await import('../src/features/editor/Editor')
+    const doc = makeDoc()
+    const renderedOutput = new Uint8Array([9, 9, 9])
+    renderPdfMock.mockResolvedValue(renderedOutput)
+
+    const captured: { blobParts: unknown[] | null } = { blobParts: null }
+    class FakeURL extends URL {
+      static createObjectURL = vi.fn(() => 'blob:fake-url')
+      static revokeObjectURL = vi.fn()
+    }
+    vi.stubGlobal('URL', FakeURL)
+    class FakeBlob {
+      constructor(parts: unknown[]) {
+        captured.blobParts = parts
+      }
+    }
+    vi.stubGlobal('Blob', FakeBlob)
+    const originalCreateElement = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = originalCreateElement(tag)
+      if (tag === 'a') el.click = vi.fn()
+      return el
+    })
+
+    const { container } = render(createElement(Editor, { doc }))
+    const textarea = await placeAndTypeIntoASlot(container, 'typed')
+    fireEvent.blur(textarea)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(renderPdfMock).not.toHaveBeenCalled()
+    // The overlay keeps showing the text: nothing else could.
+    const slotDiv = textarea.closest('[data-slot-id]') as HTMLElement
+    expect(slotDiv.querySelectorAll('span').length).toBeGreaterThan(0)
+
+    fireEvent.click(container.querySelector('[data-testid="download-button"]') as HTMLButtonElement)
+    await waitFor(() => expect(captured.blobParts).not.toBeNull())
+    expect(renderPdfMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfMock.mock.calls[0]![1][0]!.text).toBe('typed')
+    expect(captured.blobParts?.[0]).toBe(renderedOutput)
   })
 })

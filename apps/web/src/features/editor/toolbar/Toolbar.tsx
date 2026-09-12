@@ -17,7 +17,6 @@ import {
   FONT_LABELS,
   rgbToCss,
   type Align,
-  type EditorDocument,
   type FontId,
   type RGB,
   type Slot,
@@ -72,21 +71,18 @@ function sameColor(a: RGB, b: RGB): boolean {
 }
 
 export type ToolbarProps = {
-  /** Always available: an unedited document is still a legitimate download. */
-  doc: EditorDocument
-  /** The real, already-rendered output PDF, if a commit has happened yet. */
-  bytes: Uint8Array | null
   isRendering: boolean
   /**
-   * Settles any render already in flight and yields its bytes, so Download
-   * cannot save a stale file. Pressing Download blurs the focused textarea,
-   * and blur *is* the commit boundary: the mousedown starts `renderPdf`,
-   * and the click that follows would otherwise read a `bytes` prop that has
-   * not caught up -- `null` on a first edit, which fell through to
-   * `doc.source` and saved the document without the user's text in it. See
-   * `pipeline/useCommitRender.ts`'s `flush`.
+   * Produces the output PDF for the current slots -- the one render a
+   * download performs (from scratch the first time, an increment on top
+   * of the last output after that; reused as-is when nothing changed).
+   * Resolves `null` when rendering failed, in which case nothing is
+   * saved: the failure is already surfaced to the user by Editor's error
+   * toast, and silently handing out the source or a stale file instead
+   * would lose their edits without telling them. See
+   * `pipeline/useCommitRender.ts`'s `render`.
    */
-  flush(): Promise<Uint8Array | null>
+  render(): Promise<Uint8Array | null>
   /**
    * When non-null, Download is blocked and this explains why. Spec §8's
    * export gate: a slot containing characters no bundled face can encode
@@ -144,10 +140,8 @@ export type ToolbarProps = {
  * Popover, not a re-implementation of any shadcn primitive itself.
  */
 export function Toolbar({
-  doc,
-  bytes,
   isRendering,
-  flush,
+  render,
   downloadBlockedReason,
   slots,
   selectedId,
@@ -178,19 +172,10 @@ export function Toolbar({
 
   const handleDownload = async () => {
     if (downloadBlockedReason) return
-    // Wait for whatever this very click's own mousedown set going: blurring
-    // the focused textarea is the commit boundary, so a render is typically
-    // already in flight by the time the click lands, and `bytes` below is
-    // one render behind it. `flush()` resolves to those fresher bytes, or
-    // to null when nothing was in flight.
-    const rendered = await flush()
-    // Falls back to the unedited source: a user who uploads and
-    // immediately downloads without editing anything still gets a file,
-    // rather than a dead button (see task-17-brief.md's deferred-item
-    // fix). Otherwise the real output wins -- never re-derived, exactly
-    // like Task 16 required; `flush()` returns bytes an already-running
-    // `renderPdf` produced, it never starts one.
-    const data = rendered ?? bytes ?? doc.source
+    // An unedited upload is still a legitimate download: with no slots the
+    // render is just the source, re-saved.
+    const data = await render()
+    if (!data) return
     const blob = new Blob([data as Uint8Array<ArrayBuffer>], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

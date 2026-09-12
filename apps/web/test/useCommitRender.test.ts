@@ -11,10 +11,14 @@ import type { EditorDocument, Slot } from '@pdf-slot/core'
  */
 
 const renderPdfMock = vi.fn<(doc: EditorDocument, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
+const renderPdfIncrementalMock =
+  vi.fn<(previous: Uint8Array, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
 const loadFontBytesMock = vi.fn<() => Promise<unknown>>()
 
 vi.mock('@pdf-slot/core', () => ({
   renderPdf: (...args: Parameters<typeof renderPdfMock>) => renderPdfMock(...args),
+  renderPdfIncremental: (...args: Parameters<typeof renderPdfIncrementalMock>) =>
+    renderPdfIncrementalMock(...args),
 }))
 
 vi.mock('../src/lib/fonts/loadFonts', () => ({
@@ -55,6 +59,7 @@ function deferred<T>() {
 describe('useCommitRender', () => {
   beforeEach(() => {
     renderPdfMock.mockReset()
+    renderPdfIncrementalMock.mockReset()
     loadFontBytesMock.mockReset()
     loadFontBytesMock.mockResolvedValue(FONTS)
   })
@@ -81,7 +86,7 @@ describe('useCommitRender', () => {
     const output = new Uint8Array([9, 9, 9])
     renderPdfMock.mockResolvedValue(output)
 
-    const { result } = renderHook(() => useCommitRender(doc, slots))
+    const { result } = renderHook(() => useCommitRender(doc, slots, { renderOnCommit: true }))
 
     act(() => {
       result.current.commit()
@@ -105,9 +110,10 @@ describe('useCommitRender', () => {
     renderPdfMock.mockReturnValueOnce(slow.promise).mockReturnValueOnce(fast.promise)
 
     let slots: Slot[] = [makeSlot('s1', 'first')]
-    const { result, rerender } = renderHook(({ s }: { s: Slot[] }) => useCommitRender(doc, s), {
-      initialProps: { s: slots },
-    })
+    const { result, rerender } = renderHook(
+      ({ s }: { s: Slot[] }) => useCommitRender(doc, s, { renderOnCommit: true }),
+      { initialProps: { s: slots } },
+    )
 
     // First commit starts a render that will resolve LAST.
     act(() => {
@@ -157,9 +163,10 @@ describe('useCommitRender', () => {
     const slots = [makeSlot('s1')]
     renderPdfMock.mockResolvedValue(new Uint8Array([7]))
 
-    const { result, rerender } = renderHook(({ d }: { d: EditorDocument }) => useCommitRender(d, slots), {
-      initialProps: { d: docA },
-    })
+    const { result, rerender } = renderHook(
+      ({ d }: { d: EditorDocument }) => useCommitRender(d, slots, { renderOnCommit: true }),
+      { initialProps: { d: docA } },
+    )
 
     act(() => {
       result.current.commit()
@@ -169,5 +176,121 @@ describe('useCommitRender', () => {
     rerender({ d: docB })
 
     expect(result.current.bytes).toBeNull()
+
+    // And the next render for the new document starts from ITS source, not
+    // as an increment on top of the old document's output.
+    renderPdfMock.mockResolvedValue(new Uint8Array([8]))
+    await act(async () => {
+      await result.current.render()
+    })
+    expect(renderPdfIncrementalMock).not.toHaveBeenCalled()
+    expect(renderPdfMock).toHaveBeenLastCalledWith(docB, slots, FONTS)
+  })
+
+  it('commit() is a no-op unless render-on-commit is enabled -- editing costs nothing by default', async () => {
+    // Per the 2026-09-12 direction: the overlay is the preview, the PDF is
+    // generated once when the user asks for it. Rendering on every commit
+    // stays available as a verification mode (it is how the overlay was
+    // proven equal to the output), off by default.
+    const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
+    const { result } = renderHook(() => useCommitRender(makeDoc('doc-1'), [makeSlot('s1')]))
+
+    act(() => {
+      result.current.commit()
+    })
+
+    expect(result.current.isRendering).toBe(false)
+    expect(renderPdfMock).not.toHaveBeenCalled()
+    expect(renderPdfIncrementalMock).not.toHaveBeenCalled()
+  })
+
+  it('render(): from scratch the first time, then an increment on top of the last output', async () => {
+    const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
+    const doc = makeDoc('doc-1')
+    const first = new Uint8Array([1, 1, 1])
+    const second = new Uint8Array([1, 1, 1, 2, 2])
+    renderPdfMock.mockResolvedValue(first)
+    renderPdfIncrementalMock.mockResolvedValue(second)
+
+    const slotsA = [makeSlot('s1', 'one')]
+    const slotsB = [makeSlot('s1', 'two')]
+    const { result, rerender } = renderHook(({ s }: { s: Slot[] }) => useCommitRender(doc, s), {
+      initialProps: { s: slotsA },
+    })
+
+    let out: Uint8Array | null = null
+    await act(async () => {
+      out = await result.current.render()
+    })
+    expect(out).toBe(first)
+    expect(renderPdfMock).toHaveBeenCalledWith(doc, slotsA, FONTS)
+    expect(renderPdfIncrementalMock).not.toHaveBeenCalled()
+    expect(result.current.bytes).toBe(first)
+    expect(result.current.renderedSlots).toBe(slotsA)
+
+    rerender({ s: slotsB })
+    await act(async () => {
+      out = await result.current.render()
+    })
+    expect(renderPdfIncrementalMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfIncrementalMock).toHaveBeenCalledWith(first, slotsB, FONTS)
+    expect(renderPdfMock).toHaveBeenCalledTimes(1)
+    expect(out).toBe(second)
+    expect(result.current.bytes).toBe(second)
+    expect(result.current.renderedSlots).toBe(slotsB)
+  })
+
+  it('render() reuses the last output when the slots have not changed since', async () => {
+    // Two downloads in a row must not append an empty increment.
+    const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
+    const doc = makeDoc('doc-1')
+    const slots = [makeSlot('s1')]
+    const first = new Uint8Array([1, 1, 1])
+    renderPdfMock.mockResolvedValue(first)
+
+    const { result } = renderHook(() => useCommitRender(doc, slots))
+
+    let out: Uint8Array | null = null
+    await act(async () => {
+      out = await result.current.render()
+    })
+    await act(async () => {
+      out = await result.current.render()
+    })
+    expect(out).toBe(first)
+    expect(renderPdfMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfIncrementalMock).not.toHaveBeenCalled()
+  })
+
+  it('render() while a render is in flight waits for it, then increments on top if the slots moved on', async () => {
+    const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
+    const doc = makeDoc('doc-1')
+    const first = deferred<Uint8Array>()
+    const firstBytes = new Uint8Array([1])
+    const secondBytes = new Uint8Array([1, 2])
+    renderPdfMock.mockReturnValue(first.promise)
+    renderPdfIncrementalMock.mockResolvedValue(secondBytes)
+
+    const slotsA = [makeSlot('s1', 'one')]
+    const slotsB = [makeSlot('s1', 'two')]
+    const { result, rerender } = renderHook(
+      ({ s }: { s: Slot[] }) => useCommitRender(doc, s, { renderOnCommit: true }),
+      { initialProps: { s: slotsA } },
+    )
+
+    act(() => {
+      result.current.commit()
+    })
+    rerender({ s: slotsB })
+
+    let out: Uint8Array | null = null
+    const pending = act(async () => {
+      out = await result.current.render()
+    })
+    first.resolve(firstBytes)
+    await pending
+
+    expect(renderPdfIncrementalMock).toHaveBeenCalledWith(firstBytes, slotsB, FONTS)
+    expect(out).toBe(secondBytes)
   })
 })

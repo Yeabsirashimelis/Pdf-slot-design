@@ -66,14 +66,25 @@ function useFontMetrics(): Record<FontId, FontMetrics> | null {
   return metrics
 }
 
+/**
+ * Verification mode (see useCommitRender): re-render and repaint the real
+ * PDF on every commit so the overlay can be checked against the actual
+ * output while editing. Off by default -- the overlay is the preview and
+ * the PDF is generated once, on download.
+ */
+const RENDER_ON_COMMIT = process.env.NEXT_PUBLIC_RENDER_ON_COMMIT === 'true'
+
 export function Editor({
   doc,
   initialSlots,
   onStartOver,
+  renderOnCommit = RENDER_ON_COMMIT,
 }: {
   doc: EditorDocument
   /** Seeds a restored session's slots (Task 18). Omitted for a fresh upload. */
   initialSlots?: Slot[]
+  /** Overrides NEXT_PUBLIC_RENDER_ON_COMMIT; tests use it to exercise verification mode. */
+  renderOnCommit?: boolean
   /** Clears the persisted session and returns to the dropzone. Optional so
    * existing callers/tests that don't restore a session need not pass it --
    * Toolbar simply omits the control in that case. */
@@ -87,7 +98,9 @@ export function Editor({
   const [pageIndex, setPageIndex] = useState(0)
   const store = useEditorStore(initialSlots)
   const fontMetrics = useFontMetrics()
-  const { bytes, isRendering, renderedSlots, error, commit, flush } = useCommitRender(doc, store.slots)
+  const { bytes, isRendering, renderedSlots, error, commit, render } = useCommitRender(doc, store.slots, {
+    renderOnCommit,
+  })
 
   // Spec §8's export gate. Per slot, with that slot's own face, because the
   // answer depends on `fontId` and not on the text alone. Derived during
@@ -134,24 +147,6 @@ export function Editor({
     store.commitEdit()
     commit()
   }
-
-  // A restored session (Task 18) arrives with slots but no render: every
-  // other way slots come to exist passes through a commit boundary (blur,
-  // drag end, a toolbar control), but seeding the store from IndexedDB
-  // does not. Left alone, `bytes` stayed null until the user's next edit,
-  // so the preview showed DOM text over the *source* canvas and Download
-  // -- with nothing in flight for flush() to wait on -- fell through to
-  // doc.source and saved the original file with none of the user's text.
-  // Rendering once on mount puts a restored session in the same state a
-  // fresh edit leaves behind: the canvas is a picture of the download.
-  // Keyed on `initialSlots` identity (page.tsx holds it in state, so it is
-  // stable across re-renders) rather than on `store.slots`, which is a
-  // fresh array on every keystroke. commit() reads the slots through
-  // useCommitRender's ref, which that hook's own deps-less effect has
-  // already synced by the time this one runs (it is declared earlier).
-  useEffect(() => {
-    if (initialSlots && initialSlots.length > 0) commit()
-  }, [initialSlots, commit])
 
   // Toolbar's controls (Task 17) change a slot and commit in the very same
   // click handler, with no render in between -- unlike SlotOverlay's
@@ -373,10 +368,8 @@ export function Editor({
       style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-start' }}
     >
       <Toolbar
-        doc={doc}
-        bytes={bytes}
         isRendering={isRendering}
-        flush={flush}
+        render={render}
         downloadBlockedReason={downloadBlockedReason}
         slots={store.slots}
         selectedId={store.selectedId}

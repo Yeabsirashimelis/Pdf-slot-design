@@ -103,17 +103,15 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
       useEffect(() => {
         select(slot.id)
       }, [select])
-      const { bytes, isRendering, commit, flush } = useCommitRender(doc, store.slots)
+      const { isRendering, commit, render } = useCommitRender(doc, store.slots, { renderOnCommit: true })
       const handleCommit = () => {
         store.commitEdit()
         commit()
       }
       const { updateSlotAndCommit, removeSlotAndCommit } = createSlotCommands(store, handleCommit)
       return createElement(Toolbar, {
-        doc,
-        bytes,
         isRendering,
-        flush,
+        render,
         downloadBlockedReason: null,
         slots: store.slots,
         selectedId: store.selectedId,
@@ -165,17 +163,15 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
       useEffect(() => {
         select(slot.id)
       }, [select])
-      const { bytes, isRendering, commit, flush } = useCommitRender(doc, store.slots)
+      const { isRendering, commit, render } = useCommitRender(doc, store.slots, { renderOnCommit: true })
       const handleCommit = () => {
         store.commitEdit()
         commit()
       }
       const { updateSlotAndCommit, removeSlotAndCommit } = createSlotCommands(store, handleCommit)
       return createElement(Toolbar, {
-        doc,
-        bytes,
         isRendering,
-        flush,
+        render,
         downloadBlockedReason: null,
         slots: store.slots,
         selectedId: store.selectedId,

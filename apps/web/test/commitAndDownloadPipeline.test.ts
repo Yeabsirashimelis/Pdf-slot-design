@@ -4,19 +4,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorDocument, Slot } from '@pdf-slot/core'
 
 /**
- * End-to-end (within jsdom, at the seam) check of the whole guarantee this
- * task exists to deliver: commit() is what calls renderPdf, and download()
- * saves exactly what commit() produced without ever calling renderPdf
- * again. See task-16-brief.md.
+ * End-to-end (within jsdom, at the seam) check of the download pipeline
+ * through the real hook and the real Toolbar: Download performs exactly
+ * one render of the current slots (from scratch the first time, an
+ * increment on top of the last output after that), saves exactly those
+ * bytes, and never falls back to the source once the user has edited.
  */
 
 const renderPdfMock = vi.fn<(doc: EditorDocument, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
+const renderPdfIncrementalMock =
+  vi.fn<(previous: Uint8Array, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
 
 vi.mock('@pdf-slot/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pdf-slot/core')>()
   return {
     ...actual,
     renderPdf: (...args: Parameters<typeof renderPdfMock>) => renderPdfMock(...args),
+    renderPdfIncremental: (...args: Parameters<typeof renderPdfIncrementalMock>) =>
+      renderPdfIncrementalMock(...args),
   }
 })
 
@@ -49,6 +54,7 @@ describe('commit -> preview -> download pipeline', () => {
 
   beforeEach(() => {
     renderPdfMock.mockReset()
+    renderPdfIncrementalMock.mockReset()
     capturedBlobParts = null
 
     // Extend (rather than replace) the real URL class: jsdom's anchor
@@ -84,25 +90,27 @@ describe('commit -> preview -> download pipeline', () => {
     vi.restoreAllMocks()
   })
 
-  it('download saves exactly what the last commit rendered, without rendering again', async () => {
+  it('a first download renders once from scratch; a second one after an edit appends an increment', async () => {
     const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
     const { Toolbar } = await import('../src/features/editor/toolbar/Toolbar')
 
     const output = new Uint8Array([42, 43])
+    const outputPlus = new Uint8Array([42, 43, 44])
     renderPdfMock.mockResolvedValue(output)
+    renderPdfIncrementalMock.mockResolvedValue(outputPlus)
+    const doc = makeDoc()
 
     function Harness() {
-      const doc = makeDoc()
-      const { bytes, isRendering, commit, flush } = useCommitRender(doc, [makeSlot()])
+      const [text, setText] = useState('hi')
+      const slots = useMemo(() => [{ ...makeSlot(), text }], [text])
+      const { isRendering, render } = useCommitRender(doc, slots)
       return createElement(
         'div',
         null,
-        createElement('button', { onClick: commit, 'data-testid': 'commit-button' }, 'Commit'),
+        createElement('button', { onClick: () => setText('edited'), 'data-testid': 'edit-button' }, 'Edit'),
         createElement(Toolbar, {
-          doc,
-          bytes,
           isRendering,
-          flush,
+          render,
           downloadBlockedReason: null,
           slots: [],
           selectedId: null,
@@ -120,33 +128,42 @@ describe('commit -> preview -> download pipeline', () => {
 
     const { getByTestId } = render(createElement(Harness))
 
-    // Nothing has committed yet: renderPdf must not have been called just
-    // from mounting.
+    // Nothing renders just from mounting.
     expect(renderPdfMock).not.toHaveBeenCalled()
-
-    fireEvent.click(getByTestId('commit-button'))
-    // Synchronise on the render itself having landed -- the previous
-    // version of this test waited on `downloadButton.disabled` becoming
-    // false, which was true on the very first check because the button was
-    // never disabled at all. It passed only because waitFor's microtask
-    // ticks happened to let the mocked render finish.
-    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(1))
 
     fireEvent.click(getByTestId('download-button'))
     await waitFor(() => expect(capturedBlobParts).not.toBeNull())
-
-    expect((capturedBlobParts as unknown[])[0]).toBe(output)
-    // The whole point of this task: downloading must not regenerate the
-    // PDF. If it did, this would be 2.
     expect(renderPdfMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfMock.mock.calls[0]![1][0]!.text).toBe('hi')
+    expect((capturedBlobParts as unknown[])[0]).toBe(output)
+
+    // Same slots, downloaded again: no new render of any kind.
+    capturedBlobParts = null
+    fireEvent.click(getByTestId('download-button'))
+    await waitFor(() => expect(capturedBlobParts).not.toBeNull())
+    expect(renderPdfMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfIncrementalMock).not.toHaveBeenCalled()
+    expect(capturedBlobParts?.[0]).toBe(output)
+
+    // Edit, then download: an increment on top of the first output --
+    // never a second from-scratch render.
+    fireEvent.click(getByTestId('edit-button'))
+    capturedBlobParts = null
+    fireEvent.click(getByTestId('download-button'))
+    await waitFor(() => expect(capturedBlobParts).not.toBeNull())
+    expect(renderPdfMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfIncrementalMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfIncrementalMock.mock.calls[0]![0]).toBe(output)
+    expect(renderPdfIncrementalMock.mock.calls[0]![1][0]!.text).toBe('edited')
+    expect(capturedBlobParts?.[0]).toBe(outputPlus)
   })
 
-  it('download clicked in the same interaction as the edit saves the edit, not the source', async () => {
-    // The real first-run path, and the one the old test could not see.
-    // Pressing Download blurs the focused textarea; blur IS the commit
-    // boundary, so mousedown starts renderPdf and the click lands a few
-    // milliseconds later with `bytes` still null. Reading `bytes ??
-    // doc.source` at that moment saved the UNEDITED document.
+  it('in verification mode, download clicked in the same interaction as the edit saves the edit, not the source', async () => {
+    // Pressing Download blurs the focused textarea; with render-on-commit
+    // enabled, blur IS a render, so mousedown starts renderPdf and the
+    // click lands a few milliseconds later mid-render. The download must
+    // wait for that render (and not start a second one) rather than read
+    // a `bytes` that has not caught up.
     //
     // The render is deliberately held open here until after the click, so
     // the click genuinely happens mid-render rather than by luck of
@@ -168,7 +185,7 @@ describe('commit -> preview -> download pipeline', () => {
     function Harness() {
       const [text, setText] = useState('')
       const slots = useMemo(() => [{ ...makeSlot(), text }], [text])
-      const { bytes, isRendering, commit, flush } = useCommitRender(doc, slots)
+      const { isRendering, commit, render } = useCommitRender(doc, slots, { renderOnCommit: true })
       return createElement(
         'div',
         null,
@@ -180,10 +197,8 @@ describe('commit -> preview -> download pipeline', () => {
           onBlur: commit,
         }),
         createElement(Toolbar, {
-          doc,
-          bytes,
           isRendering,
-          flush,
+          render,
           downloadBlockedReason: null,
           slots: [],
           selectedId: null,
@@ -218,8 +233,11 @@ describe('commit -> preview -> download pipeline', () => {
     releaseRender.current?.()
     await waitFor(() => expect(capturedBlobParts).not.toBeNull())
 
-    // The edit, not doc.source.
+    // The edit, not doc.source -- and the one render the blur started,
+    // not a second one.
     expect((capturedBlobParts as unknown[])[0]).toBe(edited)
     expect((capturedBlobParts as unknown[])[0]).not.toBe(doc.source)
+    expect(renderPdfMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfIncrementalMock).not.toHaveBeenCalled()
   })
 })

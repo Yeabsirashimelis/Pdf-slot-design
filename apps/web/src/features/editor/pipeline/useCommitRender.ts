@@ -1,18 +1,34 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { renderPdf, type EditorDocument, type Slot } from '@pdf-slot/core'
+import { renderPdf, renderPdfIncremental, type EditorDocument, type Slot } from '@pdf-slot/core'
 import { loadFontBytes } from '@/lib/fonts/loadFonts'
 
 /**
- * Re-renders the real output PDF on commit boundaries (blur / drag-or-resize
- * end) -- never on a timer -- and hands back the exact bytes to preview and
- * download. See task-16-brief.md: preview becomes a picture of the actual
- * download, rather than an approximation of it.
+ * Owns the real output PDF: renders it on demand (`render`, the download
+ * path) and -- when `renderOnCommit` is on -- on every commit boundary
+ * (blur / drag-or-resize end), never on a timer.
+ *
+ * Two modes, one render path:
+ *
+ * - **Default (`renderOnCommit: false`)**: editing costs nothing. The
+ *   overlay is the preview; the PDF is generated once, when the user asks
+ *   for it. This is the product direction (2026-09-12): smoothness first,
+ *   and the same single render is what a future backend will perform.
+ * - **Verification (`renderOnCommit: true`)**: every commit re-renders and
+ *   the canvas paints the real bytes, so the overlay can be checked
+ *   against the actual output while editing -- the mode that proved the
+ *   two equal (and caught the rotated-page bug). Enabled in tests and via
+ *   NEXT_PUBLIC_RENDER_ON_COMMIT=true.
+ *
+ * Whichever mode, the first render is from scratch and every later one is
+ * an *increment* appended to the last output (`renderPdfIncremental`), so
+ * a second download after more edits never re-writes the whole document.
  */
 export function useCommitRender(
   doc: EditorDocument | null,
   slots: Slot[],
+  { renderOnCommit = false }: { renderOnCommit?: boolean } = {},
 ): {
   bytes: Uint8Array | null
   isRendering: boolean
@@ -37,23 +53,20 @@ export function useCommitRender(
    * the edit.
    */
   error: Error | null
+  /** A commit boundary. Renders only when `renderOnCommit` is on. */
   commit(): void
   /**
-   * Resolves once no render is in flight, with the bytes of the render that
-   * just landed (or `null` if none was in flight, or it failed, or it was
-   * superseded and the newer one is what the caller should read from
-   * `bytes`).
+   * The download path: resolves with bytes that reflect the current slots,
+   * or `null` if rendering failed (reported through `error`).
    *
-   * This exists for the download path, and it closes a race that loses the
-   * user's work outright. Pressing Download blurs whatever textarea was
-   * focused, and blur *is* the commit boundary -- so mousedown fires
-   * `commit()`, `renderPdf` starts, and the click that follows a few
-   * milliseconds later reads a `bytes` that has not caught up yet. On a
-   * first edit that value is still `null`, so the download fell back to
-   * `doc.source` and saved the *unedited* file. Awaiting here means the
-   * click waits for the render its own mousedown started.
+   * Waits for any render already in flight first (pressing Download blurs
+   * the focused textarea, and in verification mode blur *is* a commit, so
+   * one is typically running), then: reuses the last output if the slots
+   * are unchanged since it was produced (two downloads in a row must not
+   * append an empty increment), otherwise renders -- from scratch the
+   * first time, as an increment on top of the last output after that.
    */
-  flush(): Promise<Uint8Array | null>
+  render(): Promise<Uint8Array | null>
 } {
   const [bytes, setBytes] = useState<Uint8Array | null>(null)
   const [isRendering, setIsRendering] = useState(false)
@@ -96,6 +109,15 @@ export function useCommitRender(
   // branch is still the single place a render failure is reported.
   const inFlight = useRef<Promise<Uint8Array | null> | null>(null)
 
+  // The last successful output, mirrored from state so `render()` can read
+  // it synchronously right after awaiting an in-flight render (the state
+  // update has landed by then, but a deps-less effect syncing a ref would
+  // not have run yet). Tagged with the document id it belongs to, rather
+  // than reset in the doc-change block below (that runs during render,
+  // where writing a ref is forbidden): output for another document is
+  // simply never used as a base.
+  const lastOutput = useRef<{ docId: string; bytes: Uint8Array; slots: Slot[] } | null>(null)
+
   // A newly loaded document invalidates the committed output that
   // belonged to the previous one. Adjusted synchronously during render --
   // comparing to the doc id this render last reset for and resetting in
@@ -122,9 +144,10 @@ export function useCommitRender(
     setError(null)
   }
 
-  const commit = useCallback(() => {
+  /** Starts a render of the current slots and records it as in flight. */
+  const start = useCallback((): Promise<Uint8Array | null> => {
     const currentDoc = docRef.current
-    if (!currentDoc) return
+    if (!currentDoc) return Promise.resolve(null)
 
     const requestId = ++latestRequestId.current
     const currentSlots = slotsRef.current
@@ -144,8 +167,13 @@ export function useCommitRender(
     const pending: Promise<Uint8Array | null> = (async () => {
       try {
         const fonts = await loadFontBytes()
-        const result = await renderPdf(currentDoc, currentSlots, fonts)
+        const base = lastOutput.current
+        const result =
+          base && base.docId === currentDoc.id
+            ? await renderPdfIncremental(base.bytes, currentSlots, fonts)
+            : await renderPdf(currentDoc, currentSlots, fonts)
         if (isStale()) return null
+        lastOutput.current = { docId: currentDoc.id, bytes: result, slots: currentSlots }
         setBytes(result)
         setRenderedSlots(currentSlots)
         setIsRendering(false)
@@ -171,24 +199,30 @@ export function useCommitRender(
     void pending.then(() => {
       if (inFlight.current === pending) inFlight.current = null
     })
+    return pending
   }, [])
 
-  const flush = useCallback(async (): Promise<Uint8Array | null> => {
+  const commit = useCallback(() => {
+    if (renderOnCommit) void start()
+  }, [renderOnCommit, start])
+
+  const render = useCallback(async (): Promise<Uint8Array | null> => {
     // Loops rather than awaiting once: a commit that lands while we're
     // waiting replaces `inFlight.current`, and the newer render is the one
-    // whose bytes the caller must have. Terminates because each iteration
-    // awaits a promise that is already running and `commit()` is only
-    // called from user interactions, which cannot fire while this
-    // microtask chain is draining.
-    let result: Uint8Array | null = null
+    // to settle on. Terminates because each iteration awaits a promise
+    // that is already running and commits only come from user
+    // interactions, which cannot fire while this microtask chain drains.
     while (inFlight.current) {
       const pending = inFlight.current
-      const bytes = await pending
-      if (bytes !== null) result = bytes
+      await pending
       if (inFlight.current === pending) break
     }
-    return result
-  }, [])
+    const current = lastOutput.current
+    if (current && current.docId === docRef.current?.id && current.slots === slotsRef.current) {
+      return current.bytes
+    }
+    return start()
+  }, [start])
 
-  return { bytes, isRendering, renderedSlots, error, commit, flush }
+  return { bytes, isRendering, renderedSlots, error, commit, render }
 }

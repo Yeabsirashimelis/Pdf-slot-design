@@ -216,11 +216,9 @@ describe('Editor: debounced session persistence', () => {
   })
 
   it('downloads the restored slots, not the unedited source, when nothing was touched since the reload', async () => {
-    // The bug this pins: a restored session seeded the store with slots but
-    // never committed them, so `bytes` stayed null until the next blur or
-    // drag end. Reload, press Download with no textarea focused -> nothing
-    // in flight for flush() to wait on -> handleDownload fell through to
-    // doc.source and saved the original file with none of the user's text.
+    // The bug this pins: a restored session seeded the store with slots
+    // that nothing had rendered, and Download once fell through to
+    // doc.source -- the original file with none of the user's text.
     const { Editor } = await import('../src/features/editor/Editor')
 
     const doc = makeDoc()
@@ -262,15 +260,15 @@ describe('Editor: debounced session persistence', () => {
     })
 
     const { container } = render(createElement(Editor, { doc, initialSlots: [restoredSlot] }))
+    await waitFor(() => expect(container.querySelector('[data-slot-id="restored-slot"]')).not.toBeNull())
 
-    // The restored slots are rendered on mount, with exactly those slots.
-    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(1))
-    expect(renderPdfMock.mock.calls[0][1]).toEqual([restoredSlot])
-
-    // No click on the page, no typing, no blur: straight to Download.
+    // No click on the page, no typing, no blur: straight to Download,
+    // which renders exactly the restored slots.
     const downloadButton = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
     fireEvent.click(downloadButton)
     await waitFor(() => expect(captured.blobParts).not.toBeNull())
+    expect(renderPdfMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfMock.mock.calls[0]![1]).toEqual([restoredSlot])
 
     expect((captured.blobParts as unknown[])[0]).toBe(renderedOutput)
     expect((captured.blobParts as unknown[])[0]).not.toBe(doc.source)
@@ -384,19 +382,20 @@ describe('Editor: stays usable when IndexedDB is unavailable', () => {
     fireEvent.change(textarea, { target: { value: 'Still works offline-storage' } })
     fireEvent.blur(textarea)
 
-    // The edit actually committed and rendered -- not merely "didn't throw".
-    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(1))
-    const slotDiv = container.querySelector('[data-slot-id]')
-    expect(slotDiv).not.toBeNull()
-    await waitFor(() => expect(slotDiv?.querySelectorAll('span').length).toBe(0))
-
-    // Download still produces the real rendered bytes.
+    // Download renders the edit and produces the real rendered bytes --
+    // not merely "didn't throw".
     const downloadButton = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
     expect(downloadButton).not.toBeNull()
     fireEvent.click(downloadButton)
-    // Download awaits any in-flight render before building the Blob (see
-    // Toolbar's `flush` prop), so the Blob exists a microtask later.
     await waitFor(() => expect(captured.blobParts).not.toBeNull())
+    expect(renderPdfMock).toHaveBeenCalledTimes(1)
+    expect(renderPdfMock.mock.calls[0]![1][0]!.text).toBe('Still works offline-storage')
+
+    // And once the canvas has painted that output, the slot's own DOM
+    // text steps aside for it.
+    const slotDiv = container.querySelector('[data-slot-id]')
+    expect(slotDiv).not.toBeNull()
+    await waitFor(() => expect(slotDiv?.querySelectorAll('span').length).toBe(0))
 
     expect(captured.blobParts).not.toBeNull()
     expect((captured.blobParts as unknown[])[0]).toBe(renderedOutput)

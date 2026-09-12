@@ -33,13 +33,11 @@ function makeSlot(overrides: Partial<Slot> = {}): Slot {
 function baseProps(overrides: Partial<ToolbarProps> = {}): ToolbarProps {
   const doc = makeDoc()
   return {
-    doc,
-    bytes: null,
     isRendering: false,
-    // Nothing in flight by default. The download path awaits this, so every
-    // download assertion below has to await a microtask before the Blob
-    // exists -- see the `flush` doc comment on ToolbarProps.
-    flush: vi.fn(async () => null),
+    // The download path awaits this, so every download assertion below has
+    // to await a microtask before the Blob exists -- see the `render` doc
+    // comment on ToolbarProps.
+    render: vi.fn(async () => null),
     downloadBlockedReason: null,
     slots: [],
     selectedId: null,
@@ -58,9 +56,9 @@ function baseProps(overrides: Partial<ToolbarProps> = {}): ToolbarProps {
 afterEach(() => cleanup())
 
 /**
- * download() must save exactly the bytes it already holds -- never a fresh
- * render, never a copy that could silently drift from what's on screen. See
- * task-16-brief.md's Ruling R-15 and "Do not regenerate on download".
+ * download() must save exactly the bytes `render()` hands it -- the same
+ * reference, never a copy or a re-derivation that could drift from the
+ * output the pipeline produced.
  */
 describe('Toolbar download', () => {
   let anchorClick: () => void
@@ -108,33 +106,31 @@ describe('Toolbar download', () => {
     vi.restoreAllMocks()
   })
 
-  it('saves exactly the array it was given -- the same reference, not a copy or a re-derivation', async () => {
+  it('saves exactly the array render() resolved with -- the same reference, not a copy or a re-derivation', async () => {
     const bytes = new Uint8Array([5, 6, 7])
-    render(createElement(Toolbar, baseProps({ bytes })))
+    const renderFn = vi.fn(async () => bytes)
+    render(createElement(Toolbar, baseProps({ render: renderFn })))
 
     fireEvent.click(screen.getByTestId('download-button'))
     await waitFor(() => expect(capturedBlobParts).not.toBeNull())
 
-    expect(capturedBlobParts).not.toBeNull()
+    expect(renderFn).toHaveBeenCalledTimes(1)
     expect((capturedBlobParts as unknown[])[0]).toBe(bytes)
     expect(createObjectURL).toHaveBeenCalledTimes(1)
     expect(anchorClick).toHaveBeenCalledTimes(1)
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url')
   })
 
-  it('falls back to doc.source when nothing has been committed yet -- an unedited upload is still a legitimate download', async () => {
-    const doc = makeDoc({ source: new Uint8Array([9, 9, 9]) })
-    render(createElement(Toolbar, baseProps({ doc, bytes: null })))
+  it('saves nothing when render() fails -- never the source or a stale file in place of the user\'s edits', async () => {
+    const renderFn = vi.fn(async () => null)
+    render(createElement(Toolbar, baseProps({ render: renderFn })))
 
-    const button = screen.getByTestId('download-button') as HTMLButtonElement
-    expect(button.disabled).toBe(false)
+    fireEvent.click(screen.getByTestId('download-button'))
+    await waitFor(() => expect(renderFn).toHaveBeenCalledTimes(1))
+    await Promise.resolve()
 
-    fireEvent.click(button)
-    await waitFor(() => expect(capturedBlobParts).not.toBeNull())
-
-    expect(capturedBlobParts).not.toBeNull()
-    expect((capturedBlobParts as unknown[])[0]).toBe(doc.source)
-    expect(anchorClick).toHaveBeenCalledTimes(1)
+    expect(capturedBlobParts).toBeNull()
+    expect(anchorClick).not.toHaveBeenCalled()
   })
 })
 
@@ -294,8 +290,8 @@ describe('Toolbar export gate', () => {
   })
 
   it('does not build a Blob at all while blocked -- the click reaches handleDownload, whose own guard stops it', async () => {
-    const flush = vi.fn(async () => null)
-    render(createElement(Toolbar, baseProps({ downloadBlockedReason: 'nope', flush })))
+    const renderFn = vi.fn(async () => null)
+    render(createElement(Toolbar, baseProps({ downloadBlockedReason: 'nope', render: renderFn })))
 
     const button = screen.getByTestId('download-button') as HTMLButtonElement
     // The button is only aria-disabled, so the browser (and jsdom) still
@@ -306,7 +302,7 @@ describe('Toolbar export gate', () => {
     fireEvent.click(button)
     await Promise.resolve()
 
-    expect(flush).not.toHaveBeenCalled()
+    expect(renderFn).not.toHaveBeenCalled()
   })
 })
 
