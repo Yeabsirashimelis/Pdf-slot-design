@@ -14,8 +14,10 @@ import {
   createHistory,
   type HistoryState,
 } from './editorHistory'
+import { recallSlotStyle, rememberSlotStyle, type SlotStyle } from './slotStyleMemory'
 
-/** Defaults for a freshly placed slot, per the task brief. */
+/** Defaults for a freshly placed slot, per the task brief -- overridden
+ * field by field by whatever style the user last chose (slotStyleMemory). */
 const NEW_SLOT_DEFAULTS: {
   width: number
   size: number
@@ -30,6 +32,12 @@ const NEW_SLOT_DEFAULTS: {
   color: { r: 0, g: 0, b: 0 },
   align: 'left',
   lineHeight: 1.2,
+}
+
+const STYLE_KEYS: readonly (keyof SlotStyle)[] = ['fontId', 'size', 'color', 'align']
+
+function isStyleChange(patch: Partial<Slot>): boolean {
+  return STYLE_KEYS.some((key) => key in patch)
 }
 
 export type EditorStore = {
@@ -74,13 +82,24 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
       y: atPdf.y,
       text: '',
       ...NEW_SLOT_DEFAULTS,
+      ...recallSlotStyle(),
     }
     setHistory((state) => applyAddSlot(state, slot))
     setSelectedId(slot.id)
   }, [])
 
   const updateSlot = useCallback((id: string, patch: Partial<Slot>) => {
-    setHistory((state) => applyUpdateSlot(state, id, patch))
+    setHistory((state) => {
+      const next = applyUpdateSlot(state, id, patch)
+      // A style choice (not typing, not a drag) becomes the starting point
+      // for the next slot. Read off the updated slot rather than the patch
+      // so the remembered style is always a complete, coherent set.
+      if (isStyleChange(patch)) {
+        const updated = next.present.find((s) => s.id === id)
+        if (updated) rememberSlotStyle(updated)
+      }
+      return next
+    })
   }, [])
 
   const removeSlot = useCallback((id: string) => {
