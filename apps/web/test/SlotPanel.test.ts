@@ -32,6 +32,25 @@ describe('SlotPanel', () => {
     expect(screen.queryByTestId('slot-field-a')).toBeNull()
   })
 
+  it('step 1: a chip is a focusable button; Enter and Space select it, and it reports its pressed state', () => {
+    const onSelect = vi.fn()
+    render(createElement(SlotPanel, { ...base, step: 'layout', selectedId: 'b', onSelect }))
+    const chip = screen.getByTestId('slot-chip-a')
+    expect(chip.getAttribute('role')).toBe('button')
+    expect(chip.tabIndex).toBe(0)
+    expect(chip.getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('slot-chip-b').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.keyDown(chip, { key: 'Enter' })
+    expect(onSelect).toHaveBeenCalledWith('a')
+    fireEvent.keyDown(chip, { key: ' ' })
+    expect(onSelect).toHaveBeenCalledTimes(2)
+    fireEvent.keyDown(chip, { key: 'Tab' })
+    expect(onSelect).toHaveBeenCalledTimes(2)
+    // Enter on the nested ✕ is the ✕'s own keypress, not a select.
+    fireEvent.keyDown(screen.getByTestId('slot-chip-remove-a'), { key: 'Enter' })
+    expect(onSelect).toHaveBeenCalledTimes(2)
+  })
+
   it('step 1: Next is disabled with no slots', () => {
     render(createElement(SlotPanel, { ...base, slots: [], step: 'layout' }))
     expect((screen.getByTestId('panel-next') as HTMLButtonElement).disabled).toBe(true)

@@ -46,15 +46,28 @@ export function SlotPanel({
           <ul className="flex flex-col gap-1.5">
             {slots.map((slot) => (
               <li key={slot.id}>
-                {/* The chip is a shadcn Button; the ✕ is a second, nested-looking
-                    Button placed beside it (buttons must not nest). */}
+                {/* Not a shadcn Button: the chip contains the ✕ Button, and a
+                    button must not contain another. A div plays the role
+                    instead, made focusable and keyboard-operable by hand
+                    (Enter/Space select, as a native button would). */}
                 <div
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedId === slot.id}
                   data-testid={`slot-chip-${slot.id}`}
                   data-selected={selectedId === slot.id}
                   onClick={() => onSelect(slot.id)}
                   onDoubleClick={() => onRename(slot.id)}
+                  onKeyDown={(e) => {
+                    // Keys on the nested ✕ are its own (they bubble up here).
+                    if (e.target !== e.currentTarget) return
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onSelect(slot.id)
+                    }
+                  }}
                   className={cn(
-                    'flex items-center justify-between rounded-md border border-border bg-background px-3 py-1.5 text-sm',
+                    'flex items-center justify-between rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     selectedId === slot.id && 'ring-2 ring-ring',
                   )}
                 >
