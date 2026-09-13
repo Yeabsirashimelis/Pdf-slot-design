@@ -262,4 +262,16 @@ describe('TemplateEditor', () => {
     expect(store.session()).toBeNull()
     expect(store.layouts.size).toBe(0) // it never deletes a saved layout (there is none here either way)
   })
+
+  it('Start over still hands off when clearing the session fails', async () => {
+    // The user asked to leave; a storage error must not trap them in the
+    // editor. (The stale session is at worst re-tried on the next reload.)
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = { ...memoryStore(), clear: async () => { throw new Error('quota') } }
+    const onStartOver = vi.fn()
+    render(createElement(TemplateEditor, { opened: knownFile, store, onStartOver }))
+    await waitFor(() => screen.getByTestId('start-over-button'))
+    fireEvent.click(screen.getByTestId('start-over-button'))
+    await waitFor(() => expect(onStartOver).toHaveBeenCalledTimes(1))
+  })
 })

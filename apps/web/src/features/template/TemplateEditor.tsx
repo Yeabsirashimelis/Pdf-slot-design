@@ -105,7 +105,12 @@ export function TemplateEditor({
   }
 
   const handleStartOver = () => {
-    void store.clear().then(onStartOver)
+    // The user asked to leave; a storage failure must not keep them here.
+    // Logged rather than surfaced: a session that failed to clear is at
+    // worst re-tried on the next reload.
+    void store.clear()
+      .catch((err: unknown) => console.error('Failed to clear the open session', err))
+      .finally(onStartOver)
   }
 
   const panelSlots = editor.slots.map((s) => ({ id: s.id, name: names[s.id] ?? 'Slot', text: s.text }))
