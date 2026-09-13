@@ -6,6 +6,7 @@ import { toLayout, toSlots, toValues, type Point } from '@pdf-slot/core'
 import type { SessionStore, Step, TemplateStore } from '@/lib/persistence/templateStore'
 import { Editor } from '@/features/editor/Editor'
 import { useEditorStore } from '@/features/editor/state/useEditorStore'
+import { copyName } from './copyName'
 import { NameSlotDialog } from './NameSlotDialog'
 import { SlotPanel } from './SlotPanel'
 import { useDebouncedWrite } from './useTemplatePersistence'
@@ -80,7 +81,7 @@ export function TemplateEditor({
   const handleDuplicate = (id: string) => {
     const copyId = editor.duplicateSlot(id)
     if (!copyId) return
-    setNames((n) => ({ ...n, [copyId]: `${n[id] ?? 'Slot'} copy` }))
+    setNames((n) => ({ ...n, [copyId]: copyName(n[id] ?? 'Slot', Object.values(n)) }))
   }
 
   const handleRemove = (id: string) => {

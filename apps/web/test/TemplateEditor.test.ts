@@ -272,9 +272,14 @@ describe('TemplateEditor', () => {
     expect(copy.dataset.slotId).not.toBe(source.dataset.slotId)
     expect(copy.style.outline).toContain('var(--slot-selection)')
 
-    // Next persists the copy with its own name.
+    // A second duplicate of the same source is numbered, not "copy copy".
+    fireEvent.click(screen.getByTestId('slot-chip-duplicate-s1'))
+    const names = Array.from(container.querySelectorAll('[data-testid^="slot-chip-"]:not([data-testid^="slot-chip-remove-"]):not([data-testid^="slot-chip-duplicate-"])')).map((c) => c.textContent)
+    expect(names).toEqual(['CO#', 'Date', 'CO# copy', 'CO# copy (2)'])
+
+    // Next persists the copies with their own names.
     fireEvent.click(screen.getByTestId('panel-next'))
-    await waitFor(() => expect(store.layouts.get('file-1')?.slots).toHaveLength(3))
-    expect(store.layouts.get('file-1')!.slots[2]!.name).toBe('CO# copy')
+    await waitFor(() => expect(store.layouts.get('file-1')?.slots).toHaveLength(4))
+    expect(store.layouts.get('file-1')!.slots.map((s) => s.name)).toEqual(['CO#', 'Date', 'CO# copy', 'CO# copy (2)'])
   })
 })
