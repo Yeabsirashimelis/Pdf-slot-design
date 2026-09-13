@@ -4,6 +4,7 @@ import {
   PDFDocument,
   PDFHexString,
   PDFName,
+  PDFRef,
   PDFStream,
   PDFString,
   degrees,
@@ -57,11 +58,22 @@ export async function readSourceStamp(bytes: Uint8Array): Promise<string | null>
  * From scratch: the original document plus every slot, written out as a
  * whole new file. This is the render whose bytes the preview is proven
  * against (see test/invariant.test.ts).
+ *
+ * Idempotent on its own output: any slot text an earlier render left in
+ * the source is stripped first, so rendering from a downloaded copy draws
+ * the current slots once, not on top of the old fill. On a source that
+ * has no marked streams (every PDF not made by this tool) the strip finds
+ * nothing and the output is unchanged.
  */
 export async function renderPdf(
   doc: EditorDocument, slots: Slot[], fonts: FontBytes,
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(doc.source)
+  // A whole-file rewrite has no history to keep: drop the stripped streams
+  // from the context too, or save() would still write them as orphans.
+  for (const page of pdf.getPages()) {
+    for (const ref of stripSlotStreams(pdf, page)) pdf.context.delete(ref)
+  }
   await drawSlots(pdf, slots, fonts)
   stampSource(pdf, doc.id)
   return finish(pdf, (p) => p.save({ useObjectStreams: false }))
@@ -91,14 +103,24 @@ export async function renderPdfIncremental(
   return finish(pdf, (p) => p.save())
 }
 
-/** Removes this tool's earlier content streams from a page's Contents. */
-function stripSlotStreams(pdf: PDFDocument, page: PDFPage): void {
+/**
+ * Removes this tool's earlier content streams from a page's Contents.
+ * Returns the refs it unlinked; the stream objects themselves stay in the
+ * context (an incremental update keeps them as history).
+ */
+function stripSlotStreams(pdf: PDFDocument, page: PDFPage): PDFRef[] {
+  const removed: PDFRef[] = []
   const contents = page.node.normalizedEntries().Contents
-  if (!contents) return
+  if (!contents) return removed
   for (let i = contents.size() - 1; i >= 0; i--) {
-    const obj = pdf.context.lookup(contents.get(i))
-    if (obj instanceof PDFStream && obj.dict.has(PDFName.of(SLOT_STREAM_MARKER))) contents.remove(i)
+    const entry = contents.get(i)
+    const obj = pdf.context.lookup(entry)
+    if (obj instanceof PDFStream && obj.dict.has(PDFName.of(SLOT_STREAM_MARKER))) {
+      contents.remove(i)
+      if (entry instanceof PDFRef) removed.push(entry)
+    }
   }
+  return removed
 }
 
 /** Marks the content stream most recently added to `page` as this tool's. */

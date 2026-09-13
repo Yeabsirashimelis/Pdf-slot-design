@@ -1,18 +1,19 @@
 import { PDFDocument } from '@cantoo/pdf-lib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { renderPdf, FONT_IDS, FONT_FILES, type FontBytes, type TemplateLayout } from '@pdf-slot/core'
+import { renderPdf, FONT_IDS, FONT_FILES, type FontBytes, type StoredFile, type TemplateLayout } from '@pdf-slot/core'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import type { TemplateStore } from '@/lib/persistence/templateStore'
 import { openFile } from '@/features/template/openFile'
 
-function memoryStore(): TemplateStore & { layouts: Map<string, TemplateLayout>; files: string[] } {
+function memoryStore(): TemplateStore & { layouts: Map<string, TemplateLayout>; files: string[]; stored: Map<string, StoredFile> } {
   const layouts = new Map<string, TemplateLayout>()
   const files: string[] = []
+  const stored = new Map<string, StoredFile>()
   return {
-    layouts, files,
-    getFile: async () => null,
-    putFile: async (f) => { files.push(f.fileId) },
+    layouts, files, stored,
+    getFile: async (id) => stored.get(id) ?? null,
+    putFile: async (f) => { files.push(f.fileId); stored.set(f.fileId, f) },
     getLayout: async (id) => layouts.get(id) ?? null,
     putLayout: async (l) => { layouts.set(l.fileId, l) },
     getValues: async () => null,
@@ -27,6 +28,10 @@ function oneSlotLayout(fileId: string): TemplateLayout {
     slots: [{ id: 's1', name: 'CO#', order: 0, page: 0, x: 50, y: 700, width: 200, fontId: 'sans', size: 14, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 }],
   }
 }
+
+const fonts = Object.fromEntries(
+  FONT_IDS.map((id) => [id, new Uint8Array(readFileSync(path.resolve(__dirname, '../public/fonts', FONT_FILES[id])))]),
+) as FontBytes
 
 async function blankPdf(): Promise<Uint8Array> {
   const d = await PDFDocument.create()
@@ -76,13 +81,25 @@ describe('openFile', () => {
     const bytes = await blankPdf()
     const first = await openFile(bytes, 'form.pdf', store)
     store.layouts.set(first.fileId, oneSlotLayout(first.fileId))
-    const fonts = Object.fromEntries(
-      FONT_IDS.map((id) => [id, new Uint8Array(readFileSync(path.resolve(__dirname, '../public/fonts', FONT_FILES[id])))]),
-    ) as FontBytes
     const exported = await renderPdf(first.doc, [], fonts)
     const reopened = await openFile(exported, 'edited.pdf', store)
     expect(reopened.fileId).toBe(first.fileId)
     expect(reopened.step).toBe('write')
+  })
+
+  it('a re-uploaded export opens the stored original, not the filled copy, so its text is not drawn twice', async () => {
+    const store = memoryStore()
+    const bytes = await blankPdf()
+    const first = await openFile(bytes, 'form.pdf', store)
+    const layout = oneSlotLayout(first.fileId)
+    store.layouts.set(first.fileId, layout)
+    const exported = await renderPdf(first.doc, [{ ...layout.slots[0]!, text: 'Filled' }], fonts)
+    const reopened = await openFile(exported, 'edited.pdf', store)
+    expect(reopened.fileId).toBe(first.fileId)
+    expect(Array.from(reopened.doc.source)).toEqual(Array.from(bytes))
+    expect(Array.from(reopened.doc.source)).not.toEqual(Array.from(exported))
+    // The record already existed; it is not rewritten with the export.
+    expect(store.files).toEqual([first.fileId])
   })
 
   it('without SubtleCrypto the file still opens (as new, with a random id)', async () => {

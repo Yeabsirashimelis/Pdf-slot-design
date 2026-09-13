@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { PDFDocument, PDFName, PDFStream, degrees } from '@cantoo/pdf-lib'
+import { PDFDocument, degrees } from '@cantoo/pdf-lib'
 import { expect, test } from 'vitest'
-import { renderPdf, renderPdfIncremental, SLOT_STREAM_MARKER } from '../src/render/pdf.js'
+import { renderPdf, renderPdfIncremental } from '../src/render/pdf.js'
 import { normalizePdf } from '../src/document/normalize.js'
 import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import type { Slot } from '../src/document/types.js'
 import { requireContentStreamText } from './helpers/content-stream.js'
+import { markedStreamsPerPage } from './helpers/marked-streams.js'
 
 /**
  * A second download after further edits must not start from the source
@@ -40,21 +41,6 @@ const slot = (over: Partial<Slot> = {}): Slot => ({
 function textMatrices(streamText: string): number[][] {
   const re = /([\d.e-]+) ([\d.e-]+) ([\d.e-]+) ([\d.e-]+) ([\d.e-]+) ([\d.e-]+) Tm\s*\n<[0-9A-F]*> Tj/g
   return Array.from(streamText.matchAll(re), (m) => m.slice(1, 7).map(Number))
-}
-
-/** Refs in a page's Contents array that carry this tool's marker. */
-async function markedStreamsPerPage(bytes: Uint8Array): Promise<number[]> {
-  const pdf = await PDFDocument.load(bytes)
-  return pdf.getPages().map((page) => {
-    const contents = page.node.normalizedEntries().Contents
-    if (!contents) return 0
-    let n = 0
-    for (let i = 0; i < contents.size(); i++) {
-      const obj = pdf.context.lookup(contents.get(i))
-      if (obj instanceof PDFStream && obj.dict.has(PDFName.of(SLOT_STREAM_MARKER))) n++
-    }
-    return n
-  })
 }
 
 test('the increment is appended: the previous file is a byte-for-byte prefix', async () => {

@@ -26,15 +26,23 @@ export type OpenedFile = {
  * the content hash, then -- only when SubtleCrypto is missing, i.e. an
  * insecure origin -- a random id, which means the file cannot be
  * recognised next time.
+ *
+ * A stamped upload is a filled copy: its bytes already carry the text of
+ * some earlier export. When the original is still stored, that is what
+ * opens, so the slots are drawn over the blank page and not over the
+ * previous fill. (renderPdf also strips its own earlier streams, so even
+ * a stamped copy whose original is gone will not double the text.)
  */
 export async function openFile(pdfBytes: Uint8Array, name: string, store: TemplateStore): Promise<OpenedFile> {
-  const fileId = (await readSourceStamp(pdfBytes).catch(() => null)) ?? (await hashBytes(pdfBytes)) ?? randomId()
-  const doc = await normalizePdf(pdfBytes, fileId)
+  const stamp = await readSourceStamp(pdfBytes).catch(() => null)
+  const fileId = stamp ?? (await hashBytes(pdfBytes)) ?? randomId()
   const [layout, values, existing] = await Promise.all([
     store.getLayout(fileId), store.getValues(fileId), store.getFile(fileId),
   ])
+  const source = stamp && existing ? existing.source : pdfBytes
+  const doc = await normalizePdf(source, fileId)
   if (!existing) {
-    await store.putFile({ fileId, name, source: pdfBytes, pages: doc.pages, createdAt: new Date().toISOString() })
+    await store.putFile({ fileId, name, source, pages: doc.pages, createdAt: new Date().toISOString() })
   }
   return { doc, fileId, layout, values, step: layout && layout.slots.length > 0 ? 'write' : 'layout' }
 }

@@ -8,6 +8,7 @@ import { normalizePdf } from '../src/document/normalize.js'
 import type { Slot } from '../src/document/types.js'
 import { createFontMetrics } from '../src/layout/metrics.js'
 import { extractContentStreamText, requireContentStreamText } from './helpers/content-stream.js'
+import { markedStreamsPerPage } from './helpers/marked-streams.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
 const fonts = Object.fromEntries(
@@ -204,4 +205,24 @@ test('an increment keeps the source stamp', async () => {
 test('a PDF that was never exported by this tool has no stamp', async () => {
   const doc = await blankDoc()
   expect(await readSourceStamp(doc.source)).toBeNull()
+})
+
+test('rendering from a previous export replaces its text rather than drawing over it', async () => {
+  // A user can re-upload a downloaded copy (or, with the original gone
+  // from storage, that copy is all there is to render from). The text this
+  // tool drew before must not stay under the new text: exactly one marked
+  // stream per drawn page, whatever the source already carried.
+  const first = await renderPdf(await blankDoc(), [slot({ text: 'Old' })], fonts)
+  expect(await markedStreamsPerPage(first)).toEqual([1])
+  const fromExport = await normalizePdf(first, 'doc')
+  const second = await renderPdf(fromExport, [slot({ text: 'New' })], fonts)
+  expect(await markedStreamsPerPage(second)).toEqual([1])
+  // And what is drawn is the new text alone, operator for operator, the
+  // way a scratch render draws it. (pdf-lib's subset tag on the font
+  // resource name is per document, so that is masked.)
+  const scratch = await renderPdf(await blankDoc(), [slot({ text: 'New' })], fonts)
+  const withoutFontTag = (stream: string) => stream.replace(/\/(\S+)-\d+ (\S+) Tf/g, '/$1 $2 Tf')
+  expect(withoutFontTag(requireContentStreamText(second))).toBe(withoutFontTag(requireContentStreamText(scratch)))
+  // With no slots the earlier text goes away entirely.
+  expect(await markedStreamsPerPage(await renderPdf(fromExport, [], fonts))).toEqual([0])
 })
