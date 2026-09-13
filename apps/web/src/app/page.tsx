@@ -81,11 +81,7 @@ export default function Home() {
             onStartOver={() => setOpened(null)}
           />
         ) : (
-          <Dropzone
-            onFile={(f) => {
-              void handleFile(f)
-            }}
-          />
+          <Dropzone onFile={handleFile} />
         )}
       </div>
     </main>

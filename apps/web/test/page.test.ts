@@ -213,4 +213,76 @@ describe('Home', () => {
     expect(Array.from(calledBytes)).toEqual([1])
     expect(calledName).toBe('x.pdf')
   })
+
+  it('keeps the dropzone busy until openFile has settled', async () => {
+    let finish!: (v: OpenedFile) => void
+    openFileMock.mockReturnValue(new Promise<OpenedFile>((resolve) => { finish = resolve }))
+
+    const Home = (await import('../src/app/page')).default
+    const { container } = render(createElement(Home))
+    await waitFor(() => expect(screen.getByText('Drag a PDF or image here, or')).toBeTruthy())
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array([1])], 'x.pdf', { type: 'application/pdf' })] } })
+
+    await waitFor(() => expect(openFileMock).toHaveBeenCalledTimes(1))
+    // openFile is still running: the spinner must not have cleared back to the idle prompt.
+    expect(screen.getByText('Converting…')).toBeTruthy()
+    expect(screen.queryByText('Drag a PDF or image here, or')).toBeNull()
+
+    finish({ doc, fileId: FILE_ID, layout: null, values: null, step: 'layout' })
+    await waitFor(() => expect(screen.getByTestId('panel-next')).toBeTruthy())
+  })
+
+  it('an upload openFile rejects shows its message and stays on the dropzone', async () => {
+    const sonner = await import('sonner')
+    const errorSpy = vi.spyOn(sonner.toast, 'error')
+    openFileMock.mockRejectedValue(new Error('This PDF is password-protected.'))
+
+    const Home = (await import('../src/app/page')).default
+    const { container } = render(createElement(Home))
+    await waitFor(() => expect(screen.getByText('Drag a PDF or image here, or')).toBeTruthy())
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array([1])], 'x.pdf', { type: 'application/pdf' })] } })
+
+    await waitFor(() => expect(errorSpy).toHaveBeenCalledWith('This PDF is password-protected.'))
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(screen.getByText('Drag a PDF or image here, or')).toBeTruthy())
+    expect(screen.queryByTestId('slot-panel')).toBeNull()
+  })
+
+  it('warns once when the file got a random id (no SubtleCrypto)', async () => {
+    const sonner = await import('sonner')
+    const warnSpy = vi.spyOn(sonner.toast, 'warning')
+    const randomId = '0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b'
+    openFileMock.mockResolvedValue({ doc: { ...doc, id: randomId }, fileId: randomId, layout: null, values: null, step: 'layout' })
+
+    const Home = (await import('../src/app/page')).default
+    const { container } = render(createElement(Home))
+    await waitFor(() => expect(screen.getByText('Drag a PDF or image here, or')).toBeTruthy())
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array([1])], 'x.pdf', { type: 'application/pdf' })] } })
+
+    await waitFor(() => expect(screen.getByTestId('panel-next')).toBeTruthy())
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/insecure connection/)
+  })
+
+  it('does not warn when the file id is a content hash', async () => {
+    const sonner = await import('sonner')
+    const warnSpy = vi.spyOn(sonner.toast, 'warning')
+    openFileMock.mockResolvedValue({ doc, fileId: FILE_ID, layout: null, values: null, step: 'layout' })
+
+    const Home = (await import('../src/app/page')).default
+    const { container } = render(createElement(Home))
+    await waitFor(() => expect(screen.getByText('Drag a PDF or image here, or')).toBeTruthy())
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array([1])], 'x.pdf', { type: 'application/pdf' })] } })
+
+    await waitFor(() => expect(screen.getByTestId('panel-next')).toBeTruthy())
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
 })

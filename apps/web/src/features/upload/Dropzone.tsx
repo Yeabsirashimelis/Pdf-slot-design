@@ -26,8 +26,12 @@ export type UploadedFile = { bytes: Uint8Array; name: string }
  * Hands the caller PDF bytes plus the original name; it does not parse the
  * PDF. openFile does that, once it knows the file's id, so an invalid or
  * encrypted PDF is reported by the caller, not here.
+ *
+ * `onFile` may return a promise; the busy state lasts until it settles, so
+ * the caller's parse/hash/store work does not leave an idle dropzone
+ * sitting there before the editor appears.
  */
-export function Dropzone({ onFile }: { onFile(file: UploadedFile): void }) {
+export function Dropzone({ onFile }: { onFile(file: UploadedFile): void | Promise<void> }) {
   const [isPending, setIsPending] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -42,10 +46,11 @@ export function Dropzone({ onFile }: { onFile(file: UploadedFile): void }) {
 
       setIsPending(true)
       try {
-        onFile({ bytes: await toPdfBytes(file), name: file.name })
+        await onFile({ bytes: await toPdfBytes(file), name: file.name })
       } catch (err) {
         // decodeImage / imageToPdf throw plain Errors with user-facing
-        // messages (unsupported or undecodable image).
+        // messages (unsupported or undecodable image). The caller reports
+        // its own failures; this catch only sees them if it rethrows.
         toast.error(err instanceof Error ? err.message : 'Could not load that file.')
       } finally {
         setIsPending(false)
