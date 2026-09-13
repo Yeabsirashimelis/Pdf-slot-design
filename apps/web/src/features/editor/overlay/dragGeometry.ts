@@ -52,3 +52,47 @@ export function applyResizeDelta(
 ): number {
   return clampWidth(originWidth + toPdfLength(dxScreen, vp), min)
 }
+
+export type ResizeEdge = 'left' | 'right' | 'top' | 'bottom'
+
+/** The box as it was at pointerdown: PDF points, `y` the TOP edge (Y-up). */
+export type ResizeOrigin = { x: number; y: number; width: number; height: number }
+
+/**
+ * Compute the patch for dragging one edge of a slot's box by a gesture's
+ * total screen-pixel displacement (same fixed-origin reasoning as
+ * `applyDragDelta`). The opposite edge never moves:
+ *
+ * - `right`/`bottom` change only `width`/`height`.
+ * - `left` moves `x` and shrinks `width` by the same amount; `top` moves
+ *   `y` (PDF Y-up: dragging down lowers it) and shrinks `height`.
+ *
+ * Width clamps to `MIN_SLOT_WIDTH`; height clamps to 0, which means "as
+ * tall as the text" -- the box height is a *minimum*, the writing area a
+ * user sees in step 2, and text that overflows it still grows the box.
+ * When a clamp hits, the dragged edge stops and the far edge stays put.
+ */
+export function applyEdgeResize(
+  edge: ResizeEdge,
+  origin: ResizeOrigin,
+  dxScreen: number,
+  dyScreen: number,
+  vp: Viewport,
+): Partial<ResizeOrigin> {
+  const dx = toPdfLength(dxScreen, vp)
+  const dy = toPdfLength(dyScreen, vp)
+  switch (edge) {
+    case 'right':
+      return { width: clampWidth(origin.width + dx) }
+    case 'left': {
+      const width = clampWidth(origin.width - dx)
+      return { x: origin.x + origin.width - width, width }
+    }
+    case 'bottom':
+      return { height: Math.max(0, origin.height + dy) }
+    case 'top': {
+      const height = Math.max(0, origin.height - dy)
+      return { y: origin.y - origin.height + height, height }
+    }
+  }
+}

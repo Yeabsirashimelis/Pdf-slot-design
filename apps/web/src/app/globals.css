@@ -139,11 +139,13 @@
   --sidebar-border: #405a77;
   --sidebar-ring: #ffda8f;
 
-  /* Editor overlay: selection ring = primary; step-2 slot tint = a pastel
-     wash of primary (accent-like), with its hairline a stronger alpha. */
+  /* Editor overlay: every slot box is a pastel wash of primary with a
+     hairline (strong = the write step's deeper wash); the selection ring
+     is primary itself. */
   --slot-selection: #1a3a5f;
-  --slot-highlight: rgba(26, 58, 95, 0.07);
-  --slot-highlight-edge: rgba(26, 58, 95, 0.3);
+  --slot-highlight: rgba(26, 58, 95, 0.09);
+  --slot-highlight-strong: rgba(26, 58, 95, 0.16);
+  --slot-highlight-edge: rgba(26, 58, 95, 0.55);
 }
 
 /* The doc's dark-blue theme, as a coherent stub -- there is no switcher yet. */
@@ -200,7 +202,8 @@
   --sidebar-ring: #60a5fa;
   --slot-selection: #60a5fa;
   --slot-highlight: rgba(96, 165, 250, 0.12);
-  --slot-highlight-edge: rgba(96, 165, 250, 0.4);
+  --slot-highlight-strong: rgba(96, 165, 250, 0.2);
+  --slot-highlight-edge: rgba(96, 165, 250, 0.6);
 }
 
 @layer base {

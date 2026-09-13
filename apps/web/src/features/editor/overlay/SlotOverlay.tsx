@@ -3,7 +3,7 @@
 // space), and shadcn has no equivalent component. See CLAUDE.md.
 'use client'
 
-import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent } from 'react'
 import {
   FONT_CSS_FAMILY,
   PDF_APPLIES_KERNING,
@@ -17,7 +17,13 @@ import {
   type Viewport,
 } from '@pdf-slot/core'
 import { SlotLines } from './SlotLines'
-import { applyDragDelta, applyResizeDelta, type DragOrigin } from './dragGeometry'
+import {
+  applyDragDelta,
+  applyEdgeResize,
+  type DragOrigin,
+  type ResizeEdge,
+  type ResizeOrigin,
+} from './dragGeometry'
 
 /**
  * Screen pixels of pointer movement before a pointerdown on the body is
@@ -28,15 +34,24 @@ import { applyDragDelta, applyResizeDelta, type DragOrigin } from './dragGeometr
  */
 const DRAG_THRESHOLD_PX = 4
 
+/** Grab strips for the four resize edges; see the JSX below. */
+const RESIZE_EDGES: { edge: ResizeEdge; style: CSSProperties }[] = [
+  { edge: 'left', style: { left: -4, top: 0, bottom: 0, width: 8, cursor: 'ew-resize' } },
+  { edge: 'right', style: { right: -4, top: 0, bottom: 0, width: 8, cursor: 'ew-resize' } },
+  { edge: 'top', style: { top: -4, left: 0, right: 0, height: 8, cursor: 'ns-resize' } },
+  { edge: 'bottom', style: { bottom: -4, left: 0, right: 0, height: 8, cursor: 'ns-resize' } },
+]
+
 type PendingPointer = { pointerId: number; startScreen: { x: number; y: number }; origin: DragOrigin }
 
 type DragState =
   | { kind: 'move'; pointerId: number; startScreen: { x: number; y: number }; origin: DragOrigin }
   | {
       kind: 'resize'
+      edge: ResizeEdge
       pointerId: number
       startScreen: { x: number; y: number }
-      originWidth: number
+      origin: ResizeOrigin
     }
 
 export function SlotOverlay({
@@ -125,7 +140,10 @@ export function SlotOverlay({
   // type into -- layoutText([]) returns zero lines, which would otherwise
   // collapse the box to zero height.
   const lineCount = Math.max(1, lines.length)
-  const boxHeight = layoutHeight(lineCount, slot.size, slot.lineHeight)
+  // The box is as tall as its text, or as tall as the user dragged it
+  // (slot.height, a minimum) -- whichever is more.
+  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight)
+  const boxHeight = Math.max(textHeight, slot.height ?? 0)
 
   const screenOrigin = toScreenPoint({ x: slot.x, y: slot.y }, viewport)
   const screenWidth = toScreenLength(slot.width, viewport)
@@ -187,7 +205,7 @@ export function SlotOverlay({
     if (drag.kind === 'move') {
       onChange(applyDragDelta(drag.origin, dxScreen, dyScreen, viewport))
     } else {
-      onChange({ width: applyResizeDelta(drag.originWidth, dxScreen, viewport) })
+      onChange(applyEdgeResize(drag.edge, drag.origin, dxScreen, dyScreen, viewport))
     }
   }
 
@@ -196,16 +214,19 @@ export function SlotOverlay({
     endDrag(event.pointerId)
   }
 
-  const handleResizePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+  const handleResizePointerDown = (edge: ResizeEdge) => (event: PointerEvent<HTMLDivElement>) => {
     if (locked) return
     event.stopPropagation()
     onSelect()
     event.currentTarget.setPointerCapture(event.pointerId)
     dragRef.current = {
       kind: 'resize',
+      edge,
       pointerId: event.pointerId,
       startScreen: { x: event.clientX, y: event.clientY },
-      originWidth: slot.width,
+      // The height captured is the box as shown, so a top/bottom drag
+      // starts from the visible edge even when no height was stored yet.
+      origin: { x: slot.x, y: slot.y, width: slot.width, height: boxHeight },
     }
   }
 
@@ -244,8 +265,12 @@ export function SlotOverlay({
         pointerEvents: 'auto',
         cursor: locked ? 'text' : 'move',
         // Theme tokens (globals.css) so the overlay follows the app's palette.
-        backgroundColor: highlighted ? 'var(--slot-highlight)' : undefined,
-        boxShadow: highlighted ? 'inset 0 0 0 1px var(--slot-highlight-edge)' : undefined,
+        // Every slot is visibly a box: a light wash and a hairline in the
+        // theme's ink, so a user can find the slots on a busy form without
+        // the box competing with the document. Step 2 (`highlighted`) uses
+        // a slightly deeper wash. Both are paint-only (no layout).
+        backgroundColor: highlighted ? 'var(--slot-highlight-strong)' : 'var(--slot-highlight)',
+        boxShadow: 'inset 0 0 0 1px var(--slot-highlight-edge)',
         // An outline (drawn inward), NOT a border. Absolutely positioned
         // children -- the textarea at `inset: 0` and SlotLines' spans --
         // are placed against this box's *padding* box, and a border (even
@@ -257,8 +282,8 @@ export function SlotOverlay({
         // glyph 1px right and down from the slot's true origin. An outline
         // paints over the box without taking part in layout, so all three
         // (box, textarea, spans) keep exactly the same rectangle.
-        outline: selected ? '1px solid var(--slot-selection)' : 'none',
-        outlineOffset: -1,
+        outline: selected ? '2px solid var(--slot-selection)' : 'none',
+        outlineOffset: -2,
       }}
     >
       {!hideDomText && <SlotLines slot={slot} lines={lines} viewport={viewport} metrics={metrics} />}
@@ -338,23 +363,25 @@ export function SlotOverlay({
           whiteSpace: 'pre-wrap',
         }}
       />
-      {selected && !locked && (
-        <div
-          onPointerDown={handleResizePointerDown}
-          onPointerMove={handleResizePointerMove}
-          onPointerUp={handleResizePointerUp}
-          onPointerCancel={handleResizePointerUp}
-          style={{
-            position: 'absolute',
-            right: -4,
-            top: 0,
-            bottom: 0,
-            width: 8,
-            cursor: 'ew-resize',
-            pointerEvents: 'auto',
-          }}
-        />
-      )}
+      {/*
+        One 8px-wide invisible grab strip along each edge (step 1 only):
+        left/right change the width (text re-wraps), top/bottom the box's
+        minimum height. Each is centred on its edge so half of it sits
+        outside the box, which keeps the strip grabbable on a one-line slot.
+      */}
+      {selected &&
+        !locked &&
+        RESIZE_EDGES.map(({ edge, style }) => (
+          <div
+            key={edge}
+            data-resize-edge={edge}
+            onPointerDown={handleResizePointerDown(edge)}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={handleResizePointerUp}
+            onPointerCancel={handleResizePointerUp}
+            style={{ position: 'absolute', pointerEvents: 'auto', ...style }}
+          />
+        ))}
     </div>
   )
 }

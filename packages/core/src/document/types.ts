@@ -19,9 +19,16 @@ export type Slot = {
   page: number
   /** Left edge of the box, PDF points, origin bottom-left. */
   x: number
-  /** Top edge of the box, PDF points. Height is derived from layout. */
+  /** Top edge of the box, PDF points. */
   y: number
   width: number
+  /**
+   * Minimum box height, PDF points. The box is always at least as tall as
+   * its text (see `layoutHeight`); this only makes it taller -- the writing
+   * area a user sees in the write step. Absent or 0 = exactly the text's
+   * height. Never used by the export: text is placed by `x`/`y`/`width`.
+   */
+  height?: number
   text: string
   fontId: FontId
   size: number

@@ -100,9 +100,47 @@ describe('SlotOverlay geometry', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('highlighted: shows a fill and hairline so the user can see where to write', () => {
+  it('every slot shows a wash and a hairline; highlighted uses the stronger wash', () => {
+    const plain = renderOverlay(false).box
+    expect(plain.style.backgroundColor).toContain('var(--slot-highlight)')
+    expect(plain.style.boxShadow).toContain('inset')
+    cleanup()
     const { box } = renderOverlay(false, { highlighted: true })
-    expect(box.style.backgroundColor).not.toBe('')
+    expect(box.style.backgroundColor).toContain('var(--slot-highlight-strong)')
     expect(box.style.boxShadow).toContain('inset')
+  })
+
+  it('selected and unlocked: a grab strip on each of the four edges; none when locked', () => {
+    const { box } = renderOverlay(true)
+    const edges = Array.from(box.querySelectorAll('[data-resize-edge]')).map((el) => el.getAttribute('data-resize-edge'))
+    expect(edges.sort()).toEqual(['bottom', 'left', 'right', 'top'])
+    cleanup()
+    const lockedBox = renderOverlay(true, { locked: true }).box
+    expect(lockedBox.querySelectorAll('[data-resize-edge]').length).toBe(0)
+  })
+
+  it('dragging the bottom edge reports a height patch; dragging the left edge reports x and width', () => {
+    const onChange = vi.fn()
+    const { box } = renderOverlay(true, { onChange })
+    const bottom = box.querySelector('[data-resize-edge="bottom"]') as HTMLElement
+    fireEvent.pointerDown(bottom, { pointerId: 7, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(bottom, { pointerId: 7, clientX: 0, clientY: 30 })
+    expect(onChange).toHaveBeenLastCalledWith({ height: expect.any(Number) })
+    // At zoom 1 the drag is 30pt; the box started at its text height, so
+    // the new height is text height + 30.
+    const height = (onChange.mock.calls.at(-1)![0] as { height: number }).height
+    expect(height).toBeGreaterThan(30)
+    fireEvent.pointerUp(bottom, { pointerId: 7 })
+
+    onChange.mockClear()
+    const left = box.querySelector('[data-resize-edge="left"]') as HTMLElement
+    fireEvent.pointerDown(left, { pointerId: 8, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(left, { pointerId: 8, clientX: 10, clientY: 0 })
+    expect(onChange).toHaveBeenLastCalledWith({ x: 20, width: 190 })
+  })
+
+  it('a stored height taller than the text makes the box that tall', () => {
+    const { box } = renderOverlay(false, { slot: { ...makeSlot(), height: 120 } })
+    expect(box.style.height).toBe('120px')
   })
 })

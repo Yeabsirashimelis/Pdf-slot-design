@@ -3,6 +3,7 @@ import type { Viewport } from '@pdf-slot/core'
 import {
   MIN_SLOT_WIDTH,
   applyDragDelta,
+  applyEdgeResize,
   applyResizeDelta,
   clampWidth,
 } from '../src/features/editor/overlay/dragGeometry'
@@ -76,5 +77,45 @@ describe('clampWidth / applyResizeDelta', () => {
   it('applyResizeDelta respects a custom minimum', () => {
     const vp: Viewport = { zoom: 1, pageHeight: 800 }
     expect(applyResizeDelta(50, -1000, vp, 10)).toBe(10)
+  })
+})
+
+describe('applyEdgeResize', () => {
+  // A 100x40 box at PDF (100, 500) (y is the TOP edge, Y-up), at zoom 2:
+  // every 2 screen px is 1 PDF point.
+  const vp: Viewport = { zoom: 2, pageHeight: 800 }
+  const origin = { x: 100, y: 500, width: 100, height: 40 }
+
+  it('right edge: dragging right widens, the origin corner stays put', () => {
+    expect(applyEdgeResize('right', origin, 20, 0, vp)).toEqual({ width: 110 })
+  })
+
+  it('left edge: dragging right moves the left edge in and narrows by the same amount', () => {
+    expect(applyEdgeResize('left', origin, 20, 0, vp)).toEqual({ x: 110, width: 90 })
+  })
+
+  it('bottom edge: dragging down grows the height', () => {
+    expect(applyEdgeResize('bottom', origin, 0, 20, vp)).toEqual({ height: 50 })
+  })
+
+  it('top edge: dragging down lowers the top (PDF y decreases) and shrinks the height', () => {
+    expect(applyEdgeResize('top', origin, 0, 20, vp)).toEqual({ y: 490, height: 30 })
+  })
+
+  it('width never goes below MIN_SLOT_WIDTH, and the right edge stays put on a left-edge resize', () => {
+    const result = applyEdgeResize('left', origin, 400, 0, vp)
+    expect(result.width).toBe(MIN_SLOT_WIDTH)
+    expect(result.x! + result.width!).toBeCloseTo(origin.x + origin.width)
+  })
+
+  it('height never goes below zero (zero means "as tall as the text"), and the bottom edge stays put on a top-edge resize', () => {
+    const result = applyEdgeResize('top', origin, 0, 400, vp)
+    expect(result.height).toBe(0)
+    expect(result.y! - result.height!).toBeCloseTo(origin.y - origin.height)
+  })
+
+  it('recomputes from the fixed origin, never accumulating', () => {
+    expect(applyEdgeResize('bottom', origin, 0, 10, vp)).toEqual({ height: 45 })
+    expect(applyEdgeResize('bottom', origin, 0, 20, vp)).toEqual({ height: 50 })
   })
 })
