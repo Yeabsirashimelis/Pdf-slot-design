@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState, type DragEvent } from 'react'
 import { toast } from 'sonner'
 import { Loader2, Upload } from 'lucide-react'
-import { imageToPdf, normalizePdf, type EditorDocument } from '@pdf-slot/core'
+import { imageToPdf } from '@pdf-slot/core'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { decodeImage } from './decodeImage'
@@ -15,15 +15,19 @@ function isPdfFile(file: File): boolean {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 }
 
-/** Convert a validated upload into a PDF-backed EditorDocument, or throw. */
-async function toEditorDocument(file: File): Promise<EditorDocument> {
-  const pdfBytes = isPdfFile(file)
-    ? new Uint8Array(await file.arrayBuffer())
-    : await imageToPdf(await decodeImage(file))
-  return normalizePdf(pdfBytes, crypto.randomUUID())
+/** Convert a validated upload into PDF bytes (images are wrapped in a page), or throw. */
+async function toPdfBytes(file: File): Promise<Uint8Array> {
+  return isPdfFile(file) ? new Uint8Array(await file.arrayBuffer()) : imageToPdf(await decodeImage(file))
 }
 
-export function Dropzone({ onDocument }: { onDocument(doc: EditorDocument): void }) {
+export type UploadedFile = { bytes: Uint8Array; name: string }
+
+/**
+ * Hands the caller PDF bytes plus the original name; it does not parse the
+ * PDF. openFile does that, once it knows the file's id, so an invalid or
+ * encrypted PDF is reported by the caller, not here.
+ */
+export function Dropzone({ onFile }: { onFile(file: UploadedFile): void }) {
   const [isPending, setIsPending] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -38,20 +42,16 @@ export function Dropzone({ onDocument }: { onDocument(doc: EditorDocument): void
 
       setIsPending(true)
       try {
-        const doc = await toEditorDocument(file)
-        onDocument(doc)
+        onFile({ bytes: await toPdfBytes(file), name: file.name })
       } catch (err) {
-        // normalizePdf distinguishes InvalidPdfError / EncryptedPdfError by
-        // message; decodeImage/imageToPdf throw plain Errors. Surfacing
-        // err.message (rather than a single generic string) is what keeps
-        // "password-protected" distinct from "not a readable PDF" for the
-        // user -- see task-13 brief.
+        // decodeImage / imageToPdf throw plain Errors with user-facing
+        // messages (unsupported or undecodable image).
         toast.error(err instanceof Error ? err.message : 'Could not load that file.')
       } finally {
         setIsPending(false)
       }
     },
-    [onDocument],
+    [onFile],
   )
 
   const handleDrop = useCallback(
