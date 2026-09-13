@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
 import { createElement } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fakePdfjsDocument, installFontFixtures } from './helpers/editorFixtures'
 import type { EditorDocument, StoredFile, TemplateLayout, TemplateValues } from '@pdf-slot/core'
 import type { OpenSession } from '@/lib/persistence/templateStore'
 import type { OpenedFile } from '@/features/template/openFile'
@@ -55,27 +54,6 @@ vi.mock('@/features/template/openFile', () => ({
   openFile: (...args: unknown[]) => openFileMock(...args),
 }))
 
-class FakeFontFace {
-  family: string
-  source: unknown
-  constructor(family: string, source: unknown) {
-    this.family = family
-    this.source = source
-  }
-  async load() {
-    return this
-  }
-}
-
-const FONT_DIR = path.resolve(__dirname, '../public/fonts')
-const FONT_FILES = [
-  'PT_Sans-Web-Regular.ttf',
-  'PT_Sans-Web-Bold.ttf',
-  'PT_Serif-Web-Regular.ttf',
-  'PT_Serif-Web-Bold.ttf',
-  'IBMPlexMono-Regular.ttf',
-]
-
 // A content hash: 64 hex chars. Anything else is a random id the page refuses to restore.
 const FILE_ID = 'a'.repeat(64)
 const bytes = new Uint8Array([1, 2, 3])
@@ -92,30 +70,9 @@ describe('Home', () => {
     memory.reset()
     openFileMock.mockReset()
     getDocumentMock.mockReset()
-    getDocumentMock.mockReturnValue({
-      promise: Promise.resolve({
-        getPage: vi.fn(async () => ({
-          getViewport: () => ({ width: 100, height: 100 }),
-          render: () => ({ promise: Promise.resolve(), cancel: vi.fn() }),
-        })),
-      }),
-      destroy: vi.fn(),
-    })
+    getDocumentMock.mockReturnValue(fakePdfjsDocument())
 
-    vi.stubGlobal('FontFace', FakeFontFace)
-    Object.defineProperty(document, 'fonts', {
-      configurable: true,
-      value: { add: vi.fn() },
-    })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => {
-        const file = FONT_FILES.find((f) => url.endsWith(f))
-        if (!file) throw new Error(`unexpected fetch in test: ${url}`)
-        const bytes = readFileSync(path.join(FONT_DIR, file))
-        return { ok: true, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }
-      }),
-    )
+    installFontFixtures()
   })
 
   afterEach(() => {

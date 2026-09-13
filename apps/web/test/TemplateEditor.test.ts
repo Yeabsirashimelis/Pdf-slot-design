@@ -1,8 +1,7 @@
 import { createElement } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
+import { installFontFixtures } from './helpers/editorFixtures'
 import type { EditorDocument, TemplateLayout, TemplateValues } from '@pdf-slot/core'
 import type { OpenSession, SessionStore, TemplateStore } from '@/lib/persistence/templateStore'
 import type { OpenedFile } from '@/features/template/openFile'
@@ -11,25 +10,10 @@ import type { OpenedFile } from '@/features/template/openFile'
 // the real Editor (canvas click -> overlay -> textarea) but never needs
 // pixels drawn in jsdom. Render-on-commit is off by default, so renderPdf
 // is never reached and @pdf-slot/core stays unmocked.
-vi.mock('pdfjs-dist', () => ({
-  GlobalWorkerOptions: {},
-  getDocument: () => ({
-    promise: Promise.resolve({
-      getPage: async () => ({
-        getViewport: () => ({ width: 100, height: 100 }),
-        render: () => ({ promise: Promise.resolve(), cancel: vi.fn() }),
-      }),
-    }),
-    destroy: vi.fn(),
-  }),
-}))
-
-class FakeFontFace {
-  constructor(public family: string, public source: unknown) {}
-  async load() { return this }
-}
-const FONT_DIR = path.resolve(__dirname, '../public/fonts')
-const FONT_FILES = ['PT_Sans-Web-Regular.ttf', 'PT_Sans-Web-Bold.ttf', 'PT_Serif-Web-Regular.ttf', 'PT_Serif-Web-Bold.ttf', 'IBMPlexMono-Regular.ttf']
+vi.mock('pdfjs-dist', async () => {
+  const { fakePdfjsDocument } = await import('./helpers/editorFixtures')
+  return { GlobalWorkerOptions: {}, getDocument: () => fakePdfjsDocument() }
+})
 
 function memoryStore() {
   const layouts = new Map<string, TemplateLayout>()
@@ -83,14 +67,7 @@ async function placeSlot(container: HTMLElement, name: string) {
 
 describe('TemplateEditor', () => {
   beforeEach(() => {
-    vi.stubGlobal('FontFace', FakeFontFace)
-    Object.defineProperty(document, 'fonts', { configurable: true, value: { add: vi.fn() } })
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      const file = FONT_FILES.find((f) => url.endsWith(f))
-      if (!file) throw new Error(`unexpected fetch: ${url}`)
-      const bytes = readFileSync(path.join(FONT_DIR, file))
-      return { ok: true, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }
-    }))
+    installFontFixtures()
   })
   afterEach(() => {
     cleanup()
