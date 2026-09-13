@@ -86,3 +86,16 @@ describe('SlotPanel', () => {
     expect(screen.queryByTestId('slot-chip-duplicate-a')).toBeNull()
   })
 })
+
+describe('SlotPanel hints', () => {
+  afterEach(() => cleanup())
+
+  it('step 1 shows the keyboard shortcuts', () => {
+    render(createElement(SlotPanel, { ...base, step: 'layout' }))
+    const hints = screen.getByTestId('shortcut-hints')
+    expect(hints.textContent).toMatch(/undo/)
+    expect(hints.textContent).toMatch(/redo/)
+    expect(hints.textContent).toMatch(/duplicate/)
+    expect(hints.querySelectorAll('kbd[data-slot="kbd"]').length).toBeGreaterThanOrEqual(5)
+  })
+})

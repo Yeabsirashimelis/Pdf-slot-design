@@ -2,12 +2,24 @@
 
 import { ArrowLeft, ArrowRight, Copy, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { Step } from '@/lib/persistence/templateStore'
 
 export type PanelSlot = { id: string; name: string; text: string }
+
+/** A button with a faint hover hint; every control in the panel has one. */
+function HintButton({ hint, ...button }: { hint: React.ReactNode } & React.ComponentProps<typeof Button>) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<Button {...button} />} />
+      <TooltipContent>{hint}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 /**
  * The left column. Step 1 lists the slots as chips (select / rename /
@@ -33,6 +45,7 @@ export function SlotPanel({
   onSave(): void
 }) {
   return (
+    <TooltipProvider>
     <aside
       data-testid="slot-panel"
       className="flex w-72 shrink-0 flex-col gap-4 rounded-lg border border-border bg-muted p-4"
@@ -74,7 +87,8 @@ export function SlotPanel({
                   )}
                 >
                   <span className="min-w-0 flex-1 truncate">{slot.name}</span>
-                  <Button
+                  <HintButton
+                    hint="Duplicate with the same settings"
                     variant="ghost"
                     size="icon-xs"
                     aria-label={`Duplicate ${slot.name}`}
@@ -82,8 +96,9 @@ export function SlotPanel({
                     onClick={(e) => { e.stopPropagation(); onDuplicate(slot.id) }}
                   >
                     <Copy />
-                  </Button>
-                  <Button
+                  </HintButton>
+                  <HintButton
+                    hint="Remove this slot from the page"
                     variant="ghost"
                     size="icon-xs"
                     aria-label={`Remove ${slot.name}`}
@@ -91,20 +106,28 @@ export function SlotPanel({
                     onClick={(e) => { e.stopPropagation(); onRemove(slot.id) }}
                   >
                     <X />
-                  </Button>
+                  </HintButton>
                 </div>
               </li>
             ))}
           </ul>
-          <Button className="mt-auto" onClick={onNext} disabled={slots.length === 0} data-testid="panel-next">
-            Next <ArrowRight />
-          </Button>
+          <div className="mt-auto flex flex-col gap-3">
+            <p className="text-xs text-muted-foreground" data-testid="shortcut-hints">
+              Shortcuts:{' '}
+              <KbdGroup><Kbd>Ctrl</Kbd><Kbd>Z</Kbd></KbdGroup> undo ·{' '}
+              <KbdGroup><Kbd>Ctrl</Kbd><Kbd>Shift</Kbd><Kbd>Z</Kbd></KbdGroup> redo ·{' '}
+              <KbdGroup><Kbd>Ctrl</Kbd><Kbd>D</Kbd></KbdGroup> duplicate · double-click a chip to rename
+            </p>
+            <HintButton hint="Save the layout and start writing into the slots" onClick={onNext} disabled={slots.length === 0} data-testid="panel-next">
+              Next <ArrowRight />
+            </HintButton>
+          </div>
         </>
       ) : (
         <>
-          <Button variant="ghost" size="sm" className="self-start" onClick={onBack} data-testid="panel-back">
+          <HintButton hint="Go back to move, resize or restyle the slots" variant="ghost" size="sm" className="self-start" onClick={onBack} data-testid="panel-back">
             <ArrowLeft /> Back
-          </Button>
+          </HintButton>
           <h2 className="text-sm font-medium">Form</h2>
           <div className="flex flex-col gap-3">
             {slots.map((slot) => (
@@ -126,9 +149,12 @@ export function SlotPanel({
               </div>
             ))}
           </div>
-          <Button className="mt-auto" onClick={onSave} data-testid="panel-save">Save</Button>
+          <HintButton hint="Keep what you typed for this file (it also saves on its own as you type)" className="mt-auto" onClick={onSave} data-testid="panel-save">
+            Save
+          </HintButton>
         </>
       )}
     </aside>
+    </TooltipProvider>
   )
 }

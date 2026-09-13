@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Kbd } from '@/components/ui/kbd'
 
 /** Selectable point sizes -- no such list exists in @pdf-slot/core, so this
  * is the toolbar's own convention (a standard print/editor size ramp). */
@@ -65,6 +66,22 @@ const ZOOM_STEP = 0.25
  * buttons here, rather than duplicating the range. */
 export function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom))
+}
+
+/**
+ * A hover hint for a control that already owns its click -- a Select, a
+ * Popover trigger, a ToggleGroup -- where putting the Tooltip's trigger on
+ * the control itself would make two base-ui triggers fight over one
+ * element. The trigger is a neutral inline wrapper instead: hover shows the
+ * hint, the click still goes straight to the control inside.
+ */
+function Hint({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex" />}>{children}</TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 function sameColor(a: RGB, b: RGB): boolean {
@@ -204,6 +221,7 @@ export function Toolbar({
       >
         {!locked && (
           <>
+            <Hint label="Font of the selected slot">
             <Select
               value={selected?.fontId ?? ''}
               onValueChange={(value) => applyPatch({ fontId: value as FontId })}
@@ -220,7 +238,9 @@ export function Toolbar({
                 ))}
               </SelectContent>
             </Select>
+            </Hint>
 
+            <Hint label="Text size (points)">
             <Select
               value={selected ? String(selected.size) : ''}
               onValueChange={(value) => applyPatch({ size: Number(value) })}
@@ -237,13 +257,13 @@ export function Toolbar({
                 ))}
               </SelectContent>
             </Select>
+            </Hint>
 
             <Separator orientation="vertical" className="h-6" />
 
-            {/* No Tooltip here: the trigger already opens a Popover on click,
-             * and layering a hover Tooltip's own trigger over the same button
-             * fights the Popover for the same interaction. An aria-label
-             * carries the accessible name instead. */}
+            {/* The hint wraps the Popover (see Hint): a Tooltip trigger on the
+             * same button as the Popover trigger would fight it for the click. */}
+            <Hint label="Text colour">
             <Popover open={colorPopoverOpen} onOpenChange={setColorPopoverOpen}>
               <PopoverTrigger
                 render={
@@ -281,6 +301,7 @@ export function Toolbar({
                 </div>
               </PopoverContent>
             </Popover>
+            </Hint>
 
             <ToggleGroup
               value={selected ? [selected.align] : []}
@@ -295,15 +316,21 @@ export function Toolbar({
               disabled={!selected}
               data-testid="align-toggle-group"
             >
-              <ToggleGroupItem value="left" aria-label="Align left" data-testid="align-left">
-                <AlignLeft />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="center" aria-label="Align center" data-testid="align-center">
-                <AlignCenter />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="right" aria-label="Align right" data-testid="align-right">
-                <AlignRight />
-              </ToggleGroupItem>
+              <Hint label="Align left">
+                <ToggleGroupItem value="left" aria-label="Align left" data-testid="align-left">
+                  <AlignLeft />
+                </ToggleGroupItem>
+              </Hint>
+              <Hint label="Align centre">
+                <ToggleGroupItem value="center" aria-label="Align center" data-testid="align-center">
+                  <AlignCenter />
+                </ToggleGroupItem>
+              </Hint>
+              <Hint label="Align right">
+                <ToggleGroupItem value="right" aria-label="Align right" data-testid="align-right">
+                  <AlignRight />
+                </ToggleGroupItem>
+              </Hint>
             </ToggleGroup>
 
             <Separator orientation="vertical" className="h-6" />
@@ -323,7 +350,9 @@ export function Toolbar({
                   </Button>
                 }
               />
-              <TooltipContent>Duplicate slot (Ctrl+D)</TooltipContent>
+              <TooltipContent>
+                Duplicate slot <Kbd>Ctrl</Kbd><Kbd>D</Kbd>
+              </TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -398,7 +427,7 @@ export function Toolbar({
                 </Button>
               }
             />
-            <TooltipContent>Fit width</TooltipContent>
+            <TooltipContent>Fit the page to the column (100%)</TooltipContent>
           </Tooltip>
         </div>
 
@@ -466,15 +495,22 @@ export function Toolbar({
               </Button>
             }
           />
-          <TooltipContent>{downloadBlockedReason ?? 'Download the edited PDF'}</TooltipContent>
+          <TooltipContent>{downloadBlockedReason ?? 'Download the PDF with your text in it'}</TooltipContent>
         </Tooltip>
 
         {onStartOver && (
           <>
             <Separator orientation="vertical" className="h-6" />
-            <Button variant="outline" size="sm" onClick={onStartOver} data-testid="start-over-button">
-              Start over
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button variant="outline" size="sm" onClick={onStartOver} data-testid="start-over-button">
+                    Start over
+                  </Button>
+                }
+              />
+              <TooltipContent>Close this file and go back to upload. Your saved layout is kept.</TooltipContent>
+            </Tooltip>
           </>
         )}
       </div>

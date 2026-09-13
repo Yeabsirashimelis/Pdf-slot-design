@@ -393,3 +393,19 @@ describe('Toolbar start-over control (Task 18)', () => {
     expect(onStartOver).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('Toolbar hints', () => {
+  afterEach(() => cleanup())
+
+  it('every control has a hover hint: tooltip triggers wrap the selects, colour, alignment, duplicate, delete, zoom, pages, download and start over', () => {
+    render(createElement(Toolbar, baseProps({ slots: [makeSlot()], selectedId: 's1', pageCount: 2, onStartOver: vi.fn() })))
+    const inside = (testId: string) => screen.getByTestId(testId).closest('[data-slot="tooltip-trigger"]') !== null
+    for (const id of [
+      'font-select-trigger', 'size-select-trigger', 'color-trigger', 'align-left', 'align-center', 'align-right',
+      'duplicate-button', 'delete-button', 'zoom-out', 'zoom-in', 'zoom-fit-width', 'page-prev', 'page-next',
+      'download-button', 'start-over-button',
+    ]) {
+      expect(inside(id), `${id} has no tooltip`).toBe(true)
+    }
+  })
+})
