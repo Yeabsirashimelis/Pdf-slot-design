@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import {
   FONT_IDS,
@@ -24,7 +23,9 @@ import { useEditorStore, type EditorStore } from './state/useEditorStore'
 import { SlotOverlay } from './overlay/SlotOverlay'
 import { useCommitRender } from './pipeline/useCommitRender'
 import { createSlotCommands } from './pipeline/slotCommands'
-import { Toolbar, clampZoom } from './toolbar/Toolbar'
+import { Toolbar } from './toolbar/Toolbar'
+import { useEditorShortcuts } from './useEditorShortcuts'
+import { useZoom } from './useZoom'
 
 /** Stable id so the unsupported-character toast is replaced, not stacked. */
 const UNSUPPORTED_TOAST_ID = 'unsupported-characters'
@@ -110,22 +111,9 @@ export function Editor({
   /** Overrides NEXT_PUBLIC_RENDER_ON_COMMIT; tests use it to exercise verification mode. */
   renderOnCommit?: boolean
 }) {
-  // Zoom and the current page are the toolbar's (Task 17) to control now --
-  // Editor owns the state because it also needs it to compute the
-  // viewport/transform for rendering and click handling, but nothing above
-  // Editor cares about either value.
-  // Zoom has two parts. `baseZoom` is fit-width -- the CSS px per PDF
-  // point at which the first page fills the column -- measured once per
-  // document when the root mounts (see setRootRef). `scale` is what the
-  // toolbar shows and steps: 1 means "as large as the column allows",
-  // which is what a reader expects to see first and what "100%" means
-  // here. (Mapping points 1:1 to CSS pixels instead would show a
-  // print-sized form with its 6-7pt text at 8-9px -- rendered correctly,
-  // but not readable until zoomed.) The effective `zoom` below is what
-  // the overlay geometry and the canvas actually use.
-  const [scale, setScale] = useState(1)
-  const [baseZoom, setBaseZoom] = useState(1)
-  const zoom = scale * baseZoom
+  // Zoom (fit-width = 100%) lives in useZoom; the current page is local
+  // state because the toolbar, the canvas and click handling all need it.
+  const { zoom, scale, setScale, fitWidth, rootRef } = useZoom(doc)
   const [pageIndex, setPageIndex] = useState(0)
   // Hooks run unconditionally: the own store is always created, and simply
   // goes unused when the parent supplies one.
@@ -300,99 +288,21 @@ export function Editor({
     store.addSlot(atPdf, pageIndex)
   }
 
-  // Measured on demand (a click), not tracked continuously -- avoids
-  // depending on ResizeObserver (unavailable in this project's jsdom test
-  // environment) for a value that only matters at the instant the button
-  // is pressed. `rootRef`'s div is a block-level flex container with no
-  // width of its own, so its clientWidth is the real available layout
-  // width, independent of the canvas's own (possibly zoomed-out) size.
-  const rootRef = useRef<HTMLDivElement>(null)
-  /** Fit-width for `pageWidth` in the root's current column, or null if either can't be measured. */
-  const measureFitWidth = (pageWidth: number): number | null => {
-    const availableWidth = rootRef.current?.clientWidth ?? 0
-    if (availableWidth <= 0 || pageWidth <= 0) return null
-    return clampZoom(availableWidth / pageWidth)
-  }
-  // Re-measures (the column may have been resized since the document
-  // opened) and returns to 100%.
-  const handleFitWidth = () => {
-    if (!page) return
-    const fit = measureFitWidth(page.width)
-    if (fit === null) return
-    setBaseZoom(fit)
-    setScale(1)
-  }
-
-  // The fit-width measurement that defines 100%, taken once per document
-  // from a callback ref rather than an effect: the width can only be
-  // measured once the root is in the DOM, and the ref callback is exactly
-  // that moment (and re-runs when `doc` changes, since it is recreated
-  // then).
-  const fittedForDocIdRef = useRef<string | null>(null)
-  const setRootRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      rootRef.current = el
-      if (!el || fittedForDocIdRef.current === doc.id) return
-      fittedForDocIdRef.current = doc.id
-      const firstPageWidth = doc.pages[0]?.width ?? 0
-      if (el.clientWidth > 0 && firstPageWidth > 0) setBaseZoom(clampZoom(el.clientWidth / firstPageWidth))
-    },
-    [doc],
-  )
-
-  // Keyboard undo/redo. Task 17's toolbar brief doesn't call for visible
-  // undo/redo buttons (only font/size/colour/align/delete plus zoom and
-  // page navigation), so these Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z bindings
-  // remain the only way to trigger store.undo()/redo(). Ignored while a
-  // slot's textarea is focused, so the input's own native undo (e.g.
-  // undoing an IME composition) isn't fought over.
-  const { undo, redo } = store
-  // Ctrl/Cmd+D duplicates the selected slot (step 1 only). Read through a
-  // ref so the keydown listener below never goes stale without having to
-  // be re-registered on every render.
-  const duplicateSelectedRef = useRef<() => void>(() => {})
-  useEffect(() => {
-    duplicateSelectedRef.current = () => {
+  useEditorShortcuts({
+    undo: store.undo,
+    redo: store.redo,
+    commit,
+    duplicateSelected: () => {
       if (locked || !store.selectedId) return
       duplicateSlot(store.selectedId)
-    }
+    },
   })
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const isModified = event.metaKey || event.ctrlKey
-      if (!isModified) return
-      if (event.key.toLowerCase() === 'd') {
-        // The browser's own Ctrl+D (bookmark) must not fire.
-        event.preventDefault()
-        duplicateSelectedRef.current()
-        return
-      }
-      if (event.key.toLowerCase() !== 'z') return
-      if (event.target instanceof HTMLTextAreaElement) return
-      event.preventDefault()
-      // commit() reads the current slots through a ref that useCommitRender
-      // updates during its own render (see pipeline/useCommitRender.ts) --
-      // it does NOT read React state directly. undo()/redo() schedule a
-      // state update that, left alone, applies asynchronously, so calling
-      // commit() right after them would still see the PRE-undo slots and
-      // render/paint the wrong content while the store itself had already
-      // moved on. flushSync forces that update (and this component's
-      // re-render, which refreshes the ref) to happen synchronously first.
-      flushSync(() => {
-        if (event.shiftKey) redo()
-        else undo()
-      })
-      commit()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [undo, redo, commit])
 
   if (!page) return null
 
   return (
     <div
-      ref={setRootRef}
+      ref={rootRef}
       // `flex: 1` + `minWidth: 0` so that, as a flex-row item beside the
       // template side panel, this root spans the remaining column width --
       // which is what fit-width (above) measures. A block parent ignores
@@ -416,8 +326,8 @@ export function Editor({
         removeSlotAndCommit={removeSlotAndCommit}
         duplicateSlotAndCommit={duplicateSlot}
         zoom={scale}
-        onZoomChange={(next) => setScale(clampZoom(next))}
-        onFitWidth={handleFitWidth}
+        onZoomChange={setScale}
+        onFitWidth={fitWidth}
         pageIndex={pageIndex}
         pageCount={doc.pages.length}
         onPageChange={setPageIndex}
