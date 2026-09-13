@@ -35,6 +35,23 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-alpha: var(--primary-alpha);
+  --color-surface-hover: var(--surface-hover);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-accent: var(--success-accent);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-accent: var(--warning-accent);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-accent: var(--info-accent);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-destructive-soft-foreground: var(--destructive-soft-foreground);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -48,73 +65,142 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Editorial theme, lifted from docs/design-tokens.md (Elli UI's default):
+ * navy ink on cream. Applied with pastel discipline -- colour lives in
+ * low-saturation *surfaces* (muted, soft, alpha) and in dark *ink* on them,
+ * never in vibrating fills -- so the editor is quiet to look at for hours
+ * and every text pair clears WCAG 4.5:1 (text/page 17.3, muted-fg/card 5.9,
+ * muted-fg/muted 5.0, primary-fg/primary 11.2, accent-fg/accent 10.0). Values are the doc's;
+ * only the names are mapped onto shadcn's token set.
+ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.375rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  color-scheme: light;
+
+  /* Surfaces */
+  --background: #faf9f5;
+  --foreground: #1a1410;
+  --card: #ffffff;
+  --card-foreground: #1a1410;
+  --popover: #ffffff;
+  --popover-foreground: #1a1410;
+  --surface-hover: #f1ece2;
+
+  /* Brand / interactive */
+  --primary: #1a3a5f;
+  --primary-hover: #112b47;
+  --primary-foreground: #fdfbf6;
+  --primary-soft: #ebe7df;
+  --primary-alpha: #d5cfc0;
+  --secondary: #ebe7df;
+  --secondary-foreground: #112b47;
+  --accent: #ebeef3;
+  --accent-foreground: #1a3a5f;
+  --muted: #f1ece2;
+  --muted-foreground: #6b6359;
+
+  /* Feedback: fill / tinted surface / ink that reads on it */
+  --success: #0d9488;
+  --success-soft: #f0fdfa;
+  --success-accent: #0f766e;
+  --warning: #b8860b;
+  --warning-soft: #f7efd9;
+  --warning-accent: #92400e;
+  --info: #0e7490;
+  --info-soft: #f0f9ff;
+  --info-accent: #0369a1;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --destructive-soft: #fbe8e8;
+  --destructive-soft-foreground: #b91c1c;
+  --link: #0e7490;
+  --link-hover: #155e75;
+
+  /* Charts */
+  --chart-1: #1a3a5f;
+  --chart-2: #2d6a4f;
+  --chart-3: #b8860b;
+  --chart-4: #c75e40;
+  --chart-5: #6b6359;
+
+  /* Borders, inputs, focus */
+  --border: #d5cfc0;
+  --input: #d8d0c5;
+  --ring: #1a3a5f;
+  --radius: 0.5rem;
+
+  /* Sidebar (shadcn names; the doc's navy sidebar) */
+  --sidebar: #183450;
+  --sidebar-foreground: #c2c9d2;
+  --sidebar-primary: #ffda8f;
+  --sidebar-primary-foreground: #183450;
+  --sidebar-accent: #284562;
+  --sidebar-accent-foreground: #f1f3f5;
+  --sidebar-border: #405a77;
+  --sidebar-ring: #ffda8f;
+
+  /* Editor overlay: selection ring = primary; step-2 slot tint = a pastel
+     wash of primary (accent-like), with its hairline a stronger alpha. */
+  --slot-selection: #1a3a5f;
+  --slot-highlight: rgba(26, 58, 95, 0.07);
+  --slot-highlight-edge: rgba(26, 58, 95, 0.3);
 }
 
+/* The doc's dark-blue theme, as a coherent stub -- there is no switcher yet. */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  color-scheme: dark;
+  --background: #0a0f1a;
+  --foreground: #f1f5f9;
+  --card: #0f1624;
+  --card-foreground: #f1f5f9;
+  --popover: #0f1624;
+  --popover-foreground: #f1f5f9;
+  --surface-hover: #162033;
+  --primary: #60a5fa;
+  --primary-hover: #93c5fd;
+  --primary-foreground: #0a0f1a;
+  --primary-soft: rgba(96, 165, 250, 0.12);
+  --primary-alpha: rgba(96, 165, 250, 0.25);
+  --secondary: #162033;
+  --secondary-foreground: #e2e8f0;
+  --accent: #162033;
+  --accent-foreground: #e2e8f0;
+  --muted: #162033;
+  --muted-foreground: #94a3b8;
+  --success: #4ade80;
+  --success-soft: #052e16;
+  --success-accent: #4ade80;
+  --warning: #fbbf24;
+  --warning-soft: #451a03;
+  --warning-accent: #fcd34d;
+  --info: #0891b2;
+  --info-soft: #172554;
+  --info-accent: #60a5fa;
+  --destructive: #f97316;
+  --destructive-foreground: #0a0f1a;
+  --destructive-soft: #431407;
+  --destructive-soft-foreground: #fdba74;
+  --link: #22d3ee;
+  --link-hover: #67e8f9;
+  --chart-1: #3b82f6;
+  --chart-2: #22c55e;
+  --chart-3: #eab308;
+  --chart-4: #ef4444;
+  --chart-5: #a855f7;
+  --border: #1e293b;
+  --input: #1e293b;
+  --ring: #60a5fa;
+  --sidebar: #0f1624;
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-primary: #60a5fa;
+  --sidebar-primary-foreground: #0a0f1a;
+  --sidebar-accent: #162033;
+  --sidebar-accent-foreground: #e2e8f0;
+  --sidebar-border: #1e293b;
+  --sidebar-ring: #60a5fa;
+  --slot-selection: #60a5fa;
+  --slot-highlight: rgba(96, 165, 250, 0.12);
+  --slot-highlight-edge: rgba(96, 165, 250, 0.4);
 }
 
 @layer base {
@@ -123,6 +209,9 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* The tokens doc's 24px dot grid, tinted with the ink colour at 2%. */
+    background-image: radial-gradient(circle at 1px 1px, rgba(26, 20, 16, 0.022) 1px, transparent 0);
+    background-size: 24px 24px;
   }
   html {
     @apply font-sans;

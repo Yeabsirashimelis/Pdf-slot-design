@@ -243,8 +243,9 @@ export function SlotOverlay({
         height: screenHeight,
         pointerEvents: 'auto',
         cursor: locked ? 'text' : 'move',
-        backgroundColor: highlighted ? 'rgba(37, 99, 235, 0.08)' : undefined,
-        boxShadow: highlighted ? 'inset 0 0 0 1px rgba(37, 99, 235, 0.35)' : undefined,
+        // Theme tokens (globals.css) so the overlay follows the app's palette.
+        backgroundColor: highlighted ? 'var(--slot-highlight)' : undefined,
+        boxShadow: highlighted ? 'inset 0 0 0 1px var(--slot-highlight-edge)' : undefined,
         // An outline (drawn inward), NOT a border. Absolutely positioned
         // children -- the textarea at `inset: 0` and SlotLines' spans --
         // are placed against this box's *padding* box, and a border (even
@@ -256,7 +257,7 @@ export function SlotOverlay({
         // glyph 1px right and down from the slot's true origin. An outline
         // paints over the box without taking part in layout, so all three
         // (box, textarea, spans) keep exactly the same rectangle.
-        outline: selected ? '1px solid #0070f3' : 'none',
+        outline: selected ? '1px solid var(--slot-selection)' : 'none',
         outlineOffset: -1,
       }}
     >

@@ -33,7 +33,7 @@ export function SlotPanel({
   return (
     <aside
       data-testid="slot-panel"
-      className="flex w-72 shrink-0 flex-col gap-4 rounded-lg border border-border bg-muted/40 p-4"
+      className="flex w-72 shrink-0 flex-col gap-4 rounded-lg border border-border bg-muted p-4"
     >
       {step === 'layout' ? (
         <>
@@ -67,7 +67,7 @@ export function SlotPanel({
                     }
                   }}
                   className={cn(
-                    'flex items-center justify-between rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    'flex items-center justify-between rounded-md border border-border bg-card px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     selectedId === slot.id && 'ring-2 ring-ring',
                   )}
                 >

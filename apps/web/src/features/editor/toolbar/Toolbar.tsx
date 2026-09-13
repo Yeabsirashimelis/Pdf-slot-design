@@ -191,7 +191,7 @@ export function Toolbar({
   return (
     <TooltipProvider>
       <div
-        className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2"
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2"
         data-testid="toolbar"
       >
         {!locked && (

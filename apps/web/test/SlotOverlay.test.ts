@@ -83,9 +83,9 @@ describe('SlotOverlay geometry', () => {
     },
   )
 
-  it('still shows a visible ring when selected', () => {
+  it('still shows a visible ring when selected, in the theme\'s selection colour', () => {
     const { box } = renderOverlay(true)
-    expect(box.style.outline).toContain('#0070f3')
+    expect(box.style.outline).toContain('var(--slot-selection)')
   })
 
   it('locked: no resize handle even when selected, text cursor, and dragging does nothing', () => {
