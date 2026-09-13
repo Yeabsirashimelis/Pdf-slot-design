@@ -356,6 +356,23 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     expect(slotA.querySelectorAll('span').length).toBe(0)
   })
 
+  it('opens at fit-width, not at 100%: a 612pt page in a 1224px column starts at 200%', async () => {
+    // 100% maps PDF points 1:1 to CSS pixels, which shows a print-sized
+    // form with 6-7pt text at 8-9px -- legible only after zooming in. The
+    // page should open as large as the column allows, like every PDF
+    // viewer does, and the user zooms from there.
+    const { Editor } = await import('../src/features/editor/Editor')
+    const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1224)
+    try {
+      const { container } = render(createElement(Editor, { doc: makeDoc() }))
+      await waitFor(() =>
+        expect(container.querySelector('[data-testid="zoom-percentage"]')?.textContent).toBe('200%'),
+      )
+    } finally {
+      clientWidth.mockRestore()
+    }
+  })
+
   it('by default a commit renders nothing -- the one render happens on Download', async () => {
     // The product mode (2026-09-12 direction): editing costs nothing, the
     // overlay stays the preview, and pressing Download performs the single

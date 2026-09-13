@@ -285,6 +285,26 @@ export function Editor({
     setZoom(clampZoom(availableWidth / page.width))
   }
 
+  // A document opens at fit-width, not at 100%. 100% maps PDF points 1:1
+  // to CSS pixels, which shows a print-sized form with its 6-7pt text at
+  // 8-9px -- rendered correctly, but too small to read until the user
+  // zooms in. Every PDF viewer opens as large as the column allows; so
+  // does this one, once per document. Done from a callback ref rather
+  // than an effect because the width can only be measured once the root
+  // is in the DOM, and the ref callback is exactly that moment (and
+  // re-runs when `doc` changes, since it is recreated then).
+  const fittedForDocIdRef = useRef<string | null>(null)
+  const setRootRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      rootRef.current = el
+      if (!el || fittedForDocIdRef.current === doc.id) return
+      fittedForDocIdRef.current = doc.id
+      const firstPageWidth = doc.pages[0]?.width ?? 0
+      if (el.clientWidth > 0 && firstPageWidth > 0) setZoom(clampZoom(el.clientWidth / firstPageWidth))
+    },
+    [doc],
+  )
+
   // Keyboard undo/redo. Task 17's toolbar brief doesn't call for visible
   // undo/redo buttons (only font/size/colour/align/delete plus zoom and
   // page navigation), so these Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z bindings
@@ -320,8 +340,19 @@ export function Editor({
 
   return (
     <div
-      ref={rootRef}
-      style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-start' }}
+      ref={setRootRef}
+      // `flex: 1` + `minWidth: 0` so that, as a flex-row item beside the
+      // template side panel, this root spans the remaining column width --
+      // which is what fit-width (above) measures. A block parent ignores
+      // both, so a standalone Editor is unaffected.
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.75rem',
+        alignItems: 'flex-start',
+        flex: 1,
+        minWidth: 0,
+      }}
     >
       <Toolbar
         isRendering={isRendering}

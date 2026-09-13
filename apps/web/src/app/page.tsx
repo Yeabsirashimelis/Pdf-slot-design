@@ -65,8 +65,11 @@ export default function Home() {
     }
   }
 
+  // No max width on the editor: the page opens at fit-width, and a capped
+  // column made a landscape form open at 100% -- print size, 6-7pt text at
+  // 8px. The dropzone alone stays a centred column.
   return (
-    <main className="mx-auto flex min-h-dvh max-w-6xl flex-col justify-center px-6 py-10">
+    <main className="flex min-h-dvh flex-col justify-center px-6 py-10">
       <h1 className="text-2xl font-medium tracking-tight">PDF Slot Editor</h1>
       <p className="mt-2 text-sm text-muted-foreground">
         Lay out named text slots on a PDF once; write into them every time after.
@@ -82,7 +85,9 @@ export default function Home() {
             onStartOver={() => setOpened(null)}
           />
         ) : (
-          <Dropzone onFile={handleFile} />
+          <div className="mx-auto w-full max-w-4xl">
+            <Dropzone onFile={handleFile} />
+          </div>
         )}
       </div>
     </main>
