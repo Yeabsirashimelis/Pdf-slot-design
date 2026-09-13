@@ -126,5 +126,10 @@
   }
   html {
     @apply font-sans;
+    /* Reserve the vertical scrollbar's width from the start: fit-width is
+       measured when the editor mounts, before the page has grown tall
+       enough to scroll, and without this the scrollbar that appears a
+       moment later takes ~15px back and the fitted page overflows. */
+    scrollbar-gutter: stable;
   }
 }

@@ -356,18 +356,28 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     expect(slotA.querySelectorAll('span').length).toBe(0)
   })
 
-  it('opens at fit-width, not at 100%: a 612pt page in a 1224px column starts at 200%', async () => {
-    // 100% maps PDF points 1:1 to CSS pixels, which shows a print-sized
-    // form with 6-7pt text at 8-9px -- legible only after zooming in. The
-    // page should open as large as the column allows, like every PDF
-    // viewer does, and the user zooms from there.
+  it('opens at 100%, and 100% means the page fills the column -- so it is readable, not print-sized', async () => {
+    // Zoom is shown relative to fit-width: "100%" is the page as large as
+    // the column allows, which is what a reader expects to see first. The
+    // internal scale (PDF points -> CSS px) is what the overlay and canvas
+    // use; it is exposed on the page stage for tests.
     const { Editor } = await import('../src/features/editor/Editor')
     const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1224)
     try {
       const { container } = render(createElement(Editor, { doc: makeDoc() }))
-      await waitFor(() =>
-        expect(container.querySelector('[data-testid="zoom-percentage"]')?.textContent).toBe('200%'),
-      )
+      const stage = await waitFor(() => {
+        const el = container.querySelector('[data-testid="page-stage"]') as HTMLElement | null
+        if (!el || el.dataset.zoom !== '2') throw new Error('not fitted yet')
+        return el
+      })
+      expect(container.querySelector('[data-testid="zoom-percentage"]')?.textContent).toBe('100%')
+      // 1224px column / 612pt page = 2 CSS px per point.
+      expect(stage.dataset.zoom).toBe('2')
+
+      // Stepping zooms relative to that: +25% of the fitted size.
+      fireEvent.click(container.querySelector('[data-testid="zoom-in"]') as HTMLButtonElement)
+      expect(container.querySelector('[data-testid="zoom-percentage"]')?.textContent).toBe('125%')
+      expect(stage.dataset.zoom).toBe('2.5')
     } finally {
       clientWidth.mockRestore()
     }

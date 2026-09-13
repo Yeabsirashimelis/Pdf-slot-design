@@ -109,7 +109,18 @@ export function Editor({
   // Editor owns the state because it also needs it to compute the
   // viewport/transform for rendering and click handling, but nothing above
   // Editor cares about either value.
-  const [zoom, setZoom] = useState(1)
+  // Zoom has two parts. `baseZoom` is fit-width -- the CSS px per PDF
+  // point at which the first page fills the column -- measured once per
+  // document when the root mounts (see setRootRef). `scale` is what the
+  // toolbar shows and steps: 1 means "as large as the column allows",
+  // which is what a reader expects to see first and what "100%" means
+  // here. (Mapping points 1:1 to CSS pixels instead would show a
+  // print-sized form with its 6-7pt text at 8-9px -- rendered correctly,
+  // but not readable until zoomed.) The effective `zoom` below is what
+  // the overlay geometry and the canvas actually use.
+  const [scale, setScale] = useState(1)
+  const [baseZoom, setBaseZoom] = useState(1)
+  const zoom = scale * baseZoom
   const [pageIndex, setPageIndex] = useState(0)
   // Hooks run unconditionally: the own store is always created, and simply
   // goes unused when the parent supplies one.
@@ -279,20 +290,27 @@ export function Editor({
   // width of its own, so its clientWidth is the real available layout
   // width, independent of the canvas's own (possibly zoomed-out) size.
   const rootRef = useRef<HTMLDivElement>(null)
-  const handleFitWidth = () => {
+  /** Fit-width for `pageWidth` in the root's current column, or null if either can't be measured. */
+  const measureFitWidth = (pageWidth: number): number | null => {
     const availableWidth = rootRef.current?.clientWidth ?? 0
-    if (availableWidth <= 0 || !page || page.width <= 0) return
-    setZoom(clampZoom(availableWidth / page.width))
+    if (availableWidth <= 0 || pageWidth <= 0) return null
+    return clampZoom(availableWidth / pageWidth)
+  }
+  // Re-measures (the column may have been resized since the document
+  // opened) and returns to 100%.
+  const handleFitWidth = () => {
+    if (!page) return
+    const fit = measureFitWidth(page.width)
+    if (fit === null) return
+    setBaseZoom(fit)
+    setScale(1)
   }
 
-  // A document opens at fit-width, not at 100%. 100% maps PDF points 1:1
-  // to CSS pixels, which shows a print-sized form with its 6-7pt text at
-  // 8-9px -- rendered correctly, but too small to read until the user
-  // zooms in. Every PDF viewer opens as large as the column allows; so
-  // does this one, once per document. Done from a callback ref rather
-  // than an effect because the width can only be measured once the root
-  // is in the DOM, and the ref callback is exactly that moment (and
-  // re-runs when `doc` changes, since it is recreated then).
+  // The fit-width measurement that defines 100%, taken once per document
+  // from a callback ref rather than an effect: the width can only be
+  // measured once the root is in the DOM, and the ref callback is exactly
+  // that moment (and re-runs when `doc` changes, since it is recreated
+  // then).
   const fittedForDocIdRef = useRef<string | null>(null)
   const setRootRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -300,7 +318,7 @@ export function Editor({
       if (!el || fittedForDocIdRef.current === doc.id) return
       fittedForDocIdRef.current = doc.id
       const firstPageWidth = doc.pages[0]?.width ?? 0
-      if (el.clientWidth > 0 && firstPageWidth > 0) setZoom(clampZoom(el.clientWidth / firstPageWidth))
+      if (el.clientWidth > 0 && firstPageWidth > 0) setBaseZoom(clampZoom(el.clientWidth / firstPageWidth))
     },
     [doc],
   )
@@ -362,8 +380,8 @@ export function Editor({
         selectedId={store.selectedId}
         updateSlotAndCommit={updateSlotAndCommit}
         removeSlotAndCommit={removeSlotAndCommit}
-        zoom={zoom}
-        onZoomChange={(next) => setZoom(clampZoom(next))}
+        zoom={scale}
+        onZoomChange={(next) => setScale(clampZoom(next))}
         onFitWidth={handleFitWidth}
         pageIndex={pageIndex}
         pageCount={doc.pages.length}
@@ -371,7 +389,7 @@ export function Editor({
         onStartOver={onStartOver}
         locked={locked}
       />
-      <div style={{ position: 'relative', display: 'inline-block' }}>
+      <div style={{ position: 'relative', display: 'inline-block' }} data-testid="page-stage" data-zoom={zoom}>
         {/*
           Once a commit has produced real output bytes, those bytes -- not
           doc.source -- are what pdf.js paints: from this point on the
