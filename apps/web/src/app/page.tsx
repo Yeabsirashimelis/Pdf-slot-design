@@ -16,18 +16,32 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const session = await templateStore.get()
-      if (session) {
-        const file = await templateStore.getFile(session.fileId)
-        if (file) {
-          const result = await openFile(file.source, file.name, templateStore)
-          // The session's step wins over openFile's landing rule: reload
-          // puts the user back where they were, not where a fresh open
-          // of the same file would start.
-          if (!cancelled) setOpened({ ...result, step: session.step })
+      try {
+        const session = await templateStore.get()
+        if (!session) return
+        // A random id (no SubtleCrypto at the time) can't be recognised
+        // again, so restoring it would land on a write step with no
+        // slots. A session whose bytes are gone is dead too. Clear both
+        // rather than re-trying them on every reload.
+        const file = session.fileId.length === 64 ? await templateStore.getFile(session.fileId) : null
+        if (!file) {
+          await templateStore.clear()
+          return
         }
+        const result = await openFile(file.source, file.name, templateStore)
+        // The session's step wins over openFile's landing rule: reload
+        // puts the user back where they were, not where a fresh open
+        // of the same file would start.
+        if (!cancelled) setOpened({ ...result, step: session.step })
+      } catch (err) {
+        console.error('Failed to restore the last open file', err)
+        toast.error("Couldn't reopen your last file. Upload it again to continue.")
+        await templateStore.clear()
+      } finally {
+        // Always runs, so a failed restore shows the dropzone rather than
+        // a blank page.
+        if (!cancelled) setIsRestoring(false)
       }
-      if (!cancelled) setIsRestoring(false)
     })()
     return () => {
       cancelled = true

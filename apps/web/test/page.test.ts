@@ -76,7 +76,8 @@ const FONT_FILES = [
   'IBMPlexMono-Regular.ttf',
 ]
 
-const FILE_ID = 'f'
+// A content hash: 64 hex chars. Anything else is a random id the page refuses to restore.
+const FILE_ID = 'a'.repeat(64)
 const bytes = new Uint8Array([1, 2, 3])
 const doc: EditorDocument = { id: FILE_ID, source: bytes, pages: [{ width: 612, height: 792 }] }
 const knownLayout: TemplateLayout = {
@@ -150,6 +151,45 @@ describe('Home', () => {
     const [calledBytes, calledName] = openFileMock.mock.calls[0] as [Uint8Array, string, unknown]
     expect(calledBytes).toBe(bytes)
     expect(calledName).toBe('known.pdf')
+  })
+
+  it('a restore that fails falls back to the dropzone and clears the session', async () => {
+    memory.session = { fileId: FILE_ID, step: 'write' }
+    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
+    openFileMock.mockRejectedValueOnce(new Error('boom'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const Home = (await import('../src/app/page')).default
+    render(createElement(Home))
+
+    await waitFor(() => expect(screen.getByText('Choose a file')).toBeTruthy())
+    expect(screen.queryByTestId('slot-panel')).toBeNull()
+    expect(memory.session).toBeNull()
+  })
+
+  it('a session whose file is gone falls back to the dropzone and clears the session', async () => {
+    memory.session = { fileId: FILE_ID, step: 'write' }
+
+    const Home = (await import('../src/app/page')).default
+    render(createElement(Home))
+
+    await waitFor(() => expect(screen.getByText('Choose a file')).toBeTruthy())
+    expect(screen.queryByTestId('slot-panel')).toBeNull()
+    expect(memory.session).toBeNull()
+    expect(openFileMock).not.toHaveBeenCalled()
+  })
+
+  it('a session with a random (non-hash) file id is not restored and is cleared', async () => {
+    memory.session = { fileId: 'random-uuid', step: 'write' }
+    memory.files.set('random-uuid', { fileId: 'random-uuid', name: 'x.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
+
+    const Home = (await import('../src/app/page')).default
+    render(createElement(Home))
+
+    await waitFor(() => expect(screen.getByText('Choose a file')).toBeTruthy())
+    expect(screen.queryByTestId('slot-panel')).toBeNull()
+    expect(memory.session).toBeNull()
+    expect(openFileMock).not.toHaveBeenCalled()
   })
 
   it('uploading a file opens it in the template editor', async () => {
