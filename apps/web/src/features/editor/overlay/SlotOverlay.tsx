@@ -3,7 +3,7 @@
 // space), and shadcn has no equivalent component. See CLAUDE.md.
 'use client'
 
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react'
 import {
   FONT_CSS_FAMILY,
   PDF_APPLIES_KERNING,
@@ -17,22 +17,8 @@ import {
   type Viewport,
 } from '@pdf-slot/core'
 import { SlotLines } from './SlotLines'
-import {
-  applyDragDelta,
-  applyEdgeResize,
-  type DragOrigin,
-  type ResizeEdge,
-  type ResizeOrigin,
-} from './dragGeometry'
-
-/**
- * Screen pixels of pointer movement before a pointerdown on the body is
- * treated as a drag rather than a click. Below this, releasing the pointer
- * leaves the click's native effect (focusing the textarea under it, so the
- * user can type) alone; at or above it, the gesture becomes a move-drag and
- * the textarea is blurred so the drag isn't fighting a text caret/selection.
- */
-const DRAG_THRESHOLD_PX = 4
+import type { ResizeEdge } from './dragGeometry'
+import { useSlotGestures } from './useSlotGestures'
 
 /** Grab strips for the four resize edges; see the JSX below. */
 const RESIZE_EDGES: { edge: ResizeEdge; style: CSSProperties }[] = [
@@ -41,18 +27,6 @@ const RESIZE_EDGES: { edge: ResizeEdge; style: CSSProperties }[] = [
   { edge: 'top', style: { top: -4, left: 0, right: 0, height: 8, cursor: 'ns-resize' } },
   { edge: 'bottom', style: { bottom: -4, left: 0, right: 0, height: 8, cursor: 'ns-resize' } },
 ]
-
-type PendingPointer = { pointerId: number; startScreen: { x: number; y: number }; origin: DragOrigin }
-
-type DragState =
-  | { kind: 'move'; pointerId: number; startScreen: { x: number; y: number }; origin: DragOrigin }
-  | {
-      kind: 'resize'
-      edge: ResizeEdge
-      pointerId: number
-      startScreen: { x: number; y: number }
-      origin: ResizeOrigin
-    }
 
 export function SlotOverlay({
   slot,
@@ -94,24 +68,8 @@ export function SlotOverlay({
   /** Step 2: every slot is tinted so the user can see where to write. */
   highlighted?: boolean
 }) {
-  // A pointerdown on the body arms `pendingRef` without committing to
-  // anything yet -- the textarea sits on top of (and covers) the entire
-  // body, so every pointerdown here is *also* what natively focuses the
-  // textarea for editing. `pendingRef` is only promoted to `dragRef` (a
-  // real move-drag) once the pointer travels past DRAG_THRESHOLD_PX; a
-  // release before that threshold is left alone as a plain click-to-edit.
-  const pendingRef = useRef<PendingPointer | null>(null)
-  const dragRef = useRef<DragState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [focused, setFocused] = useState(false)
-  // Armed right before the drag-promotion blur below, so that blur's own
-  // onBlur handler can tell "I was blurred to stop fighting a drag" apart
-  // from "the user actually clicked/tabbed away" -- only the latter should
-  // call onCommit(). Without this, a move-drag fired onCommit() twice (once
-  // mid-drag from this blur, once for real at gesture end), paying for two
-  // full renders (font subsetting included) per drag and splitting one
-  // gesture into two undo entries.
-  const suppressNextBlurCommitRef = useRef(false)
 
   useEffect(() => {
     if (autoFocus) {
@@ -154,96 +112,16 @@ export function SlotOverlay({
   // the source of truth for live feedback until it commits again.
   const hideDomText = textCommitted && !focused
 
-  const endDrag = (pointerId: number) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== pointerId) return
-    dragRef.current = null
-    onCommit()
-  }
-
-  const handleBodyPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (locked) return
-    // A resize (or an already-promoted move, defensively) owns this
-    // gesture; don't also arm a pending click/drag for it.
-    if (dragRef.current) return
-    // Deliberately no stopPropagation/preventDefault: this pointerdown's
-    // natural target is the textarea on top, and its default action
-    // (focusing it, so a plain click can type immediately) must still
-    // happen. Capturing to the body div only changes where *subsequent*
-    // pointer events for this pointerId are routed -- see
-    // DRAG_THRESHOLD_PX's doc comment above.
-    event.currentTarget.setPointerCapture(event.pointerId)
-    pendingRef.current = {
-      pointerId: event.pointerId,
-      startScreen: { x: event.clientX, y: event.clientY },
-      origin: { x: slot.x, y: slot.y },
-    }
-  }
-
-  const handleBodyPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    const pending = pendingRef.current
-    if (pending && pending.pointerId === event.pointerId && !dragRef.current) {
-      const dx = event.clientX - pending.startScreen.x
-      const dy = event.clientY - pending.startScreen.y
-      if (Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
-        dragRef.current = {
-          kind: 'move',
-          pointerId: pending.pointerId,
-          startScreen: pending.startScreen,
-          origin: pending.origin,
-        }
-        onSelect()
-        suppressNextBlurCommitRef.current = true
-        textareaRef.current?.blur()
-      }
-    }
-
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    const dxScreen = event.clientX - drag.startScreen.x
-    const dyScreen = event.clientY - drag.startScreen.y
-    if (drag.kind === 'move') {
-      onChange(applyDragDelta(drag.origin, dxScreen, dyScreen, viewport))
-    } else {
-      onChange(applyEdgeResize(drag.edge, drag.origin, dxScreen, dyScreen, viewport))
-    }
-  }
-
-  const handleBodyPointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    if (pendingRef.current?.pointerId === event.pointerId) pendingRef.current = null
-    endDrag(event.pointerId)
-  }
-
-  const handleResizePointerDown = (edge: ResizeEdge) => (event: PointerEvent<HTMLDivElement>) => {
-    if (locked) return
-    event.stopPropagation()
-    onSelect()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    dragRef.current = {
-      kind: 'resize',
-      edge,
-      pointerId: event.pointerId,
-      startScreen: { x: event.clientX, y: event.clientY },
-      // The height captured is the box as shown, so a top/bottom drag
-      // starts from the visible edge even when no height was stored yet.
-      origin: { x: slot.x, y: slot.y, width: slot.width, height: boxHeight },
-    }
-  }
-
-  // The resize handle is a child of the body div, so a captured pointer's
-  // move/up events (redirected to the handle by setPointerCapture) would
-  // still bubble up and re-trigger the body's own listeners for the same
-  // event. Stopping propagation here is what keeps each pointermove/up
-  // handled exactly once.
-  const handleResizePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    event.stopPropagation()
-    handleBodyPointerMove(event)
-  }
-
-  const handleResizePointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    event.stopPropagation()
-    endDrag(event.pointerId)
-  }
+  const gestures = useSlotGestures({
+    slot,
+    boxHeight,
+    viewport,
+    locked,
+    textareaRef,
+    onSelect,
+    onChange,
+    onCommit,
+  })
 
   const handleTextChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     onChange({ text: event.target.value })
@@ -252,10 +130,7 @@ export function SlotOverlay({
   return (
     <div
       data-slot-id={slot.id}
-      onPointerDown={handleBodyPointerDown}
-      onPointerMove={handleBodyPointerMove}
-      onPointerUp={handleBodyPointerUp}
-      onPointerCancel={handleBodyPointerUp}
+      {...gestures.body}
       style={{
         position: 'absolute',
         left: screenOrigin.x,
@@ -324,13 +199,9 @@ export function SlotOverlay({
         onChange={handleTextChange}
         onBlur={() => {
           setFocused(false)
-          if (suppressNextBlurCommitRef.current) {
-            // This blur was fired programmatically to clear the caret for
-            // an in-progress drag, not by the user leaving the field --
-            // the drag's own pointerup (endDrag) is the real commit point.
-            suppressNextBlurCommitRef.current = false
-            return
-          }
+          // A blur fired to clear the caret for an in-progress drag is not
+          // the user leaving the field -- the drag's pointerup commits.
+          if (gestures.consumeDragBlur()) return
           onCommit()
         }}
         // Selecting on focus (rather than only from a drag/resize gesture)
@@ -375,10 +246,7 @@ export function SlotOverlay({
           <div
             key={edge}
             data-resize-edge={edge}
-            onPointerDown={handleResizePointerDown(edge)}
-            onPointerMove={handleResizePointerMove}
-            onPointerUp={handleResizePointerUp}
-            onPointerCancel={handleResizePointerUp}
+            {...gestures.resize(edge)}
             style={{ position: 'absolute', pointerEvents: 'auto', ...style }}
           />
         ))}
