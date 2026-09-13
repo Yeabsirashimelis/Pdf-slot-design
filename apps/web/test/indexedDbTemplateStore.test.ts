@@ -54,10 +54,15 @@ describe('IndexedDbTemplateStore', () => {
   })
 
   it('upgrading from the v1 database drops the old single-session store', async () => {
-    // Create a v1 database the way the previous release did.
+    // Create a v1 database the way the previous release did, and seed it
+    // with a v1-shaped record under the same key the v2 SessionStore reads
+    // ('current') -- this is what the fix must not let leak through.
     await new Promise<void>((resolve, reject) => {
       const req = indexedDB.open('pdf-slot-editor', 1)
-      req.onupgradeneeded = () => req.result.createObjectStore('session')
+      req.onupgradeneeded = () => {
+        const store = req.result.createObjectStore('session')
+        store.put({ id: 'x', source: new Uint8Array([1]), pages: [], slots: [] }, 'current')
+      }
       req.onsuccess = () => { req.result.close(); resolve() }
       req.onerror = () => reject(req.error)
     })

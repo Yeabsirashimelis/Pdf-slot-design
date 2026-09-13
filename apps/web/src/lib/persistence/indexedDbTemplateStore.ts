@@ -34,10 +34,18 @@ function openDatabase(): Promise<IDBDatabase> {
       reject(err instanceof Error ? err : new Error(String(err)))
       return
     }
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result
-      for (const name of Array.from(db.objectStoreNames)) {
-        if (!(STORES as readonly string[]).includes(name)) db.deleteObjectStore(name)
+      // Reset by version, not by name: v1's only store happened to be
+      // named `session` too, but it held a different shape (a single
+      // {id, source, pages, slots} record keyed 'current'). Matching on
+      // the name would let that stale v1 record survive into v2 and come
+      // back out of SessionStore.get() cast as an OpenSession. Any
+      // upgrade from before v2 wipes every existing store and rebuilds
+      // the v2 set from scratch -- v1 data is discarded by design, not
+      // migrated.
+      if (event.oldVersion < 2) {
+        for (const name of Array.from(db.objectStoreNames)) db.deleteObjectStore(name)
       }
       for (const name of STORES) if (!db.objectStoreNames.contains(name)) db.createObjectStore(name)
     }
