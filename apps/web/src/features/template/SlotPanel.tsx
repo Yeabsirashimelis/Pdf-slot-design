@@ -1,25 +1,15 @@
 'use client'
 
 import { ArrowLeft, ArrowRight, Copy, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { HintButton } from '@/components/hint'
 import { cn } from '@/lib/utils'
 import type { Step } from '@/lib/persistence/templateStore'
 
 export type PanelSlot = { id: string; name: string; text: string }
-
-/** A button with a faint hover hint; every control in the panel has one. */
-function HintButton({ hint, ...button }: { hint: React.ReactNode } & React.ComponentProps<typeof Button>) {
-  return (
-    <Tooltip>
-      <TooltipTrigger render={<Button {...button} />} />
-      <TooltipContent>{hint}</TooltipContent>
-    </Tooltip>
-  )
-}
 
 /**
  * The left column. Step 1 lists the slots as chips (select / rename /

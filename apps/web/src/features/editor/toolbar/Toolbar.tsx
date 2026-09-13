@@ -29,6 +29,7 @@ import { Separator } from '@/components/ui/separator'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Kbd } from '@/components/ui/kbd'
+import { Hint } from '@/components/hint'
 
 /** Selectable point sizes -- no such list exists in @pdf-slot/core, so this
  * is the toolbar's own convention (a standard print/editor size ramp). */
@@ -66,22 +67,6 @@ const ZOOM_STEP = 0.25
  * buttons here, rather than duplicating the range. */
 export function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom))
-}
-
-/**
- * A hover hint for a control that already owns its click -- a Select, a
- * Popover trigger, a ToggleGroup -- where putting the Tooltip's trigger on
- * the control itself would make two base-ui triggers fight over one
- * element. The trigger is a neutral inline wrapper instead: hover shows the
- * hint, the click still goes straight to the control inside.
- */
-function Hint({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger render={<span className="inline-flex" />}>{children}</TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  )
 }
 
 function sameColor(a: RGB, b: RGB): boolean {
