@@ -15,7 +15,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`${GeistSans.variable} ${GeistMono.variable} ${GeistSans.className}`}
     >
-      <body className="bg-background text-foreground antialiased">
+      {/* Browser extensions (ColorZilla's `cz-shortcut-listen`, Grammarly,
+          password managers) add attributes to <body> before React hydrates,
+          which React reports as a hydration mismatch. This suppresses the
+          warning for <body>'s own attributes only; children are still
+          checked. */}
+      <body className="bg-background text-foreground antialiased" suppressHydrationWarning>
         {children}
         <Toaster />
       </body>
