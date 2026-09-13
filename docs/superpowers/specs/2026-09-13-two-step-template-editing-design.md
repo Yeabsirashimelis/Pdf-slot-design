@@ -29,9 +29,10 @@ Step 1's typed text is *not* a value — leaving step 1 clears any text typed
 there, so slots always start empty in step 2. (Sample text in step 1 exists
 only so the user can judge size and fit.)
 
-Slots have a **name**, asked for at placement in step 1 via a small popover
-anchored at the click point (shadcn `Popover` + `Input`; Enter confirms, Esc
-cancels and places nothing). Names must be non-empty; duplicates are allowed
+Slots have a **name**, asked for at placement in step 1 (shadcn `Dialog` +
+`Input`; Enter confirms, Esc/Cancel places nothing). *Implementation note: a
+`Dialog`, not a click-anchored `Popover` — the installed Popover wrapper
+exposes no anchor, and a modal needs no positioning code.* Names must be non-empty; duplicates are allowed
 (the panel shows them as-is). Renaming: double-click a chip in step 1.
 
 ## Landing rules
@@ -39,7 +40,9 @@ cancels and places nothing). Names must be non-empty; duplicates are allowed
 On upload the file's **content hash** (SHA-256 of the bytes, via
 `crypto.subtle.digest`) is computed.
 
-- Hash known → load its layout and last saved values → **step 2**.
+- Hash known and its layout has at least one slot → load the layout and last
+  saved values → **step 2**. (A saved layout with no slots has nothing to
+  write into, so it lands in step 1 like a new file.)
 - Hash unknown → new file → **step 1**, empty.
 - On reload, the last opened file (its bytes are stored) reopens at the step it
   was in. **Start over** forgets only the *current session* (which file is
