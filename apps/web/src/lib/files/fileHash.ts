@@ -13,6 +13,15 @@ export async function hashBytes(bytes: Uint8Array): Promise<string | null> {
 }
 
 /**
+ * Whether `id` is a content hash as `hashBytes` produces it: 64 lowercase
+ * hex chars. The one shape that can be recognised again on re-upload; a
+ * random id (see below) and anything read from an untrusted stamp are not.
+ */
+export function isFileId(id: string): boolean {
+  return /^[0-9a-f]{64}$/.test(id)
+}
+
+/**
  * 128 random bits as 32 lowercase hex chars, for a file (or slot) that
  * needs an id with no content to hash. Built on `crypto.getRandomValues`,
  * not `crypto.randomUUID`: the latter is exposed only in secure contexts,

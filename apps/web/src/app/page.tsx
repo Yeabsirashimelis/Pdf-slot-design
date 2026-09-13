@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Dropzone, type UploadedFile } from '@/features/upload/Dropzone'
 import { TemplateEditor } from '@/features/template/TemplateEditor'
 import { openFile, type OpenedFile } from '@/features/template/openFile'
+import { isFileId } from '@/lib/files/fileHash'
 import { templateStore } from '@/lib/persistence/indexedDbTemplateStore'
 
 export default function Home() {
@@ -23,7 +24,7 @@ export default function Home() {
         // again, so restoring it would land on a write step with no
         // slots. A session whose bytes are gone is dead too. Clear both
         // rather than re-trying them on every reload.
-        const file = session.fileId.length === 64 ? await templateStore.getFile(session.fileId) : null
+        const file = isFileId(session.fileId) ? await templateStore.getFile(session.fileId) : null
         if (!file) {
           await templateStore.clear()
           return
@@ -51,9 +52,9 @@ export default function Home() {
   const handleFile = async ({ bytes, name }: UploadedFile) => {
     try {
       const result = await openFile(bytes, name, templateStore)
-      // openFile falls back to a random UUID only when SubtleCrypto is
-      // missing (insecure origin); a content hash is always 64 hex chars.
-      if (result.fileId.length !== 64) {
+      // openFile falls back to a random id only when SubtleCrypto is
+      // missing (insecure origin); anything else is a content hash.
+      if (!isFileId(result.fileId)) {
         toast.warning("This browser can't remember layouts for this file (insecure connection).")
       }
       setOpened(result)

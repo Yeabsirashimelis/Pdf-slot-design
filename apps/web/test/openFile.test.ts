@@ -1,4 +1,4 @@
-import { PDFDocument } from '@cantoo/pdf-lib'
+import { PDFDocument, PDFDict, PDFName, PDFString } from '@cantoo/pdf-lib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderPdf, FONT_IDS, FONT_FILES, type FontBytes, type StoredFile, type TemplateLayout } from '@pdf-slot/core'
 import { readFileSync } from 'node:fs'
@@ -100,6 +100,23 @@ describe('openFile', () => {
     expect(Array.from(reopened.doc.source)).not.toEqual(Array.from(exported))
     // The record already existed; it is not rewritten with the export.
     expect(store.files).toEqual([first.fileId])
+  })
+
+  it('a stamp that is not a content hash is ignored: the file is identified by its bytes', async () => {
+    // Anything can write our Info key. A stamp that is not 64 hex chars
+    // would otherwise become the file's identity verbatim (and be
+    // mistaken for "no SubtleCrypto" by the page).
+    const pdf = await PDFDocument.create()
+    pdf.addPage([612, 792])
+    pdf.setCreationDate(new Date(0))
+    const info = pdf.context.lookup(pdf.context.trailerInfo.Info)
+    if (!(info instanceof PDFDict)) throw new Error('no Info dict')
+    info.set(PDFName.of('PdfSlotSource'), PDFString.of('not-a-hash'))
+    const bytes = await pdf.save()
+    const opened = await openFile(bytes, 'tampered.pdf', memoryStore())
+    expect(opened.fileId).not.toBe('not-a-hash')
+    expect(opened.fileId).toMatch(/^[0-9a-f]{64}$/)
+    expect(opened.step).toBe('layout')
   })
 
   it('without SubtleCrypto the file still opens (as new, with a random id)', async () => {

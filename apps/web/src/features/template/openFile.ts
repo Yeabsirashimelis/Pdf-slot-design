@@ -2,7 +2,7 @@ import {
   normalizePdf, readSourceStamp,
   type EditorDocument, type FileId, type TemplateLayout, type TemplateValues,
 } from '@pdf-slot/core'
-import { hashBytes, randomId } from '@/lib/files/fileHash'
+import { hashBytes, isFileId, randomId } from '@/lib/files/fileHash'
 import type { Step, TemplateStore } from '@/lib/persistence/templateStore'
 
 export type OpenedFile = {
@@ -34,7 +34,9 @@ export type OpenedFile = {
  * a stamped copy whose original is gone will not double the text.)
  */
 export async function openFile(pdfBytes: Uint8Array, name: string, store: TemplateStore): Promise<OpenedFile> {
-  const stamp = await readSourceStamp(pdfBytes).catch(() => null)
+  // Anything can write our Info key; only a value shaped like a content
+  // hash is taken as one, the rest falls through to hashing the bytes.
+  const stamp = await readSourceStamp(pdfBytes).then((s) => (s !== null && isFileId(s) ? s : null), () => null)
   const fileId = stamp ?? (await hashBytes(pdfBytes)) ?? randomId()
   const [layout, values, existing] = await Promise.all([
     store.getLayout(fileId), store.getValues(fileId), store.getFile(fileId),
