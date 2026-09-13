@@ -350,6 +350,20 @@ describe('Toolbar zoom and page navigation', () => {
   })
 })
 
+describe('Toolbar locked (write step)', () => {
+  afterEach(() => cleanup())
+
+  it('renders no style or delete controls, but keeps zoom, pages and download', () => {
+    render(createElement(Toolbar, baseProps({ locked: true, pageCount: 3 })))
+    for (const id of ['font-select-trigger', 'size-select-trigger', 'color-trigger', 'align-toggle-group', 'delete-button']) {
+      expect(screen.queryByTestId(id)).toBeNull()
+    }
+    expect(screen.getByTestId('zoom-controls')).toBeTruthy()
+    expect(screen.getByTestId('page-controls')).toBeTruthy()
+    expect(screen.getByTestId('download-button')).toBeTruthy()
+  })
+})
+
 describe('Toolbar start-over control (Task 18)', () => {
   afterEach(() => cleanup())
 

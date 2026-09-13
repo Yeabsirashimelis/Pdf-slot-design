@@ -130,6 +130,8 @@ export type ToolbarProps = {
    * rendering exactly as before -- the control itself is simply omitted.
    */
   onStartOver?(): void
+  /** Step 2: slots are locked, so the per-slot style controls are hidden rather than merely disabled. */
+  locked?: boolean
 }
 
 /**
@@ -154,6 +156,7 @@ export function Toolbar({
   pageCount,
   onPageChange,
   onStartOver,
+  locked = false,
 }: ToolbarProps) {
   const selected = slots.find((slot) => slot.id === selectedId) ?? null
   const [colorPopoverOpen, setColorPopoverOpen] = useState(false)
@@ -191,129 +194,133 @@ export function Toolbar({
         className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2"
         data-testid="toolbar"
       >
-        <Select
-          value={selected?.fontId ?? ''}
-          onValueChange={(value) => applyPatch({ fontId: value as FontId })}
-          disabled={!selected}
-        >
-          <SelectTrigger size="sm" className="w-32" data-testid="font-select-trigger">
-            <SelectValue placeholder="Font" />
-          </SelectTrigger>
-          <SelectContent>
-            {FONT_IDS.map((id) => (
-              <SelectItem key={id} value={id} data-testid={`font-option-${id}`}>
-                {FONT_LABELS[id]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {!locked && (
+          <>
+            <Select
+              value={selected?.fontId ?? ''}
+              onValueChange={(value) => applyPatch({ fontId: value as FontId })}
+              disabled={!selected}
+            >
+              <SelectTrigger size="sm" className="w-32" data-testid="font-select-trigger">
+                <SelectValue placeholder="Font" />
+              </SelectTrigger>
+              <SelectContent>
+                {FONT_IDS.map((id) => (
+                  <SelectItem key={id} value={id} data-testid={`font-option-${id}`}>
+                    {FONT_LABELS[id]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <Select
-          value={selected ? String(selected.size) : ''}
-          onValueChange={(value) => applyPatch({ size: Number(value) })}
-          disabled={!selected}
-        >
-          <SelectTrigger size="sm" className="w-16" data-testid="size-select-trigger">
-            <SelectValue placeholder="Size" />
-          </SelectTrigger>
-          <SelectContent>
-            {FONT_SIZES.map((size) => (
-              <SelectItem key={size} value={String(size)} data-testid={`size-option-${size}`}>
-                {size}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <Select
+              value={selected ? String(selected.size) : ''}
+              onValueChange={(value) => applyPatch({ size: Number(value) })}
+              disabled={!selected}
+            >
+              <SelectTrigger size="sm" className="w-16" data-testid="size-select-trigger">
+                <SelectValue placeholder="Size" />
+              </SelectTrigger>
+              <SelectContent>
+                {FONT_SIZES.map((size) => (
+                  <SelectItem key={size} value={String(size)} data-testid={`size-option-${size}`}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <Separator orientation="vertical" className="h-6" />
+            <Separator orientation="vertical" className="h-6" />
 
-        {/* No Tooltip here: the trigger already opens a Popover on click,
-         * and layering a hover Tooltip's own trigger over the same button
-         * fights the Popover for the same interaction. An aria-label
-         * carries the accessible name instead. */}
-        <Popover open={colorPopoverOpen} onOpenChange={setColorPopoverOpen}>
-          <PopoverTrigger
-            render={
-              <Button
-                variant="outline"
-                size="icon-sm"
-                disabled={!selected}
-                aria-label="Text colour"
-                data-testid="color-trigger"
-              >
-                <span
-                  className="block size-4 rounded-full border border-border"
-                  style={selected ? { backgroundColor: rgbToCss(selected.color) } : undefined}
-                />
-              </Button>
-            }
-          />
-          <PopoverContent className="w-auto">
-            <div className="grid grid-cols-4 gap-1.5" data-testid="color-swatch-grid">
-              {COLOR_SWATCHES.map((swatch) => (
-                <button
-                  key={swatch.label}
-                  type="button"
-                  aria-label={swatch.label}
-                  data-testid={`color-swatch-${swatch.label.toLowerCase()}`}
-                  className="size-6 rounded-md border border-border outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-[selected=true]:ring-2 data-[selected=true]:ring-ring"
-                  data-selected={selected ? sameColor(selected.color, swatch.color) : false}
-                  style={{ backgroundColor: rgbToCss(swatch.color) }}
-                  onClick={() => {
-                    applyPatch({ color: swatch.color })
-                    setColorPopoverOpen(false)
-                  }}
-                />
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
+            {/* No Tooltip here: the trigger already opens a Popover on click,
+             * and layering a hover Tooltip's own trigger over the same button
+             * fights the Popover for the same interaction. An aria-label
+             * carries the accessible name instead. */}
+            <Popover open={colorPopoverOpen} onOpenChange={setColorPopoverOpen}>
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    disabled={!selected}
+                    aria-label="Text colour"
+                    data-testid="color-trigger"
+                  >
+                    <span
+                      className="block size-4 rounded-full border border-border"
+                      style={selected ? { backgroundColor: rgbToCss(selected.color) } : undefined}
+                    />
+                  </Button>
+                }
+              />
+              <PopoverContent className="w-auto">
+                <div className="grid grid-cols-4 gap-1.5" data-testid="color-swatch-grid">
+                  {COLOR_SWATCHES.map((swatch) => (
+                    <button
+                      key={swatch.label}
+                      type="button"
+                      aria-label={swatch.label}
+                      data-testid={`color-swatch-${swatch.label.toLowerCase()}`}
+                      className="size-6 rounded-md border border-border outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-[selected=true]:ring-2 data-[selected=true]:ring-ring"
+                      data-selected={selected ? sameColor(selected.color, swatch.color) : false}
+                      style={{ backgroundColor: rgbToCss(swatch.color) }}
+                      onClick={() => {
+                        applyPatch({ color: swatch.color })
+                        setColorPopoverOpen(false)
+                      }}
+                    />
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
 
-        <ToggleGroup
-          value={selected ? [selected.align] : []}
-          onValueChange={(values: string[]) => {
-            // ToggleGroup allows deselecting down to an empty array; an
-            // alignment control must always keep exactly one value, so an
-            // attempted deselect (clicking the already-pressed item) is
-            // ignored rather than committing an empty alignment.
-            const next = values[0] as Align | undefined
-            if (next) applyPatch({ align: next })
-          }}
-          disabled={!selected}
-          data-testid="align-toggle-group"
-        >
-          <ToggleGroupItem value="left" aria-label="Align left" data-testid="align-left">
-            <AlignLeft />
-          </ToggleGroupItem>
-          <ToggleGroupItem value="center" aria-label="Align center" data-testid="align-center">
-            <AlignCenter />
-          </ToggleGroupItem>
-          <ToggleGroupItem value="right" aria-label="Align right" data-testid="align-right">
-            <AlignRight />
-          </ToggleGroupItem>
-        </ToggleGroup>
+            <ToggleGroup
+              value={selected ? [selected.align] : []}
+              onValueChange={(values: string[]) => {
+                // ToggleGroup allows deselecting down to an empty array; an
+                // alignment control must always keep exactly one value, so an
+                // attempted deselect (clicking the already-pressed item) is
+                // ignored rather than committing an empty alignment.
+                const next = values[0] as Align | undefined
+                if (next) applyPatch({ align: next })
+              }}
+              disabled={!selected}
+              data-testid="align-toggle-group"
+            >
+              <ToggleGroupItem value="left" aria-label="Align left" data-testid="align-left">
+                <AlignLeft />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="center" aria-label="Align center" data-testid="align-center">
+                <AlignCenter />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="right" aria-label="Align right" data-testid="align-right">
+                <AlignRight />
+              </ToggleGroupItem>
+            </ToggleGroup>
 
-        <Separator orientation="vertical" className="h-6" />
+            <Separator orientation="vertical" className="h-6" />
 
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="destructive"
-                size="icon-sm"
-                disabled={!selected}
-                onClick={handleDelete}
-                aria-label="Delete slot"
-                data-testid="delete-button"
-              >
-                <Trash2 />
-              </Button>
-            }
-          />
-          <TooltipContent>Delete slot</TooltipContent>
-        </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="destructive"
+                    size="icon-sm"
+                    disabled={!selected}
+                    onClick={handleDelete}
+                    aria-label="Delete slot"
+                    data-testid="delete-button"
+                  >
+                    <Trash2 />
+                  </Button>
+                }
+              />
+              <TooltipContent>Delete slot</TooltipContent>
+            </Tooltip>
 
-        <Separator orientation="vertical" className="h-6" />
+            <Separator orientation="vertical" className="h-6" />
+          </>
+        )}
 
         <div className="flex items-center gap-1" data-testid="zoom-controls">
           <Tooltip>
