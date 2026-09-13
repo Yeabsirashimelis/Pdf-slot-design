@@ -13,23 +13,18 @@ import {
   type EditorDocument,
   type FontId,
   type FontMetrics,
+  type Point,
   type Slot,
   type Viewport,
 } from '@pdf-slot/core'
 import { loadFontBytes, registerFontFaces } from '@/lib/fonts/loadFonts'
-import { saveSession } from '@/lib/persistence/indexeddb'
 import { PageCanvas } from './canvas/PageCanvas'
 import type { LogicalPoint } from './canvas/coordinates'
-import { useEditorStore } from './state/useEditorStore'
+import { useEditorStore, type EditorStore } from './state/useEditorStore'
 import { SlotOverlay } from './overlay/SlotOverlay'
 import { useCommitRender } from './pipeline/useCommitRender'
 import { createSlotCommands } from './pipeline/slotCommands'
 import { Toolbar, clampZoom } from './toolbar/Toolbar'
-
-/** Debounce window for persisting to IndexedDB: a drag or a fast typist
- * produces many state updates a second, and writing on every one of them
- * would thrash storage for no benefit -- see task-18-brief.md. */
-const SAVE_DEBOUNCE_MS = 1000
 
 /** Stable id so the unsupported-character toast is replaced, not stacked. */
 const UNSUPPORTED_TOAST_ID = 'unsupported-characters'
@@ -77,18 +72,38 @@ const RENDER_ON_COMMIT = process.env.NEXT_PUBLIC_RENDER_ON_COMMIT === 'true'
 export function Editor({
   doc,
   initialSlots,
+  store: externalStore,
+  locked = false,
+  highlighted = false,
+  onPlaceSlot,
   onStartOver,
   renderOnCommit = RENDER_ON_COMMIT,
 }: {
   doc: EditorDocument
-  /** Seeds a restored session's slots (Task 18). Omitted for a fresh upload. */
+  /** Seeds the slots of the store Editor creates for itself. Ignored when
+   * `store` is given (the owner of that store seeded it). */
   initialSlots?: Slot[]
+  /** When given, Editor edits this store instead of creating its own. The
+   * two-step template flow (`features/template`) owns the store -- and the
+   * persistence of what's in it -- across both steps, so Editor must not
+   * hold the slots itself. */
+  store?: EditorStore
+  /** Step 2 of the template flow: slots can be typed into but not moved,
+   * resized, restyled or added. Forwarded to every SlotOverlay and to the
+   * Toolbar; clicks on empty canvas are ignored. */
+  locked?: boolean
+  /** Tints every slot so a fill-in user can see where the slots are. */
+  highlighted?: boolean
+  /** When given, a click on empty canvas asks the parent to place a slot
+   * (at `atPdf`, in PDF points, on `page`) instead of calling
+   * `store.addSlot` directly -- so the parent can, say, open a naming
+   * dialog first. */
+  onPlaceSlot?(atPdf: Point, page: number): void
+  /** Returns to the dropzone. Optional so callers/tests that have no
+   * "start over" need not pass it -- Toolbar simply omits the control. */
+  onStartOver?(): void
   /** Overrides NEXT_PUBLIC_RENDER_ON_COMMIT; tests use it to exercise verification mode. */
   renderOnCommit?: boolean
-  /** Clears the persisted session and returns to the dropzone. Optional so
-   * existing callers/tests that don't restore a session need not pass it --
-   * Toolbar simply omits the control in that case. */
-  onStartOver?(): void
 }) {
   // Zoom and the current page are the toolbar's (Task 17) to control now --
   // Editor owns the state because it also needs it to compute the
@@ -96,7 +111,10 @@ export function Editor({
   // Editor cares about either value.
   const [zoom, setZoom] = useState(1)
   const [pageIndex, setPageIndex] = useState(0)
-  const store = useEditorStore(initialSlots)
+  // Hooks run unconditionally: the own store is always created, and simply
+  // goes unused when the parent supplies one.
+  const ownStore = useEditorStore(initialSlots)
+  const store = externalStore ?? ownStore
   const fontMetrics = useFontMetrics()
   const { bytes, isRendering, renderedSlots, error, commit, render } = useCommitRender(doc, store.slots, {
     renderOnCommit,
@@ -158,60 +176,6 @@ export function Editor({
   // against a real store + real useCommitRender, without mounting the rest
   // of Editor.
   const { updateSlotAndCommit, removeSlotAndCommit } = createSlotCommands(store, handleCommit)
-
-  // Debounced persistence to IndexedDB (Task 18): the document bytes and
-  // the current slots are saved ~1s after they last changed, so a reload
-  // restores the session instead of dropping it. Keyed on `store.slots`
-  // itself (a fresh array/object on every add/update/remove, per
-  // editorHistory.ts) rather than on commit boundaries, so a fast typist or
-  // an in-progress drag reschedules the same debounced write instead of
-  // firing one per keystroke/pointermove. Undo/redo history is deliberately
-  // NOT part of what's saved -- it's a bounded, in-memory-only stack, and
-  // restoring it would multiply the stored size for little benefit.
-  // saveSession itself never throws (see indexeddb.ts): a private-browsing
-  // tab or an exhausted quota degrades to "this session just isn't saved",
-  // not a broken editor.
-  //
-  // The pending write is also held in a ref so it can be *flushed* rather
-  // than dropped when the editor goes away: this effect's cleanup runs on
-  // every slot change (that is how the debounce works), so it must not
-  // write there, but an unmount or a tab close would otherwise silently
-  // discard up to a second of edits -- in the feature whose whole purpose
-  // is not losing them. The flush lives in its own mount-scoped effect
-  // below.
-  const pendingSaveRef = useRef<{ doc: EditorDocument; slots: Slot[] } | null>(null)
-  useEffect(() => {
-    pendingSaveRef.current = { doc, slots: store.slots }
-    const timer = setTimeout(() => {
-      pendingSaveRef.current = null
-      void saveSession(doc, store.slots)
-    }, SAVE_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [doc, store.slots])
-
-  useEffect(() => {
-    const flushSave = () => {
-      const pending = pendingSaveRef.current
-      if (!pending) return
-      pendingSaveRef.current = null
-      void saveSession(pending.doc, pending.slots)
-    }
-    // `beforeunload` covers a deliberate close/reload. `visibilitychange`
-    // to hidden covers the cases it does not: a discarded background tab,
-    // and mobile, where `beforeunload` is unreliable or never fires. Both
-    // only ever write an *already pending* debounced save, so the extra
-    // listener costs nothing on an idle tab.
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushSave()
-    }
-    window.addEventListener('beforeunload', flushSave)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => {
-      window.removeEventListener('beforeunload', flushSave)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      flushSave()
-    }
-  }, [])
 
   // A failed render is surfaced rather than silently dropped -- otherwise
   // the edit that failed to render would just vanish (see isSlotCommitted:
@@ -279,16 +243,14 @@ export function Editor({
   }
 
   // Set right before a canvas click creates a new slot, so the SlotOverlay
-  // that mounts for it knows to grab focus once. addSlot() itself returns
-  // void (per the brief's interface) and doesn't hand back the new slot's
-  // id, so this is what connects "a slot was just created" to "focus it":
-  // the store also auto-selects a newly added slot, so the next slot whose
-  // id matches store.selectedId while this flag is set is the one to
-  // focus. Real state, not a ref: the eslint-plugin-react-hooks `refs`
-  // rule forbids reading a ref's `.current` during render (JSX below
-  // reads this), and `handleCanvasClick` sets it and `store.addSlot`
-  // selects the new slot in the very same synchronous handler, so both
-  // updates land in the same batched re-render regardless.
+  // that mounts for it knows to grab focus once. This is what connects "a
+  // slot was just created" to "focus it": the store auto-selects a newly
+  // added slot, so the next slot whose id matches store.selectedId while
+  // this flag is set is the one to focus. Real state, not a ref: the
+  // eslint-plugin-react-hooks `refs` rule forbids reading a ref's `.current`
+  // during render (JSX below reads this), and `handleCanvasClick` sets it
+  // and `store.addSlot` selects the new slot in the very same synchronous
+  // handler, so both updates land in the same batched re-render regardless.
   const [awaitingFocusAfterClick, setAwaitingFocusAfterClick] = useState(false)
 
   const page = doc.pages[pageIndex]
@@ -299,19 +261,13 @@ export function Editor({
     [store.slots, pageIndex],
   )
 
-  // "Start over" deletes the persisted session, so the pending debounced
-  // write must be dropped rather than flushed -- otherwise the unmount
-  // flush below writes the session straight back after it was cleared, and
-  // "start over" quietly doesn't.
-  const handleStartOver = onStartOver
-    ? () => {
-        pendingSaveRef.current = null
-        onStartOver()
-      }
-    : undefined
-
   const handleCanvasClick = (screen: LogicalPoint) => {
+    if (locked) return
     const atPdf = toPdfPoint(screen, viewport)
+    if (onPlaceSlot) {
+      onPlaceSlot(atPdf, pageIndex)
+      return
+    }
     setAwaitingFocusAfterClick(true)
     store.addSlot(atPdf, pageIndex)
   }
@@ -381,7 +337,8 @@ export function Editor({
         pageIndex={pageIndex}
         pageCount={doc.pages.length}
         onPageChange={setPageIndex}
-        onStartOver={handleStartOver}
+        onStartOver={onStartOver}
+        locked={locked}
       />
       <div style={{ position: 'relative', display: 'inline-block' }}>
         {/*
@@ -421,6 +378,8 @@ export function Editor({
                 onChange={(patch) => store.updateSlot(slot.id, patch)}
                 onCommit={handleCommit}
                 textCommitted={isSlotCommitted(slot)}
+                locked={locked}
+                highlighted={highlighted}
               />
             ))}
         </div>

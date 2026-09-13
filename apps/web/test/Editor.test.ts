@@ -401,4 +401,42 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     expect(renderPdfMock.mock.calls[0]![1][0]!.text).toBe('typed')
     expect(captured.blobParts?.[0]).toBe(renderedOutput)
   })
+
+  it('with onPlaceSlot, a canvas click asks the parent instead of adding a slot', async () => {
+    const { Editor } = await import('../src/features/editor/Editor')
+    const onPlaceSlot = vi.fn()
+    const { container } = render(createElement(Editor, { doc: makeDoc(), onPlaceSlot }))
+    const canvas = await waitFor(() => container.querySelector('canvas') as HTMLCanvasElement)
+    fireEvent.click(canvas, { clientX: 50, clientY: 50 })
+    expect(onPlaceSlot).toHaveBeenCalledTimes(1)
+    expect(onPlaceSlot.mock.calls[0]![1]).toBe(0)
+    expect(container.querySelector('[data-slot-id]')).toBeNull()
+  })
+
+  it('locked: canvas clicks place nothing and slots render locked', async () => {
+    const { Editor } = await import('../src/features/editor/Editor')
+    const { useEditorStore } = await import('../src/features/editor/state/useEditorStore')
+    function Harness() {
+      const store = useEditorStore([{
+        id: 's1', page: 0, x: 50, y: 700, width: 200, text: '', fontId: 'sans', size: 14,
+        color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2,
+      }])
+      return createElement(Editor, { doc: makeDoc(), store, locked: true, highlighted: true })
+    }
+    const { container } = render(createElement(Harness))
+    // Throws while absent: SlotOverlay only mounts once the fonts have
+    // loaded, and waitFor retries only on a throw (a returned null would
+    // resolve immediately).
+    const box = await waitFor(() => {
+      const el = container.querySelector('[data-slot-id="s1"]') as HTMLElement | null
+      if (!el) throw new Error('slot overlay not mounted yet -- font metrics still loading?')
+      return el
+    })
+    expect(box.style.cursor).toBe('text')
+    expect(box.style.backgroundColor).not.toBe('')
+    const canvas = container.querySelector('canvas') as HTMLCanvasElement
+    fireEvent.click(canvas, { clientX: 5, clientY: 5 })
+    expect(container.querySelectorAll('[data-slot-id]').length).toBe(1)
+    expect(container.querySelector('[data-testid="font-select-trigger"]')).toBeNull()
+  })
 })
