@@ -1,4 +1,15 @@
-import { PDFBool, PDFDocument, PDFName, PDFStream, degrees, rgb, type PDFPage } from '@cantoo/pdf-lib'
+import {
+  PDFBool,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFStream,
+  PDFString,
+  degrees,
+  rgb,
+  type PDFPage,
+} from '@cantoo/pdf-lib'
 // fontkit@2.0.4's ESM build has no default export; its named exports
 // (`create`, notably) satisfy @cantoo/pdf-lib's structural `Fontkit`
 // interface directly via a namespace import. Never `@pdf-lib/fontkit`:
@@ -24,6 +35,25 @@ const EPOCH = new Date(0)
 export const SLOT_STREAM_MARKER = 'PdfSlotText'
 
 /**
+ * Info-dictionary key carrying the id (content hash) of the *source* PDF an
+ * export was made from. A downloaded copy has different bytes from its
+ * source, so re-uploading it would not match by content; this is what
+ * still lets it find its saved layout. Private Info keys are legal (ISO
+ * 32000-1 §14.3.3) and ignored by viewers.
+ */
+export const SOURCE_STAMP_KEY = 'PdfSlotSource'
+
+/** The source id an export was stamped with, or null for any other PDF. */
+export async function readSourceStamp(bytes: Uint8Array): Promise<string | null> {
+  const pdf = await PDFDocument.load(bytes, { updateMetadata: false })
+  const info = pdf.context.lookup(pdf.context.trailerInfo.Info)
+  if (!(info instanceof PDFDict)) return null
+  const value = info.lookup(PDFName.of(SOURCE_STAMP_KEY))
+  if (value instanceof PDFHexString || value instanceof PDFString) return value.decodeText()
+  return null
+}
+
+/**
  * From scratch: the original document plus every slot, written out as a
  * whole new file. This is the render whose bytes the preview is proven
  * against (see test/invariant.test.ts).
@@ -33,6 +63,7 @@ export async function renderPdf(
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(doc.source)
   await drawSlots(pdf, slots, fonts)
+  stampSource(pdf, doc.id)
   return finish(pdf, (p) => p.save({ useObjectStreams: false }))
 }
 
@@ -76,6 +107,14 @@ function markLatestSlotStream(pdf: PDFDocument, page: PDFPage): void {
   if (!contents || contents.size() === 0) return
   const obj = pdf.context.lookup(contents.get(contents.size() - 1))
   if (obj instanceof PDFStream) obj.dict.set(PDFName.of(SLOT_STREAM_MARKER), PDFBool.True)
+}
+
+function stampSource(pdf: PDFDocument, sourceId: string): void {
+  // setCreationDate (in finish) would create the Info dict if missing; do it
+  // here so the stamp lands in the same dict.
+  pdf.setCreationDate(EPOCH)
+  const info = pdf.context.lookup(pdf.context.trailerInfo.Info)
+  if (info instanceof PDFDict) info.set(PDFName.of(SOURCE_STAMP_KEY), PDFHexString.fromText(sourceId))
 }
 
 async function finish(pdf: PDFDocument, save: (p: PDFDocument) => Promise<Uint8Array>): Promise<Uint8Array> {

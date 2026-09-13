@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { PDFDocument, degrees } from '@cantoo/pdf-lib'
 import { expect, test, vi } from 'vitest'
-import { renderPdf } from '../src/render/pdf.js'
+import { readSourceStamp, renderPdf, renderPdfIncremental } from '../src/render/pdf.js'
 import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { normalizePdf } from '../src/document/normalize.js'
 import type { Slot } from '../src/document/types.js'
@@ -183,4 +183,25 @@ test('on an unrotated page the text matrix stays the identity rotation', async (
   const [a, b, c, dd, x] = tm!
   expect([a, b, c, dd]).toEqual([1, 0, 0, 1])
   expect(x).toBeCloseTo(100, 2)
+})
+
+test('the export carries its source id in the Info dictionary, so a downloaded copy can find its layout', async () => {
+  const doc = await blankDoc()
+  const out = await renderPdf({ ...doc, id: 'abc123' }, [slot()], fonts)
+  expect(await readSourceStamp(out)).toBe('abc123')
+  // Still deterministic with the stamp in place.
+  const again = await renderPdf({ ...doc, id: 'abc123' }, [slot()], fonts)
+  expect(Buffer.from(out).equals(Buffer.from(again))).toBe(true)
+})
+
+test('an increment keeps the source stamp', async () => {
+  const doc = await blankDoc()
+  const first = await renderPdf({ ...doc, id: 'abc123' }, [slot()], fonts)
+  const second = await renderPdfIncremental(first, [slot({ text: 'Beta' })], fonts)
+  expect(await readSourceStamp(second)).toBe('abc123')
+})
+
+test('a PDF that was never exported by this tool has no stamp', async () => {
+  const doc = await blankDoc()
+  expect(await readSourceStamp(doc.source)).toBeNull()
 })
