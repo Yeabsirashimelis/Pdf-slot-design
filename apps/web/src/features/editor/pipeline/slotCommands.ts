@@ -10,11 +10,14 @@ import type { Slot } from '@pdf-slot/core'
 export type SlotMutations = {
   updateSlot(id: string, patch: Partial<Slot>): void
   removeSlot(id: string): void
+  duplicateSlot(id: string): string | null
 }
 
 export type SlotCommands = {
   updateSlotAndCommit(id: string, patch: Partial<Slot>): void
   removeSlotAndCommit(id: string): void
+  /** Returns the copy's id (null if `id` is unknown), after committing. */
+  duplicateSlotAndCommit(id: string): string | null
 }
 
 /**
@@ -56,6 +59,14 @@ export function createSlotCommands(store: SlotMutations, commitAndRender: () => 
         store.removeSlot(id)
       })
       commitAndRender()
+    },
+    duplicateSlotAndCommit(id) {
+      let copyId: string | null = null
+      flushSync(() => {
+        copyId = store.duplicateSlot(id)
+      })
+      commitAndRender()
+      return copyId
     },
   }
 }

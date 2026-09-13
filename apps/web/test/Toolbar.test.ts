@@ -43,6 +43,7 @@ function baseProps(overrides: Partial<ToolbarProps> = {}): ToolbarProps {
     selectedId: null,
     updateSlotAndCommit: vi.fn(),
     removeSlotAndCommit: vi.fn(),
+    duplicateSlotAndCommit: vi.fn(),
     zoom: 1,
     onZoomChange: vi.fn(),
     onFitWidth: vi.fn(),
@@ -220,6 +221,17 @@ describe('Toolbar controls act on the selected slot', () => {
     expect(updateSlotAndCommit).toHaveBeenCalledWith('target-slot', { align: 'center' })
   })
 
+  it('clicking duplicate calls duplicateSlotAndCommit with the selected id; disabled with none selected', () => {
+    const duplicateSlotAndCommit = vi.fn()
+    const slot = makeSlot({ id: 'dup-me' })
+    render(createElement(Toolbar, baseProps({ slots: [slot], selectedId: 'dup-me', duplicateSlotAndCommit })))
+    fireEvent.click(screen.getByTestId('duplicate-button'))
+    expect(duplicateSlotAndCommit).toHaveBeenCalledWith('dup-me')
+    cleanup()
+    render(createElement(Toolbar, baseProps({ slots: [slot], selectedId: null })))
+    expect((screen.getByTestId('duplicate-button') as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('clicking delete calls removeSlotAndCommit with the selected id', () => {
     const removeSlotAndCommit = vi.fn()
     const slot = makeSlot({ id: 'target-slot' })
@@ -355,7 +367,7 @@ describe('Toolbar locked (write step)', () => {
 
   it('renders no style or delete controls, but keeps zoom, pages and download', () => {
     render(createElement(Toolbar, baseProps({ locked: true, pageCount: 3 })))
-    for (const id of ['font-select-trigger', 'size-select-trigger', 'color-trigger', 'align-toggle-group', 'delete-button']) {
+    for (const id of ['font-select-trigger', 'size-select-trigger', 'color-trigger', 'align-toggle-group', 'delete-button', 'duplicate-button']) {
       expect(screen.queryByTestId(id)).toBeNull()
     }
     expect(screen.getByTestId('zoom-controls')).toBeTruthy()

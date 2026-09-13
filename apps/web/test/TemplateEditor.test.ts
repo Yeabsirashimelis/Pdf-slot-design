@@ -274,4 +274,30 @@ describe('TemplateEditor', () => {
     fireEvent.click(screen.getByTestId('start-over-button'))
     await waitFor(() => expect(onStartOver).toHaveBeenCalledTimes(1))
   })
+
+  it('duplicating from a chip adds a second slot with the same settings, named "<name> copy", on the page and in the panel', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = memoryStore()
+    const layoutStep: OpenedFile = { ...knownFile, values: null, step: 'layout' }
+    const { container } = render(createElement(TemplateEditor, { opened: layoutStep, store, onStartOver: vi.fn() }))
+    await waitFor(() => screen.getByTestId('slot-chip-duplicate-s1'))
+
+    fireEvent.click(screen.getByTestId('slot-chip-duplicate-s1'))
+
+    const chips = Array.from(container.querySelectorAll('[data-testid^="slot-chip-"]:not([data-testid^="slot-chip-remove-"]):not([data-testid^="slot-chip-duplicate-"])'))
+    expect(chips.map((c) => c.textContent)).toEqual(['CO#', 'Date', 'CO# copy'])
+    const boxes = Array.from(container.querySelectorAll('[data-slot-id]'))
+    expect(boxes).toHaveLength(3)
+    // The copy keeps the source's width and is selected.
+    const source = boxes[0] as HTMLElement
+    const copy = boxes[2] as HTMLElement
+    expect(copy.style.width).toBe(source.style.width)
+    expect(copy.dataset.slotId).not.toBe(source.dataset.slotId)
+    expect(copy.style.outline).toContain('var(--slot-selection)')
+
+    // Next persists the copy with its own name.
+    fireEvent.click(screen.getByTestId('panel-next'))
+    await waitFor(() => expect(store.layouts.get('file-1')?.slots).toHaveLength(3))
+    expect(store.layouts.get('file-1')!.slots[2]!.name).toBe('CO# copy')
+  })
 })

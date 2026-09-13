@@ -9,7 +9,7 @@ const slots = [
 ]
 const noop = () => {}
 const base = {
-  slots, selectedId: null, onSelect: noop, onRename: noop, onRemove: noop,
+  slots, selectedId: null, onSelect: noop, onRename: noop, onRemove: noop, onDuplicate: noop,
   onNext: noop, onBack: noop, onChangeText: noop, onSave: noop,
 }
 
@@ -71,5 +71,18 @@ describe('SlotPanel', () => {
     expect(onBack).toHaveBeenCalledTimes(1)
     expect(onSave).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId('slot-chip-a')).toBeNull()
+  })
+
+  it('step 1: the chip has a duplicate button that reports the slot id without selecting it', () => {
+    const onDuplicate = vi.fn(), onSelect = vi.fn()
+    render(createElement(SlotPanel, { ...base, step: 'layout', onDuplicate, onSelect }))
+    fireEvent.click(screen.getByTestId('slot-chip-duplicate-a'))
+    expect(onDuplicate).toHaveBeenCalledWith('a')
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('step 2: no duplicate buttons', () => {
+    render(createElement(SlotPanel, { ...base, step: 'write' }))
+    expect(screen.queryByTestId('slot-chip-duplicate-a')).toBeNull()
   })
 })

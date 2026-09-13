@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowLeft, ArrowRight, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Copy, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -17,7 +17,7 @@ export type PanelSlot = { id: string; name: string; text: string }
  * shows on the page immediately.
  */
 export function SlotPanel({
-  step, slots, selectedId, onSelect, onRename, onRemove, onNext, onBack, onChangeText, onSave,
+  step, slots, selectedId, onSelect, onRename, onRemove, onDuplicate, onNext, onBack, onChangeText, onSave,
 }: {
   step: Step
   slots: PanelSlot[]
@@ -25,6 +25,8 @@ export function SlotPanel({
   onSelect(id: string): void
   onRename(id: string): void
   onRemove(id: string): void
+  /** Step 1: add a copy of the slot with the same settings. */
+  onDuplicate(id: string): void
   onNext(): void
   onBack(): void
   onChangeText(id: string, text: string): void
@@ -67,11 +69,20 @@ export function SlotPanel({
                     }
                   }}
                   className={cn(
-                    'flex items-center justify-between rounded-md border border-border bg-card px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    'flex items-center gap-1 rounded-md border border-border bg-card py-1.5 pr-1 pl-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     selectedId === slot.id && 'ring-2 ring-ring',
                   )}
                 >
-                  <span className="truncate">{slot.name}</span>
+                  <span className="min-w-0 flex-1 truncate">{slot.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`Duplicate ${slot.name}`}
+                    data-testid={`slot-chip-duplicate-${slot.id}`}
+                    onClick={(e) => { e.stopPropagation(); onDuplicate(slot.id) }}
+                  >
+                    <Copy />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon-xs"

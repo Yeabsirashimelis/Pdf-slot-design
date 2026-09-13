@@ -36,6 +36,9 @@ const NEW_SLOT_DEFAULTS: {
   lineHeight: 1.2,
 }
 
+/** PDF points a duplicate is nudged right and down (PDF Y is up) so it doesn't sit exactly over its source. */
+const DUPLICATE_OFFSET = 12
+
 const STYLE_KEYS: readonly (keyof SlotStyle)[] = ['fontId', 'size', 'color', 'align']
 
 function isStyleChange(patch: Partial<Slot>): boolean {
@@ -46,6 +49,13 @@ export type EditorStore = {
   slots: Slot[]
   selectedId: string | null
   addSlot(atPdf: Point, page: number): string
+  /**
+   * Adds a copy of `id` -- every setting (size, style, colour, alignment,
+   * height, text) intact, offset 12pt right and down so it is visibly a
+   * second box -- selects it, and returns its id (null if `id` is unknown).
+   * One undo step.
+   */
+  duplicateSlot(id: string): string | null
   updateSlot(id: string, patch: Partial<Slot>): void
   removeSlot(id: string): void
   /**
@@ -97,6 +107,15 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
     return slot.id
   }, [])
 
+  const duplicateSlot = useCallback((id: string): string | null => {
+    const source = history.present.find((slot) => slot.id === id)
+    if (!source) return null
+    const copy: Slot = { ...source, id: randomId(), x: source.x + DUPLICATE_OFFSET, y: source.y - DUPLICATE_OFFSET }
+    setHistory((state) => applyAddSlot(state, copy))
+    setSelectedId(copy.id)
+    return copy.id
+  }, [history.present])
+
   const updateSlot = useCallback((id: string, patch: Partial<Slot>) => {
     setHistory((state) => {
       const next = applyUpdateSlot(state, id, patch)
@@ -141,6 +160,7 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
     slots: history.present,
     selectedId,
     addSlot,
+    duplicateSlot,
     updateSlot,
     removeSlot,
     replaceSlots,

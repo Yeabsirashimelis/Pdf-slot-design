@@ -108,7 +108,7 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
         store.commitEdit()
         commit()
       }
-      const { updateSlotAndCommit, removeSlotAndCommit } = createSlotCommands(store, handleCommit)
+      const { updateSlotAndCommit, removeSlotAndCommit, duplicateSlotAndCommit } = createSlotCommands(store, handleCommit)
       return createElement(Toolbar, {
         isRendering,
         render,
@@ -117,6 +117,7 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
         selectedId: store.selectedId,
         updateSlotAndCommit,
         removeSlotAndCommit,
+        duplicateSlotAndCommit,
         zoom: 1,
         onZoomChange: () => {},
         onFitWidth: () => {},
@@ -168,7 +169,7 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
         store.commitEdit()
         commit()
       }
-      const { updateSlotAndCommit, removeSlotAndCommit } = createSlotCommands(store, handleCommit)
+      const { updateSlotAndCommit, removeSlotAndCommit, duplicateSlotAndCommit } = createSlotCommands(store, handleCommit)
       return createElement(Toolbar, {
         isRendering,
         render,
@@ -177,6 +178,7 @@ describe('createSlotCommands wired to a real store + real useCommitRender + real
         selectedId: store.selectedId,
         updateSlotAndCommit,
         removeSlotAndCommit,
+        duplicateSlotAndCommit,
         zoom: 1,
         onZoomChange: () => {},
         onFitWidth: () => {},

@@ -77,6 +77,12 @@ export function TemplateEditor({
     setPending(null)
   }
 
+  const handleDuplicate = (id: string) => {
+    const copyId = editor.duplicateSlot(id)
+    if (!copyId) return
+    setNames((n) => ({ ...n, [copyId]: `${n[id] ?? 'Slot'} copy` }))
+  }
+
   const handleRemove = (id: string) => {
     editor.removeSlot(id)
     setNames((n) => Object.fromEntries(Object.entries(n).filter(([key]) => key !== id)))
@@ -124,6 +130,7 @@ export function TemplateEditor({
         onSelect={editor.select}
         onRename={(id) => setPending({ kind: 'rename', id })}
         onRemove={handleRemove}
+        onDuplicate={handleDuplicate}
         onNext={handleNext}
         onBack={handleBack}
         onChangeText={(id, text) => editor.updateSlot(id, { text })}
@@ -135,6 +142,7 @@ export function TemplateEditor({
         locked={step === 'write'}
         highlighted={step === 'write'}
         onPlaceSlot={step === 'layout' ? handlePlaceSlot : undefined}
+        onDuplicateSlot={handleDuplicate}
         onStartOver={handleStartOver}
       />
       <NameSlotDialog

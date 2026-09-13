@@ -61,3 +61,50 @@ describe('useEditorStore: addSlot return value and replaceSlots', () => {
     expect(result.current.canUndo).toBe(false)
   })
 })
+
+describe('useEditorStore: duplicateSlot', () => {
+  afterEach(() => localStorage.clear())
+
+  it('copies every setting, offsets the copy so it is visible, gives it a new id and selects it', () => {
+    const { result } = renderHook(() => useEditorStore())
+    act(() => result.current.addSlot({ x: 100, y: 700 }, 0))
+    const source = result.current.slots[0]!
+    act(() =>
+      result.current.updateSlot(source.id, {
+        text: 'sample', fontId: 'serif-bold', size: 18, width: 240, height: 60,
+        color: { r: 0.1, g: 0.2, b: 0.9 }, align: 'center',
+      }),
+    )
+    let copyId = ''
+    act(() => {
+      copyId = result.current.duplicateSlot(source.id)!
+    })
+    expect(copyId).not.toBe(source.id)
+    expect(result.current.selectedId).toBe(copyId)
+    expect(result.current.slots).toHaveLength(2)
+    const copy = result.current.slots[1]!
+    expect(copy).toMatchObject({
+      id: copyId, page: 0, text: 'sample', fontId: 'serif-bold', size: 18, width: 240, height: 60,
+      color: { r: 0.1, g: 0.2, b: 0.9 }, align: 'center', x: 112, y: 688,
+    })
+  })
+
+  it('returns null for an unknown id and changes nothing', () => {
+    const { result } = renderHook(() => useEditorStore())
+    let out: string | null = 'x'
+    act(() => {
+      out = result.current.duplicateSlot('nope')
+    })
+    expect(out).toBeNull()
+    expect(result.current.slots).toHaveLength(0)
+  })
+
+  it('is one undo step', () => {
+    const { result } = renderHook(() => useEditorStore())
+    act(() => result.current.addSlot({ x: 10, y: 700 }, 0))
+    act(() => { result.current.duplicateSlot(result.current.slots[0]!.id) })
+    expect(result.current.slots).toHaveLength(2)
+    act(() => result.current.undo())
+    expect(result.current.slots).toHaveLength(1)
+  })
+})

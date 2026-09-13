@@ -11,6 +11,7 @@ import {
   Minus,
   Plus,
   Trash2,
+  Copy,
 } from 'lucide-react'
 import {
   FONT_IDS,
@@ -115,6 +116,7 @@ export type ToolbarProps = {
    */
   updateSlotAndCommit(id: string, patch: Partial<Slot>): void
   removeSlotAndCommit(id: string): void
+  duplicateSlotAndCommit(id: string): string | null
   zoom: number
   onZoomChange(zoom: number): void
   /** Sets zoom so the current page's width fills the available viewport
@@ -149,6 +151,7 @@ export function Toolbar({
   selectedId,
   updateSlotAndCommit,
   removeSlotAndCommit,
+  duplicateSlotAndCommit,
   zoom,
   onZoomChange,
   onFitWidth,
@@ -171,6 +174,11 @@ export function Toolbar({
   const handleDelete = () => {
     if (!selected) return
     removeSlotAndCommit(selected.id)
+  }
+
+  const handleDuplicate = () => {
+    if (!selected) return
+    duplicateSlotAndCommit(selected.id)
   }
 
   const handleDownload = async () => {
@@ -299,6 +307,24 @@ export function Toolbar({
             </ToggleGroup>
 
             <Separator orientation="vertical" className="h-6" />
+
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    disabled={!selected}
+                    onClick={handleDuplicate}
+                    aria-label="Duplicate slot"
+                    data-testid="duplicate-button"
+                  >
+                    <Copy />
+                  </Button>
+                }
+              />
+              <TooltipContent>Duplicate slot (Ctrl+D)</TooltipContent>
+            </Tooltip>
 
             <Tooltip>
               <TooltipTrigger

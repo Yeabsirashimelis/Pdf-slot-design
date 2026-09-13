@@ -76,6 +76,7 @@ export function Editor({
   locked = false,
   highlighted = false,
   onPlaceSlot,
+  onDuplicateSlot,
   onStartOver,
   renderOnCommit = RENDER_ON_COMMIT,
 }: {
@@ -99,6 +100,10 @@ export function Editor({
    * `store.addSlot` directly -- so the parent can, say, open a naming
    * dialog first. */
   onPlaceSlot?(atPdf: Point, page: number): void
+  /** When given, duplicating (toolbar button or Ctrl/Cmd+D) asks the
+   * parent instead of calling `store.duplicateSlot` directly -- so the
+   * parent can name the copy. Receives the source slot's id. */
+  onDuplicateSlot?(id: string): void
   /** Returns to the dropzone. Optional so callers/tests that have no
    * "start over" need not pass it -- Toolbar simply omits the control. */
   onStartOver?(): void
@@ -186,7 +191,19 @@ export function Editor({
   // this needs flushSync) so the exact same logic is directly testable
   // against a real store + real useCommitRender, without mounting the rest
   // of Editor.
-  const { updateSlotAndCommit, removeSlotAndCommit } = createSlotCommands(store, handleCommit)
+  const { updateSlotAndCommit, removeSlotAndCommit, duplicateSlotAndCommit } = createSlotCommands(
+    store,
+    handleCommit,
+  )
+  // The parent (TemplateEditor) owns slot names, so it gets first refusal
+  // on a duplicate; a standalone Editor copies straight into its store.
+  const duplicateSlot = (id: string): string | null => {
+    if (onDuplicateSlot) {
+      onDuplicateSlot(id)
+      return null
+    }
+    return duplicateSlotAndCommit(id)
+  }
 
   // A failed render is surfaced rather than silently dropped -- otherwise
   // the edit that failed to render would just vanish (see isSlotCommitted:
@@ -330,10 +347,27 @@ export function Editor({
   // slot's textarea is focused, so the input's own native undo (e.g.
   // undoing an IME composition) isn't fought over.
   const { undo, redo } = store
+  // Ctrl/Cmd+D duplicates the selected slot (step 1 only). Read through a
+  // ref so the keydown listener below never goes stale without having to
+  // be re-registered on every render.
+  const duplicateSelectedRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    duplicateSelectedRef.current = () => {
+      if (locked || !store.selectedId) return
+      duplicateSlot(store.selectedId)
+    }
+  })
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const isModified = event.metaKey || event.ctrlKey
-      if (!isModified || event.key.toLowerCase() !== 'z') return
+      if (!isModified) return
+      if (event.key.toLowerCase() === 'd') {
+        // The browser's own Ctrl+D (bookmark) must not fire.
+        event.preventDefault()
+        duplicateSelectedRef.current()
+        return
+      }
+      if (event.key.toLowerCase() !== 'z') return
       if (event.target instanceof HTMLTextAreaElement) return
       event.preventDefault()
       // commit() reads the current slots through a ref that useCommitRender
@@ -380,6 +414,7 @@ export function Editor({
         selectedId={store.selectedId}
         updateSlotAndCommit={updateSlotAndCommit}
         removeSlotAndCommit={removeSlotAndCommit}
+        duplicateSlotAndCommit={duplicateSlot}
         zoom={scale}
         onZoomChange={(next) => setScale(clampZoom(next))}
         onFitWidth={handleFitWidth}
