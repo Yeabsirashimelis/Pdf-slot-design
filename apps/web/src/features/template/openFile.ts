@@ -17,7 +17,9 @@ export type OpenedFile = {
  * Everything that happens between "here are PDF bytes" and "show the
  * editor": work out which file this is, fetch what we remember about it,
  * and decide which step to land in (spec: known file -> write, new file
- * -> layout).
+ * -> layout). "Known" means a saved layout with at least one slot: a
+ * layout with no slots has nothing to write into, so the file opens in
+ * the layout step like a new one.
  *
  * Identity, in order: the stamp an earlier export of ours left in the Info
  * dictionary (a downloaded copy has different bytes from its source), then
@@ -34,5 +36,5 @@ export async function openFile(pdfBytes: Uint8Array, name: string, store: Templa
   if (!existing) {
     await store.putFile({ fileId, name, source: pdfBytes, pages: doc.pages, createdAt: new Date().toISOString() })
   }
-  return { doc, fileId, layout, values, step: layout ? 'write' : 'layout' }
+  return { doc, fileId, layout, values, step: layout && layout.slots.length > 0 ? 'write' : 'layout' }
 }

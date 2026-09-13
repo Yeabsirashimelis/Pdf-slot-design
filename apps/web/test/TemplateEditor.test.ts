@@ -219,6 +219,20 @@ describe('TemplateEditor', () => {
     expect((screen.getByTestId('slot-field-s2') as HTMLInputElement).value).toBe('07/11/2024')
   })
 
+  it('an untouched new file persists nothing -- not after the debounce, not on unmount', async () => {
+    // Otherwise an empty layout would be saved for the file, and openFile
+    // would treat it as known next time: a locked page with an empty form.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = memoryStore()
+    const { unmount } = render(createElement(TemplateEditor, { opened: newFile, store, onStartOver: vi.fn() }))
+    await waitFor(() => screen.getByTestId('panel-next'))
+    await vi.advanceTimersByTimeAsync(1100)
+    unmount()
+    expect(store.layouts.size).toBe(0)
+    expect(store.values.size).toBe(0)
+  })
+
   it('Start over clears the open session and hands off', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const store = memoryStore()

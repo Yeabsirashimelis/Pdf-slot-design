@@ -20,6 +20,14 @@ function memoryStore(): TemplateStore & { layouts: Map<string, TemplateLayout>; 
   }
 }
 
+/** A layout with something in it: only such a layout makes a file "known". */
+function oneSlotLayout(fileId: string): TemplateLayout {
+  return {
+    fileId, updatedAt: 't',
+    slots: [{ id: 's1', name: 'CO#', order: 0, page: 0, x: 50, y: 700, width: 200, fontId: 'sans', size: 14, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 }],
+  }
+}
+
 async function blankPdf(): Promise<Uint8Array> {
   const d = await PDFDocument.create()
   d.addPage([612, 792])
@@ -44,18 +52,30 @@ describe('openFile', () => {
     const store = memoryStore()
     const bytes = await blankPdf()
     const first = await openFile(bytes, 'form.pdf', store)
-    store.layouts.set(first.fileId, { fileId: first.fileId, slots: [], updatedAt: 't' })
+    store.layouts.set(first.fileId, oneSlotLayout(first.fileId))
     const again = await openFile(bytes.slice(), 'renamed.pdf', store)
     expect(again.fileId).toBe(first.fileId)
     expect(again.step).toBe('write')
     expect(again.layout).not.toBeNull()
   })
 
-  it('a copy this tool exported is recognised by its stamp, not its (different) bytes', async () => {
+  it('a saved layout with no slots is not a known file: it lands in the layout step', async () => {
+    // Nothing to write into, so step 2 would be a locked page with an empty
+    // form. (A layout like this could only come from a safety-net write that
+    // never should have happened; see useDebouncedWrite.)
     const store = memoryStore()
     const bytes = await blankPdf()
     const first = await openFile(bytes, 'form.pdf', store)
     store.layouts.set(first.fileId, { fileId: first.fileId, slots: [], updatedAt: 't' })
+    const again = await openFile(bytes.slice(), 'form.pdf', store)
+    expect(again.step).toBe('layout')
+  })
+
+  it('a copy this tool exported is recognised by its stamp, not its (different) bytes', async () => {
+    const store = memoryStore()
+    const bytes = await blankPdf()
+    const first = await openFile(bytes, 'form.pdf', store)
+    store.layouts.set(first.fileId, oneSlotLayout(first.fileId))
     const fonts = Object.fromEntries(
       FONT_IDS.map((id) => [id, new Uint8Array(readFileSync(path.resolve(__dirname, '../public/fonts', FONT_FILES[id])))]),
     ) as FontBytes
