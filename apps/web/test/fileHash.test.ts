@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { hashBytes } from '@/lib/files/fileHash'
+import { hashBytes, randomId } from '@/lib/files/fileHash'
 
 describe('hashBytes', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -13,5 +13,22 @@ describe('hashBytes', () => {
   it('returns null when SubtleCrypto is unavailable (plain-http origins)', async () => {
     vi.stubGlobal('crypto', { ...globalThis.crypto, subtle: undefined })
     expect(await hashBytes(new Uint8Array([1]))).toBeNull()
+  })
+})
+
+describe('randomId', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('is 32 lowercase hex chars and differs between calls', () => {
+    const a = randomId()
+    const b = randomId()
+    expect(a).toMatch(/^[0-9a-f]{32}$/)
+    expect(b).toMatch(/^[0-9a-f]{32}$/)
+    expect(a).not.toBe(b)
+  })
+
+  it('does not need SubtleCrypto or randomUUID (both are secure-context-only)', () => {
+    vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
+    expect(randomId()).toMatch(/^[0-9a-f]{32}$/)
   })
 })

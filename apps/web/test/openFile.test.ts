@@ -86,9 +86,13 @@ describe('openFile', () => {
   })
 
   it('without SubtleCrypto the file still opens (as new, with a random id)', async () => {
-    vi.stubGlobal('crypto', { ...globalThis.crypto, subtle: undefined, randomUUID: () => 'rand-1' })
+    // What an insecure origin exposes: getRandomValues, and nothing else --
+    // no `subtle`, and no `randomUUID` either, so the fallback must not lean
+    // on it. (Spreading a Crypto instance would copy nothing: its methods
+    // live on the prototype.)
+    vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
     const opened = await openFile(await blankPdf(), 'form.pdf', memoryStore())
-    expect(opened.fileId).toBe('rand-1')
+    expect(opened.fileId).toMatch(/^[0-9a-f]{32}$/)
     expect(opened.step).toBe('layout')
   })
 })

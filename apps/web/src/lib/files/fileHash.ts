@@ -11,3 +11,15 @@ export async function hashBytes(bytes: Uint8Array): Promise<string | null> {
   const digest = await subtle.digest('SHA-256', bytes.slice().buffer as ArrayBuffer)
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+/**
+ * 128 random bits as 32 lowercase hex chars, for a file (or slot) that
+ * needs an id with no content to hash. Built on `crypto.getRandomValues`,
+ * not `crypto.randomUUID`: the latter is exposed only in secure contexts,
+ * i.e. exactly where `hashBytes` already returned null, so falling back to
+ * it there would throw instead of opening the file.
+ */
+export function randomId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}

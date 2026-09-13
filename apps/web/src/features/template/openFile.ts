@@ -2,7 +2,7 @@ import {
   normalizePdf, readSourceStamp,
   type EditorDocument, type FileId, type TemplateLayout, type TemplateValues,
 } from '@pdf-slot/core'
-import { hashBytes } from '@/lib/files/fileHash'
+import { hashBytes, randomId } from '@/lib/files/fileHash'
 import type { Step, TemplateStore } from '@/lib/persistence/templateStore'
 
 export type OpenedFile = {
@@ -28,7 +28,7 @@ export type OpenedFile = {
  * recognised next time.
  */
 export async function openFile(pdfBytes: Uint8Array, name: string, store: TemplateStore): Promise<OpenedFile> {
-  const fileId = (await readSourceStamp(pdfBytes).catch(() => null)) ?? (await hashBytes(pdfBytes)) ?? crypto.randomUUID()
+  const fileId = (await readSourceStamp(pdfBytes).catch(() => null)) ?? (await hashBytes(pdfBytes)) ?? randomId()
   const doc = await normalizePdf(pdfBytes, fileId)
   const [layout, values, existing] = await Promise.all([
     store.getLayout(fileId), store.getValues(fileId), store.getFile(fileId),

@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import type { Align, FontId, Point, RGB, Slot } from '@pdf-slot/core'
+import { randomId } from '@/lib/files/fileHash'
 import {
   applyAddSlot,
   applyCommitEdit,
@@ -83,7 +84,7 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
 
   const addSlot = useCallback((atPdf: Point, page: number) => {
     const slot: Slot = {
-      id: crypto.randomUUID(),
+      id: randomId(),
       page,
       x: atPdf.x,
       y: atPdf.y,
