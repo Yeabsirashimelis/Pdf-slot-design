@@ -112,6 +112,15 @@ export function applyRedo(state: HistoryState): HistoryState {
   }
 }
 
+/**
+ * Install a whole new slot list and forget the history: entering a step
+ * (layout <-> write) is a boundary undo must not cross -- Ctrl+Z in step 2
+ * undoes typing, never a layout change made in step 1.
+ */
+export function applyReplace(_state: HistoryState, slots: Slot[]): HistoryState {
+  return createHistory(slots)
+}
+
 export function canUndo(state: HistoryState): boolean {
   return state.past.length > 0 || state.pendingBefore !== null
 }

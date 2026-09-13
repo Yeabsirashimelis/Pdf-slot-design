@@ -7,6 +7,7 @@ import {
   applyCommitEdit,
   applyRedo,
   applyRemoveSlot,
+  applyReplace,
   applyUndo,
   applyUpdateSlot,
   canRedo as computeCanRedo,
@@ -43,9 +44,15 @@ function isStyleChange(patch: Partial<Slot>): boolean {
 export type EditorStore = {
   slots: Slot[]
   selectedId: string | null
-  addSlot(atPdf: Point, page: number): void
+  addSlot(atPdf: Point, page: number): string
   updateSlot(id: string, patch: Partial<Slot>): void
   removeSlot(id: string): void
+  /**
+   * Install a whole new slot list, clearing selection and undo history --
+   * used when entering a step (layout <-> write) so undo cannot cross that
+   * boundary.
+   */
+  replaceSlots(slots: Slot[]): void
   select(id: string | null): void
   /**
    * Close the current text-edit or drag/resize gesture, collapsing every
@@ -86,6 +93,7 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
     }
     setHistory((state) => applyAddSlot(state, slot))
     setSelectedId(slot.id)
+    return slot.id
   }, [])
 
   const updateSlot = useCallback((id: string, patch: Partial<Slot>) => {
@@ -100,6 +108,11 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
       }
       return next
     })
+  }, [])
+
+  const replaceSlots = useCallback((slots: Slot[]) => {
+    setHistory((state) => applyReplace(state, slots))
+    setSelectedId(null)
   }, [])
 
   const removeSlot = useCallback((id: string) => {
@@ -129,6 +142,7 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
     addSlot,
     updateSlot,
     removeSlot,
+    replaceSlots,
     select,
     commitEdit,
     undo,

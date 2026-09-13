@@ -39,3 +39,25 @@ describe('useEditorStore: new slots take the last-used style', () => {
     expect(b.result.current.slots[0]).toMatchObject({ align: 'center', size: 24, fontId: 'sans' })
   })
 })
+
+describe('useEditorStore: addSlot return value and replaceSlots', () => {
+  it('addSlot returns the id of the slot it created', () => {
+    const { result } = renderHook(() => useEditorStore())
+    let id = ''
+    act(() => {
+      id = result.current.addSlot({ x: 10, y: 700 }, 0)
+    })
+    expect(id).toBe(result.current.slots[0]!.id)
+    expect(result.current.selectedId).toBe(id)
+  })
+
+  it('replaceSlots installs a new list, clears selection and undo history', () => {
+    const { result } = renderHook(() => useEditorStore())
+    act(() => { result.current.addSlot({ x: 10, y: 700 }, 0) })
+    const fresh = { ...result.current.slots[0]!, id: 'fresh', text: 'hello' }
+    act(() => { result.current.replaceSlots([fresh]) })
+    expect(result.current.slots).toEqual([fresh])
+    expect(result.current.selectedId).toBeNull()
+    expect(result.current.canUndo).toBe(false)
+  })
+})

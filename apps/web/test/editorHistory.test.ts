@@ -6,6 +6,7 @@ import {
   applyCommitEdit,
   applyRedo,
   applyRemoveSlot,
+  applyReplace,
   applyUndo,
   applyUpdateSlot,
   canRedo,
@@ -205,5 +206,17 @@ describe('editorHistory: cap at 50 entries', () => {
     expect(oldestSurviving.map((s) => s.id)).toEqual(
       Array.from({ length: overflow }, (_, i) => `slot-${i}`),
     )
+  })
+})
+
+describe('editorHistory: applyReplace', () => {
+  it('applyReplace swaps the present list and forgets all history', () => {
+    let state = createHistory([makeSlot({ id: 'a' })])
+    state = applyAddSlot(state, makeSlot({ id: 'b' }))
+    state = applyReplace(state, [makeSlot({ id: 'z' })])
+    expect(state.present.map((s) => s.id)).toEqual(['z'])
+    expect(state.past).toEqual([])
+    expect(state.future).toEqual([])
+    expect(state.pendingBefore).toBeNull()
   })
 })
