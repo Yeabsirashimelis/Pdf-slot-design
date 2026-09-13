@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { createElement } from 'react'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFontMetrics, type Slot } from '@pdf-slot/core'
 import { SlotOverlay } from '@/features/editor/overlay/SlotOverlay'
+
+// jsdom doesn't implement the Pointer Capture API used by SlotOverlay's
+// pointer handlers.
+HTMLElement.prototype.setPointerCapture ??= () => {}
 
 /**
  * The slot box, its transparent textarea, and its SlotLines spans must all
@@ -42,7 +46,7 @@ function makeSlot(): Slot {
   }
 }
 
-function renderOverlay(selected: boolean) {
+function renderOverlay(selected: boolean, extra: Partial<Parameters<typeof SlotOverlay>[0]> = {}) {
   const { container } = render(
     createElement(SlotOverlay, {
       slot: makeSlot(),
@@ -54,6 +58,7 @@ function renderOverlay(selected: boolean) {
       onSelect: vi.fn(),
       onChange: vi.fn(),
       onCommit: vi.fn(),
+      ...extra,
     }),
   )
   const box = container.querySelector('[data-slot-id]') as HTMLElement
@@ -81,5 +86,23 @@ describe('SlotOverlay geometry', () => {
   it('still shows a visible ring when selected', () => {
     const { box } = renderOverlay(true)
     expect(box.style.outline).toContain('#0070f3')
+  })
+
+  it('locked: no resize handle even when selected, text cursor, and dragging does nothing', () => {
+    const onChange = vi.fn()
+    const { box } = renderOverlay(true, { locked: true, onChange })
+    expect(box.style.cursor).toBe('text')
+    // The resize handle is the only child div with cursor ew-resize.
+    expect(Array.from(box.querySelectorAll('div')).some((d) => d.style.cursor === 'ew-resize')).toBe(false)
+    fireEvent.pointerDown(box, { pointerId: 1, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 40, clientY: 0 })
+    fireEvent.pointerUp(box, { pointerId: 1 })
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('highlighted: shows a fill and hairline so the user can see where to write', () => {
+    const { box } = renderOverlay(false, { highlighted: true })
+    expect(box.style.backgroundColor).not.toBe('')
+    expect(box.style.boxShadow).toContain('inset')
   })
 })

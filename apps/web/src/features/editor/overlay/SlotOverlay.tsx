@@ -50,6 +50,8 @@ export function SlotOverlay({
   onChange,
   onCommit,
   textCommitted = false,
+  locked = false,
+  highlighted = false,
 }: {
   slot: Slot
   viewport: Viewport
@@ -72,6 +74,10 @@ export function SlotOverlay({
    * pixel-identical) copies of the same text.
    */
   textCommitted?: boolean
+  /** Step 2: position, size and style are fixed -- only the text can change. */
+  locked?: boolean
+  /** Step 2: every slot is tinted so the user can see where to write. */
+  highlighted?: boolean
 }) {
   // A pointerdown on the body arms `pendingRef` without committing to
   // anything yet -- the textarea sits on top of (and covers) the entire
@@ -138,6 +144,7 @@ export function SlotOverlay({
   }
 
   const handleBodyPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (locked) return
     // A resize (or an already-promoted move, defensively) owns this
     // gesture; don't also arm a pending click/drag for it.
     if (dragRef.current) return
@@ -190,6 +197,7 @@ export function SlotOverlay({
   }
 
   const handleResizePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (locked) return
     event.stopPropagation()
     onSelect()
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -234,7 +242,9 @@ export function SlotOverlay({
         width: screenWidth,
         height: screenHeight,
         pointerEvents: 'auto',
-        cursor: 'move',
+        cursor: locked ? 'text' : 'move',
+        backgroundColor: highlighted ? 'rgba(37, 99, 235, 0.08)' : undefined,
+        boxShadow: highlighted ? 'inset 0 0 0 1px rgba(37, 99, 235, 0.35)' : undefined,
         // An outline (drawn inward), NOT a border. Absolutely positioned
         // children -- the textarea at `inset: 0` and SlotLines' spans --
         // are placed against this box's *padding* box, and a border (even
@@ -327,7 +337,7 @@ export function SlotOverlay({
           whiteSpace: 'pre-wrap',
         }}
       />
-      {selected && (
+      {selected && !locked && (
         <div
           onPointerDown={handleResizePointerDown}
           onPointerMove={handleResizePointerMove}
