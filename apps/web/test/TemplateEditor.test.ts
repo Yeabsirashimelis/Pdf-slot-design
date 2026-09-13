@@ -150,9 +150,9 @@ describe('TemplateEditor', () => {
 
     const box = container.querySelector('[data-slot-id]') as HTMLElement
     expect(box.style.cursor).toBe('text')
-    const field = screen.getByTestId(`slot-field-${box.dataset.slotId}`) as HTMLInputElement
+    const field = screen.getByTestId(`slot-field-${box.dataset.slotId}`) as HTMLTextAreaElement
     expect(field.value).toBe('')
-    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('')
+    expect((container.querySelector('[data-slot-id] textarea') as HTMLTextAreaElement).value).toBe('')
   })
 
   it('a known file opens in the write step with its slots and values; typing in a field shows on the page and vice versa; Save persists', async () => {
@@ -162,7 +162,7 @@ describe('TemplateEditor', () => {
     const store = memoryStore()
     const { container } = render(createElement(TemplateEditor, { opened: knownFile, store, onStartOver: vi.fn() }))
 
-    const dateField = await waitFor(() => screen.getByTestId('slot-field-s2') as HTMLInputElement)
+    const dateField = await waitFor(() => screen.getByTestId('slot-field-s2') as HTMLTextAreaElement)
     expect(dateField.value).toBe('07/11/2024')
     // The overlay mounts once the fonts are loaded.
     await waitFor(() => {
@@ -176,11 +176,29 @@ describe('TemplateEditor', () => {
     expect((container.querySelector('[data-slot-id="s1"] textarea') as HTMLTextAreaElement).value).toBe('001')
 
     fireEvent.change(container.querySelector('[data-slot-id="s2"] textarea') as HTMLTextAreaElement, { target: { value: '08/01/2024' } })
-    expect((screen.getByTestId('slot-field-s2') as HTMLInputElement).value).toBe('08/01/2024')
+    expect((screen.getByTestId('slot-field-s2') as HTMLTextAreaElement).value).toBe('08/01/2024')
 
     fireEvent.click(screen.getByTestId('panel-save'))
     await waitFor(() => expect(store.values.get('file-1')?.values).toEqual({ s1: '001', s2: '08/01/2024' }))
     expect(success).toHaveBeenCalled()
+  })
+
+  it('a multi-line value survives a round trip through the form field', async () => {
+    // The field used to be an <input type=text>, which strips newlines: one
+    // keystroke in the form flattened a two-line value the user had typed
+    // on the page.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: knownFile, store: memoryStore(), onStartOver: vi.fn() }))
+    const onPage = await waitFor(() => {
+      const el = container.querySelector('[data-slot-id="s1"] textarea')
+      if (!el) throw new Error('overlay not mounted yet')
+      return el as HTMLTextAreaElement
+    })
+    fireEvent.change(onPage, { target: { value: 'line one\nline two' } })
+    const field = screen.getByTestId('slot-field-s1') as HTMLTextAreaElement
+    expect(field.value).toBe('line one\nline two')
+    fireEvent.change(field, { target: { value: `${field.value}!` } })
+    expect((container.querySelector('[data-slot-id="s1"] textarea') as HTMLTextAreaElement).value).toBe('line one\nline two!')
   })
 
   it('typing in the write step is saved on its own after ~1s, without pressing Save', async () => {
@@ -215,8 +233,8 @@ describe('TemplateEditor', () => {
 
     fireEvent.click(screen.getByTestId('panel-next'))
     await waitFor(() => screen.getByTestId('slot-field-s1'))
-    expect((screen.getByTestId('slot-field-s1') as HTMLInputElement).value).toBe('001')
-    expect((screen.getByTestId('slot-field-s2') as HTMLInputElement).value).toBe('07/11/2024')
+    expect((screen.getByTestId('slot-field-s1') as HTMLTextAreaElement).value).toBe('001')
+    expect((screen.getByTestId('slot-field-s2') as HTMLTextAreaElement).value).toBe('07/11/2024')
   })
 
   it('an untouched new file persists nothing -- not after the debounce, not on unmount', async () => {

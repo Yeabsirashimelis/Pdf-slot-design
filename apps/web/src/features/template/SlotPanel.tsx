@@ -2,8 +2,8 @@
 
 import { ArrowLeft, ArrowRight, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { Step } from '@/lib/persistence/templateStore'
 
@@ -86,9 +86,15 @@ export function SlotPanel({
             {slots.map((slot) => (
               <div key={slot.id} className="grid gap-1.5">
                 <Label htmlFor={`slot-field-${slot.id}`}>{slot.name}</Label>
-                <Input
+                {/* A textarea, not an Input: slot text can span lines (the
+                    on-page box is a textarea too) and <input type=text>
+                    silently drops every newline it is given. One row tall
+                    by default; field-sizing grows it with the content. */}
+                <Textarea
                   id={`slot-field-${slot.id}`}
                   data-testid={`slot-field-${slot.id}`}
+                  rows={1}
+                  className="min-h-8 py-1"
                   value={slot.text}
                   onFocus={() => onSelect(slot.id)}
                   onChange={(e) => onChangeText(slot.id, e.target.value)}

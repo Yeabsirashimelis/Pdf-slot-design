@@ -40,7 +40,7 @@ describe('SlotPanel', () => {
   it('step 2: one labelled field per slot; typing reports; focus selects; Back and Save', () => {
     const onChangeText = vi.fn(), onSelect = vi.fn(), onBack = vi.fn(), onSave = vi.fn()
     render(createElement(SlotPanel, { ...base, step: 'write', onChangeText, onSelect, onBack, onSave }))
-    const field = screen.getByTestId('slot-field-b') as HTMLInputElement
+    const field = screen.getByTestId('slot-field-b') as HTMLTextAreaElement
     expect(field.value).toBe('07/11/2024')
     expect(screen.getByText('Date')).toBeTruthy()
     fireEvent.focus(field)
