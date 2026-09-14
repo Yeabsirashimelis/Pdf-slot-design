@@ -155,6 +155,7 @@ export function TemplateEditor({
         highlighted={step === 'write'}
         onPlaceSlot={step === 'layout' ? handlePlaceSlot : undefined}
         onDuplicateSlot={handleDuplicate}
+        slotLabels={names}
         pageIndex={pageIndex}
         onPageChange={setPageIndex}
         onStartOver={handleStartOver}

@@ -56,6 +56,8 @@ export type EditorStore = {
    * One undo step.
    */
   duplicateSlot(id: string): string | null
+  /** Moves a slot by PDF points (y up), as one undo step -- the arrow keys. */
+  nudgeSlot(id: string, dx: number, dy: number): void
   updateSlot(id: string, patch: Partial<Slot>): void
   removeSlot(id: string): void
   /**
@@ -116,6 +118,15 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
     return copy.id
   }, [history.present])
 
+  const nudgeSlot = useCallback((id: string, dx: number, dy: number) => {
+    setHistory((state) => {
+      const slot = state.present.find((s) => s.id === id)
+      if (!slot) return state
+      // One undo step per press: update, then close the boundary.
+      return applyCommitEdit(applyUpdateSlot(state, id, { x: slot.x + dx, y: slot.y + dy }))
+    })
+  }, [])
+
   const updateSlot = useCallback((id: string, patch: Partial<Slot>) => {
     setHistory((state) => {
       const next = applyUpdateSlot(state, id, patch)
@@ -161,6 +172,7 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
     selectedId,
     addSlot,
     duplicateSlot,
+    nudgeSlot,
     updateSlot,
     removeSlot,
     replaceSlots,

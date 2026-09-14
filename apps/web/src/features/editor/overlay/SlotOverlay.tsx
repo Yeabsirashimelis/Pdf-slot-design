@@ -41,6 +41,7 @@ export function SlotOverlay({
   textCommitted = false,
   locked = false,
   highlighted = false,
+  label,
 }: {
   slot: Slot
   viewport: Viewport
@@ -67,6 +68,8 @@ export function SlotOverlay({
   locked?: boolean
   /** Step 2: every slot is tinted so the user can see where to write. */
   highlighted?: boolean
+  /** The slot's name, shown as a small tag above the box so a box on a busy form is identifiable without the panel. */
+  label?: string
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [focused, setFocused] = useState(false)
@@ -161,6 +164,30 @@ export function SlotOverlay({
         outlineOffset: -2,
       }}
     >
+      {label && (
+        <span
+          data-testid="slot-label"
+          style={{
+            position: 'absolute',
+            left: 0,
+            bottom: '100%',
+            marginBottom: 2,
+            padding: '0 4px',
+            fontSize: 10,
+            lineHeight: '14px',
+            fontFamily: 'var(--font-sans)',
+            color: 'var(--slot-selection)',
+            background: 'var(--card)',
+            border: '1px solid var(--slot-highlight-edge)',
+            borderRadius: 3,
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
+          {label}
+        </span>
+      )}
       {!hideDomText && <SlotLines slot={slot} lines={lines} viewport={viewport} metrics={metrics} />}
       {/*
         Invisible input surface layered over the rendered lines: its own

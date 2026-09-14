@@ -108,3 +108,18 @@ describe('useEditorStore: duplicateSlot', () => {
     expect(result.current.slots).toHaveLength(1)
   })
 })
+
+describe('useEditorStore: nudgeSlot', () => {
+  afterEach(() => localStorage.clear())
+
+  it('moves the slot by the given PDF-point deltas as one undo step', () => {
+    const { result } = renderHook(() => useEditorStore())
+    act(() => result.current.addSlot({ x: 100, y: 700 }, 0))
+    const id = result.current.slots[0]!.id
+    act(() => result.current.nudgeSlot(id, 1, 0))
+    act(() => result.current.nudgeSlot(id, 0, -10))
+    expect(result.current.slots[0]).toMatchObject({ x: 101, y: 690 })
+    act(() => result.current.undo())
+    expect(result.current.slots[0]).toMatchObject({ x: 101, y: 700 })
+  })
+})

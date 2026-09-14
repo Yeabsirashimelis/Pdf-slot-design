@@ -80,6 +80,7 @@ export function Editor({
   onDuplicateSlot,
   pageIndex: controlledPageIndex,
   onPageChange,
+  slotLabels,
   onStartOver,
   renderOnCommit = RENDER_ON_COMMIT,
 }: {
@@ -110,6 +111,8 @@ export function Editor({
   /** Controlled page (with `onPageChange`); Editor keeps its own otherwise. */
   pageIndex?: number
   onPageChange?(page: number): void
+  /** Names to show as a small label above each slot's box, by slot id. */
+  slotLabels?: Record<string, string>
   /** Returns to the dropzone. Optional so callers/tests that have no
    * "start over" need not pass it -- Toolbar simply omits the control. */
   onStartOver?(): void
@@ -305,6 +308,11 @@ export function Editor({
       if (locked || !store.selectedId) return
       duplicateSlot(store.selectedId)
     },
+    nudgeSelected: (dx, dy) => {
+      if (locked || !store.selectedId) return
+      store.nudgeSlot(store.selectedId, dx, dy)
+      commit()
+    },
   })
 
   if (!page) return null
@@ -383,6 +391,7 @@ export function Editor({
                 textCommitted={isSlotCommitted(slot)}
                 locked={locked}
                 highlighted={highlighted}
+                label={slotLabels?.[slot.id]}
               />
             ))}
         </div>

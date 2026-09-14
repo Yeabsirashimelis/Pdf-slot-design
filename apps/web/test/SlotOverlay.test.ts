@@ -143,4 +143,15 @@ describe('SlotOverlay geometry', () => {
     const { box } = renderOverlay(false, { slot: { ...makeSlot(), height: 120 } })
     expect(box.style.height).toBe('120px')
   })
+
+  it('shows its name as a small label above the box when given one', () => {
+    const { box } = renderOverlay(false, { label: 'Date' })
+    const label = box.querySelector('[data-testid="slot-label"]') as HTMLElement
+    expect(label.textContent).toBe('Date')
+    // Above the box, not inside it, and never in the way of the pointer.
+    expect(label.style.bottom).toBe('100%')
+    expect(label.style.pointerEvents).toBe('none')
+    cleanup()
+    expect(renderOverlay(false).box.querySelector('[data-testid="slot-label"]')).toBeNull()
+  })
 })
