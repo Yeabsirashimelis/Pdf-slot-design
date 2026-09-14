@@ -24,8 +24,8 @@ type Pending =
  * the same slots, locked, with a form beside them. The editor works on
  * Slot[] throughout; names live here and meet the slots only at the
  * persistence boundary (toLayout / toSlots). Entering a step replaces the
- * slot list (a boundary undo must not cross); step 1's sample text is
- * dropped on Next, step 2's typed text is kept across Back/Next.
+ * slot list (a boundary undo must not cross); step 1 has no text entry,
+ * and step 2's typed text is kept across Back/Next.
  */
 export function TemplateEditor({
   opened, store, onStartOver,
@@ -93,9 +93,8 @@ export function TemplateEditor({
 
   const handleNext = () => {
     void store.putLayout(currentLayout)
-    // Step 1 text is sample text, not a value. Step 2 starts from what the
-    // user typed most recently in this session (including a field they
-    // cleared), else from what was loaded, never from the sample.
+    // Step 2 starts from what the user typed most recently in this session
+    // (including a field they cleared), else from what was loaded.
     editor.replaceSlots(editor.slots.map((s) => ({ ...s, text: writtenRef.current[s.id] ?? values?.values[s.id] ?? '' })))
     setStep('write')
   }
@@ -153,6 +152,7 @@ export function TemplateEditor({
         store={editor}
         locked={step === 'write'}
         highlighted={step === 'write'}
+        readOnly={step === 'layout'}
         onPlaceSlot={step === 'layout' ? handlePlaceSlot : undefined}
         onDuplicateSlot={handleDuplicate}
         slotLabels={names}

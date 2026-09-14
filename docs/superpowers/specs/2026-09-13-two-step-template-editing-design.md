@@ -19,15 +19,16 @@ that data; until then it lives in the browser, behind the same interface.
 | Purpose | Decide where text goes | Put text in |
 | Place a slot | Click the page → name prompt → slot appears, selected, empty | Not allowed |
 | Move / resize / style | Yes (drag, resize handle, toolbar) | No — slots are locked; **← Back** returns to step 1 |
-| Type into a slot | Yes (placeholder / sample text, not saved as a value) | Yes — on the page or in the left form; the two are the same text |
+| Type into a slot | No — the box is about *where*, not *what* (text written in step 2 still shows, read-only) | Yes — on the page or in the left form; the two are the same text |
 | Delete a slot | Chip ✕ in the left panel (also removes it from the page) | No |
 | Left panel | Chips: one per slot, name + ✕; click selects the slot on the page (and selecting a slot highlights its chip) | Form: one text field per slot, labelled by name, in page/reading order; **Save** at the bottom |
 | Primary action | **Next →** saves the layout and enters step 2 | **Save** stores the typed values for this file; **Download** (toolbar) renders the PDF |
 | Highlight | Selected slot: blue outline (today) | Every slot: light-blue fill + hairline border, so the user can see where to write; focused slot: blue outline |
 
-Step 1's typed text is *not* a value — leaving step 1 clears any text typed
-there, so slots always start empty in step 2. (Sample text in step 1 exists
-only so the user can judge size and fit.)
+Step 1 has no text entry at all (decided 2026-09-14): a box on the page
+can be placed, named, moved, resized and styled, never typed into. Values
+belong to step 2; coming back to step 1 shows them read-only so their fit
+can be judged.
 
 Slots have a **name**, asked for at placement in step 1 (shadcn `Dialog` +
 `Input`; Enter confirms, Esc/Cancel places nothing). *Implementation note: a

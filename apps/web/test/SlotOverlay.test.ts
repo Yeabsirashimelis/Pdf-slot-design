@@ -154,4 +154,13 @@ describe('SlotOverlay geometry', () => {
     cleanup()
     expect(renderOverlay(false).box.querySelector('[data-testid="slot-label"]')).toBeNull()
   })
+
+  it('readOnly: no text box at all -- the box is about where, not what; typed text still shows', () => {
+    const { box } = renderOverlay(true, { readOnly: true, slot: { ...makeSlot(), text: 'written earlier' } })
+    expect(box.querySelector('textarea')).toBeNull()
+    expect(box.textContent).toContain('written earlier')
+    // Still movable and resizable: the move cursor and the edge strips remain.
+    expect(box.style.cursor).toBe('move')
+    expect(box.querySelectorAll('[data-resize-edge]').length).toBe(4)
+  })
 })

@@ -76,6 +76,7 @@ export function Editor({
   store: externalStore,
   locked = false,
   highlighted = false,
+  readOnly = false,
   onPlaceSlot,
   onDuplicateSlot,
   pageIndex: controlledPageIndex,
@@ -100,6 +101,9 @@ export function Editor({
   locked?: boolean
   /** Tints every slot so a fill-in user can see where the slots are. */
   highlighted?: boolean
+  /** Step 1 of the template flow: boxes can be placed, moved, resized and
+   * styled but not typed into (see SlotOverlay's `readOnly`). */
+  readOnly?: boolean
   /** When given, a click on empty canvas asks the parent to place a slot
    * (at `atPdf`, in PDF points, on `page`) instead of calling
    * `store.addSlot` directly -- so the parent can, say, open a naming
@@ -395,6 +399,7 @@ export function Editor({
                 textCommitted={isSlotCommitted(slot)}
                 locked={locked}
                 highlighted={highlighted}
+                readOnly={readOnly}
                 label={slotLabels?.[slot.id]}
               />
             ))}

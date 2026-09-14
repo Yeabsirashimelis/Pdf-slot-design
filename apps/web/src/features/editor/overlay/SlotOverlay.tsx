@@ -41,6 +41,7 @@ export function SlotOverlay({
   textCommitted = false,
   locked = false,
   highlighted = false,
+  readOnly = false,
   label,
 }: {
   slot: Slot
@@ -68,6 +69,12 @@ export function SlotOverlay({
   locked?: boolean
   /** Step 2: every slot is tinted so the user can see where to write. */
   highlighted?: boolean
+  /**
+   * Step 1: the box is about where, not what -- no text box is rendered,
+   * so nothing can be typed and the arrow keys are free to nudge. Text
+   * the slot already holds still shows (read-only) so its fit can be seen.
+   */
+  readOnly?: boolean
   /** The slot's name, shown as a small tag above the box so a box on a busy form is identifiable without the panel. */
   label?: string
 }) {
@@ -79,6 +86,8 @@ export function SlotOverlay({
       textareaRef.current?.focus()
       onFocused()
     }
+    // (With no textarea -- readOnly -- there is nothing to focus; the
+    // one-shot flag is still cleared above so the parent's state settles.)
     // If the parent passes a fresh onFocused identity each render, this
     // effect re-runs harmlessly (autoFocus is false on every render after
     // the one-shot focus already happened, so the body above is a no-op).
@@ -220,47 +229,49 @@ export function SlotOverlay({
         yields exactly toScreenLength(slot.size * slot.lineHeight, viewport)
         px per row, the same per-line step `layoutText` uses for baselineY.
       */}
-      <textarea
-        ref={textareaRef}
-        value={slot.text}
-        onChange={handleTextChange}
-        onBlur={() => {
-          setFocused(false)
-          // A blur fired to clear the caret for an in-progress drag is not
-          // the user leaving the field -- the drag's pointerup commits.
-          if (gestures.consumeDragBlur()) return
-          onCommit()
-        }}
-        // Selecting on focus (rather than only from a drag/resize gesture)
-        // is what makes a plain click on an unselected slot show it as
-        // selected (border, resize handle) even though the click's own
-        // pointerdown never crosses the drag threshold.
-        onFocus={() => {
-          setFocused(true)
-          onSelect()
-        }}
-        spellCheck={false}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          resize: 'none',
-          border: 'none',
-          outline: 'none',
-          padding: 0,
-          margin: 0,
-          background: 'transparent',
-          color: 'transparent',
-          caretColor: rgbToCss(slot.color),
-          fontFamily: FONT_CSS_FAMILY[slot.fontId],
-          fontSize: toScreenLength(slot.size, viewport),
-          lineHeight: slot.lineHeight,
-          fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
-          overflow: 'hidden',
-          whiteSpace: 'pre-wrap',
-        }}
-      />
+      {!readOnly && (
+        <textarea
+          ref={textareaRef}
+          value={slot.text}
+          onChange={handleTextChange}
+          onBlur={() => {
+            setFocused(false)
+            // A blur fired to clear the caret for an in-progress drag is not
+            // the user leaving the field -- the drag's pointerup commits.
+            if (gestures.consumeDragBlur()) return
+            onCommit()
+          }}
+          // Selecting on focus (rather than only from a drag/resize gesture)
+          // is what makes a plain click on an unselected slot show it as
+          // selected (border, resize handle) even though the click's own
+          // pointerdown never crosses the drag threshold.
+          onFocus={() => {
+            setFocused(true)
+            onSelect()
+          }}
+          spellCheck={false}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            resize: 'none',
+            border: 'none',
+            outline: 'none',
+            padding: 0,
+            margin: 0,
+            background: 'transparent',
+            color: 'transparent',
+            caretColor: rgbToCss(slot.color),
+            fontFamily: FONT_CSS_FAMILY[slot.fontId],
+            fontSize: toScreenLength(slot.size, viewport),
+            lineHeight: slot.lineHeight,
+            fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
+            overflow: 'hidden',
+            whiteSpace: 'pre-wrap',
+          }}
+        />
+      )}
       {/*
         One 8px-wide invisible grab strip along each edge (step 1 only):
         left/right change the width (text re-wraps), top/bottom the box's
