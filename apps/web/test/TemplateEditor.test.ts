@@ -262,7 +262,8 @@ describe('TemplateEditor', () => {
     fireEvent.click(screen.getByTestId('slot-chip-duplicate-s1'))
 
     const chips = Array.from(container.querySelectorAll('[data-testid^="slot-chip-"]:not([data-testid^="slot-chip-remove-"]):not([data-testid^="slot-chip-duplicate-"])'))
-    expect(chips.map((c) => c.textContent)).toEqual(['CO#', 'Date', 'CO# copy'])
+    // Panel order is reading order: the copy sits 12pt below CO#, above Date.
+    expect(chips.map((c) => c.textContent)).toEqual(['CO#', 'CO# copy', 'Date'])
     const boxes = Array.from(container.querySelectorAll('[data-slot-id]'))
     expect(boxes).toHaveLength(3)
     // The copy keeps the source's width and is selected.
@@ -275,7 +276,7 @@ describe('TemplateEditor', () => {
     // A second duplicate of the same source is numbered, not "copy copy".
     fireEvent.click(screen.getByTestId('slot-chip-duplicate-s1'))
     const names = Array.from(container.querySelectorAll('[data-testid^="slot-chip-"]:not([data-testid^="slot-chip-remove-"]):not([data-testid^="slot-chip-duplicate-"])')).map((c) => c.textContent)
-    expect(names).toEqual(['CO#', 'Date', 'CO# copy', 'CO# copy (2)'])
+    expect(names).toEqual(['CO#', 'CO# copy', 'CO# copy (2)', 'Date'])
 
     // Next persists the copies with their own names.
     fireEvent.click(screen.getByTestId('panel-next'))

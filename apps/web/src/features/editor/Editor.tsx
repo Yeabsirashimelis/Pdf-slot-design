@@ -78,6 +78,8 @@ export function Editor({
   highlighted = false,
   onPlaceSlot,
   onDuplicateSlot,
+  pageIndex: controlledPageIndex,
+  onPageChange,
   onStartOver,
   renderOnCommit = RENDER_ON_COMMIT,
 }: {
@@ -105,6 +107,9 @@ export function Editor({
    * parent instead of calling `store.duplicateSlot` directly -- so the
    * parent can name the copy. Receives the source slot's id. */
   onDuplicateSlot?(id: string): void
+  /** Controlled page (with `onPageChange`); Editor keeps its own otherwise. */
+  pageIndex?: number
+  onPageChange?(page: number): void
   /** Returns to the dropzone. Optional so callers/tests that have no
    * "start over" need not pass it -- Toolbar simply omits the control. */
   onStartOver?(): void
@@ -114,7 +119,11 @@ export function Editor({
   // Zoom (fit-width = 100%) lives in useZoom; the current page is local
   // state because the toolbar, the canvas and click handling all need it.
   const { zoom, scale, setScale, fitWidth, rootRef } = useZoom(doc)
-  const [pageIndex, setPageIndex] = useState(0)
+  // The current page: Editor's own unless the parent controls it (the
+  // template flow does, so its side panel can jump to a slot's page).
+  const [ownPageIndex, setOwnPageIndex] = useState(0)
+  const pageIndex = controlledPageIndex ?? ownPageIndex
+  const setPageIndex = onPageChange ?? setOwnPageIndex
   // Hooks run unconditionally: the own store is always created, and simply
   // goes unused when the parent supplies one.
   const ownStore = useEditorStore(initialSlots)
@@ -236,7 +245,7 @@ export function Editor({
   if (doc.id !== resetForDocId) {
     setResetForDocId(doc.id)
     setPaintedSlots(null)
-    setPageIndex(0)
+    setOwnPageIndex(0)
   }
 
   // Per-slot, not a single page-wide flag: `renderPdf` always re-renders

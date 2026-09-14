@@ -41,6 +41,8 @@ export function TemplateEditor({
   )
   const editor = useEditorStore(layout ? toSlots(layout, opened.step === 'write' ? values : null) : [])
   const [pending, setPending] = useState<Pending>(null)
+  // Lifted out of Editor so the panel can jump to a slot's page.
+  const [pageIndex, setPageIndex] = useState(0)
 
   // Record which file/step is open, so a reload lands here again. An
   // effect, not a render-time write: a store write is a side effect React
@@ -120,13 +122,22 @@ export function TemplateEditor({
       .finally(onStartOver)
   }
 
-  const panelSlots = editor.slots.map((s) => ({ id: s.id, name: names[s.id] ?? 'Slot', text: s.text }))
+  const panelSlots = editor.slots.map((s) => ({
+    id: s.id,
+    name: names[s.id] ?? 'Slot',
+    text: s.text,
+    page: s.page,
+    x: s.x,
+    y: s.y,
+  }))
 
   return (
     <div className="flex items-start gap-6">
       <SlotPanel
         step={step}
         slots={panelSlots}
+        pageIndex={pageIndex}
+        onPageChange={setPageIndex}
         selectedId={editor.selectedId}
         onSelect={editor.select}
         onRename={(id) => setPending({ kind: 'rename', id })}
@@ -144,6 +155,8 @@ export function TemplateEditor({
         highlighted={step === 'write'}
         onPlaceSlot={step === 'layout' ? handlePlaceSlot : undefined}
         onDuplicateSlot={handleDuplicate}
+        pageIndex={pageIndex}
+        onPageChange={setPageIndex}
         onStartOver={handleStartOver}
       />
       <NameSlotDialog

@@ -4,12 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SlotPanel } from '@/features/template/SlotPanel'
 
 const slots = [
-  { id: 'a', name: 'CO#', text: '' },
-  { id: 'b', name: 'Date', text: '07/11/2024' },
+  { id: 'a', name: 'CO#', text: '', page: 0, x: 50, y: 700 },
+  { id: 'b', name: 'Date', text: '07/11/2024', page: 0, x: 50, y: 650 },
 ]
 const noop = () => {}
 const base = {
-  slots, selectedId: null, onSelect: noop, onRename: noop, onRemove: noop, onDuplicate: noop,
+  slots, selectedId: null, pageIndex: 0, onPageChange: noop,
+  onSelect: noop, onRename: noop, onRemove: noop, onDuplicate: noop,
   onNext: noop, onBack: noop, onChangeText: noop, onSave: noop,
 }
 
@@ -97,5 +98,55 @@ describe('SlotPanel hints', () => {
     expect(hints.textContent).toMatch(/redo/)
     expect(hints.textContent).toMatch(/duplicate/)
     expect(hints.querySelectorAll('kbd[data-slot="kbd"]').length).toBeGreaterThanOrEqual(5)
+  })
+})
+
+describe('SlotPanel pages', () => {
+  afterEach(() => cleanup())
+  const twoPages = [
+    { id: 'p0', name: 'Owner', text: '', page: 0, x: 50, y: 700 },
+    { id: 'p1-bottom', name: 'Date', text: '', page: 1, x: 50, y: 100 },
+    { id: 'p1-top', name: 'Vendor', text: '', page: 1, x: 50, y: 700 },
+  ]
+
+  it('groups slots by page in reading order; only the current page is open', () => {
+    render(createElement(SlotPanel, { ...base, slots: twoPages, step: 'layout', pageIndex: 1 }))
+    expect(screen.getByTestId('page-group-trigger-0').textContent).toMatch(/Page 1/)
+    expect(screen.getByTestId('page-group-trigger-1').textContent).toMatch(/Page 2.*2 slots/)
+    // Page 1's group (index 0) is closed: its chip is not rendered.
+    expect(screen.queryByTestId('slot-chip-p0')).toBeNull()
+    // Page 2's group is open, top slot first.
+    const chips = Array.from(screen.getByTestId('page-group-1').querySelectorAll('[data-testid^="slot-chip-p1"]:not([data-testid*="-remove-"]):not([data-testid*="-duplicate-"])'))
+    expect(chips.map((c) => c.textContent)).toEqual(['Vendor', 'Date'])
+  })
+
+  it('the user can open another page\'s group; a page change then resets to just that page', () => {
+    const { rerender } = render(createElement(SlotPanel, { ...base, slots: twoPages, step: 'layout', pageIndex: 1 }))
+    fireEvent.click(screen.getByTestId('page-group-trigger-0'))
+    expect(screen.getByTestId('slot-chip-p0')).toBeTruthy()
+    expect(screen.getByTestId('slot-chip-p1-top')).toBeTruthy()
+    rerender(createElement(SlotPanel, { ...base, slots: twoPages, step: 'layout', pageIndex: 0 }))
+    expect(screen.getByTestId('slot-chip-p0')).toBeTruthy()
+    expect(screen.queryByTestId('slot-chip-p1-top')).toBeNull()
+  })
+
+  it('clicking a chip on another page jumps to that page; a field focus does too', () => {
+    const onPageChange = vi.fn(), onSelect = vi.fn()
+    render(createElement(SlotPanel, { ...base, slots: twoPages, step: 'layout', pageIndex: 1, onPageChange, onSelect }))
+    fireEvent.click(screen.getByTestId('page-group-trigger-0'))
+    fireEvent.click(screen.getByTestId('slot-chip-p0'))
+    expect(onSelect).toHaveBeenCalledWith('p0')
+    expect(onPageChange).toHaveBeenCalledWith(0)
+    cleanup()
+    const onPageChange2 = vi.fn()
+    render(createElement(SlotPanel, { ...base, slots: twoPages, step: 'write', pageIndex: 0, onPageChange: onPageChange2 }))
+    fireEvent.click(screen.getByTestId('page-group-trigger-1'))
+    fireEvent.focus(screen.getByTestId('slot-field-p1-top'))
+    expect(onPageChange2).toHaveBeenCalledWith(1)
+  })
+
+  it('the current page always has a group, even with no slots yet', () => {
+    render(createElement(SlotPanel, { ...base, slots: twoPages, step: 'layout', pageIndex: 5 }))
+    expect(screen.getByTestId('page-group-trigger-5').textContent).toMatch(/Page 6.*no slots yet/)
   })
 })
