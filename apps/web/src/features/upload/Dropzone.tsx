@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Loader2, Upload } from 'lucide-react'
 import { imageToPdf } from '@pdf-slot/core'
@@ -59,15 +59,46 @@ export function Dropzone({ onFile }: { onFile(file: UploadedFile): void | Promis
     [onFile],
   )
 
-  const handleDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
+  // The whole window is the drop target, not just the dashed box: people
+  // drop wherever the cursor lands, and a file dropped outside a target
+  // makes the browser navigate to it -- the app is simply gone. Listening
+  // on `document` catches every drop; the box only shows where it lands.
+  // Non-file drags (selected text) are left to the browser.
+  useEffect(() => {
+    const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files')
+    const onDragEnter = (event: DragEvent) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      setIsDragOver(true)
+    }
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFiles(event)) return
+      // Required, or the browser refuses the drop.
+      event.preventDefault()
+      setIsDragOver(true)
+    }
+    const onDragLeave = (event: DragEvent) => {
+      // relatedTarget is null when the pointer leaves the window itself.
+      if (event.relatedTarget === null) setIsDragOver(false)
+    }
+    const onDrop = (event: DragEvent) => {
+      if (!hasFiles(event)) return
       event.preventDefault()
       setIsDragOver(false)
-      const file = event.dataTransfer.files[0]
+      const file = event.dataTransfer?.files[0]
       if (file) void processFile(file)
-    },
-    [processFile],
-  )
+    }
+    document.addEventListener('dragenter', onDragEnter)
+    document.addEventListener('dragover', onDragOver)
+    document.addEventListener('dragleave', onDragLeave)
+    document.addEventListener('drop', onDrop)
+    return () => {
+      document.removeEventListener('dragenter', onDragEnter)
+      document.removeEventListener('dragover', onDragOver)
+      document.removeEventListener('dragleave', onDragLeave)
+      document.removeEventListener('drop', onDrop)
+    }
+  }, [processFile])
 
   const handleSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -81,15 +112,12 @@ export function Dropzone({ onFile }: { onFile(file: UploadedFile): void | Promis
 
   return (
     <div
-      onDragOver={(event) => {
-        event.preventDefault()
-        setIsDragOver(true)
-      }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={handleDrop}
+      data-testid="dropzone"
+      data-drag-over={isDragOver}
       // Plain styled div, not a shadcn primitive: shadcn has no dropzone
-      // component, so only the drop target itself is hand-rolled here. The
-      // interactive control inside it (Button) is shadcn, per CLAUDE.md.
+      // component (checked the registry), so only the visual target is
+      // hand-rolled here; the drop itself is handled document-wide above.
+      // The interactive control inside it (Button) is shadcn, per CLAUDE.md.
       className={cn(
         'flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center transition-colors',
         isDragOver ? 'border-primary bg-muted/50' : 'border-border',
@@ -103,7 +131,7 @@ export function Dropzone({ onFile }: { onFile(file: UploadedFile): void | Promis
       ) : (
         <>
           <Upload className="size-6 text-muted-foreground" aria-hidden />
-          <p className="text-sm text-muted-foreground">Drag a PDF or image here, or</p>
+          <p className="text-sm text-muted-foreground">{isDragOver ? 'Drop it anywhere' : 'Drag a PDF or image here, or'}</p>
           <Button type="button" onClick={() => inputRef.current?.click()}>
             Choose a file
           </Button>
