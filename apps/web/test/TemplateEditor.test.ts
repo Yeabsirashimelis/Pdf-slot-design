@@ -27,6 +27,8 @@ function memoryStore() {
     putLayout: async (l) => { layouts.set(l.fileId, l) },
     getValues: async (id) => values.get(id) ?? null,
     putValues: async (v) => { values.set(v.fileId, v) },
+    listFiles: async () => [],
+    deleteFile: async () => {},
     get: async () => session,
     put: async (s) => { session = s },
     clear: async () => { session = null },
@@ -35,7 +37,7 @@ function memoryStore() {
 }
 
 const doc: EditorDocument = { id: 'file-1', source: new Uint8Array([1, 2, 3]), pages: [{ width: 612, height: 792 }] }
-const newFile: OpenedFile = { doc, fileId: 'file-1', layout: null, values: null, step: 'layout' }
+const newFile: OpenedFile = { doc, name: 'form.pdf', fileId: 'file-1', layout: null, values: null, step: 'layout' }
 const knownLayout: TemplateLayout = {
   fileId: 'file-1', updatedAt: 't',
   slots: [
@@ -44,7 +46,7 @@ const knownLayout: TemplateLayout = {
   ],
 }
 const knownFile: OpenedFile = {
-  doc, fileId: 'file-1', layout: knownLayout, step: 'write',
+  doc, name: 'form.pdf', fileId: 'file-1', layout: knownLayout, step: 'write',
   values: { fileId: 'file-1', updatedAt: 't', values: { s2: '07/11/2024' } },
 }
 

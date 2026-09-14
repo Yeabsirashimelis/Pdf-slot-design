@@ -47,6 +47,20 @@ vi.mock('@/lib/persistence/indexedDbTemplateStore', () => ({
     get: async () => memory.session,
     put: async (s: OpenSession) => { memory.session = s },
     clear: async () => { memory.session = null },
+    listFiles: async () =>
+      Array.from(memory.files.values()).map((f) => ({
+        fileId: f.fileId,
+        name: f.name,
+        pageCount: f.pages.length,
+        slotCount: memory.layouts.get(f.fileId)?.slots.length ?? 0,
+        updatedAt: memory.layouts.get(f.fileId)?.updatedAt ?? f.createdAt,
+      })),
+    deleteFile: async (id: string) => {
+      memory.files.delete(id)
+      memory.layouts.delete(id)
+      memory.values.delete(id)
+      if (memory.session?.fileId === id) memory.session = null
+    },
   },
 }))
 
@@ -94,7 +108,7 @@ describe('Home', () => {
     memory.session = { fileId: FILE_ID, step: 'write' }
     memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
     // openFile's own landing rule says 'layout'; the session's step must win.
-    const restored: OpenedFile = { doc, fileId: FILE_ID, layout: knownLayout, values: null, step: 'layout' }
+    const restored: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: knownLayout, values: null, step: 'layout' }
     openFileMock.mockResolvedValue(restored)
 
     const Home = (await import('../src/app/page')).default
@@ -150,7 +164,7 @@ describe('Home', () => {
   })
 
   it('uploading a file opens it in the template editor', async () => {
-    const fresh: OpenedFile = { doc, fileId: FILE_ID, layout: null, values: null, step: 'layout' }
+    const fresh: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: null, values: null, step: 'layout' }
     openFileMock.mockResolvedValue(fresh)
 
     const Home = (await import('../src/app/page')).default
@@ -187,7 +201,7 @@ describe('Home', () => {
     expect(screen.getByText('Converting…')).toBeTruthy()
     expect(screen.queryByText('Drag a PDF or image here, or')).toBeNull()
 
-    finish({ doc, fileId: FILE_ID, layout: null, values: null, step: 'layout' })
+    finish({ doc, name: 'known.pdf', fileId: FILE_ID, layout: null, values: null, step: 'layout' })
     await waitFor(() => expect(screen.getByTestId('panel-next')).toBeTruthy())
   })
 
@@ -241,5 +255,50 @@ describe('Home', () => {
 
     await waitFor(() => expect(screen.getByTestId('panel-next')).toBeTruthy())
     expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('lists saved files under the dropzone; Open reopens one from its stored bytes', async () => {
+    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: '2026-09-13T00:00:00.000Z' })
+    memory.layouts.set(FILE_ID, knownLayout)
+    const restored: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: knownLayout, values: null, step: 'write' }
+    openFileMock.mockResolvedValue(restored)
+
+    const Home = (await import('../src/app/page')).default
+    render(createElement(Home))
+
+    const row = await waitFor(() => screen.getByTestId(`saved-file-${FILE_ID}`))
+    expect(row.textContent).toContain('known.pdf')
+    expect(row.textContent).toMatch(/1 page/)
+    expect(row.textContent).toMatch(new RegExp(`${knownLayout.slots.length} slots?`))
+
+    fireEvent.click(screen.getByTestId(`saved-file-open-${FILE_ID}`))
+    await waitFor(() => expect(screen.getByTestId('slot-panel')).toBeTruthy())
+    const [calledBytes, calledName] = openFileMock.mock.calls[0] as [Uint8Array, string, unknown]
+    expect(calledBytes).toBe(bytes)
+    expect(calledName).toBe('known.pdf')
+  })
+
+  it('Delete asks first, then removes the file from the list and the store', async () => {
+    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
+    memory.layouts.set(FILE_ID, knownLayout)
+
+    const Home = (await import('../src/app/page')).default
+    render(createElement(Home))
+    await waitFor(() => screen.getByTestId(`saved-file-${FILE_ID}`))
+
+    fireEvent.click(screen.getByTestId(`saved-file-delete-${FILE_ID}`))
+    // Still there until confirmed.
+    expect(memory.files.has(FILE_ID)).toBe(true)
+    fireEvent.click(await waitFor(() => screen.getByTestId('confirm-delete-file')))
+    await waitFor(() => expect(screen.queryByTestId(`saved-file-${FILE_ID}`)).toBeNull())
+    expect(memory.files.has(FILE_ID)).toBe(false)
+    expect(memory.layouts.has(FILE_ID)).toBe(false)
+  })
+
+  it('shows no list when nothing is saved', async () => {
+    const Home = (await import('../src/app/page')).default
+    render(createElement(Home))
+    await waitFor(() => expect(screen.getByText('Drag a PDF or image here, or')).toBeTruthy())
+    expect(screen.queryByTestId('saved-files')).toBeNull()
   })
 })

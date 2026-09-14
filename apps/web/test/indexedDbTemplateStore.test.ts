@@ -90,4 +90,43 @@ describe('IndexedDbTemplateStore', () => {
     expect(await store.get()).toBeNull()
     expect(warn).toHaveBeenCalledTimes(1)
   })
+
+  it('lists saved files with their slot count and last edit, newest first', async () => {
+    const { IndexedDbTemplateStore } = await import('../src/lib/persistence/indexedDbTemplateStore')
+    const store = new IndexedDbTemplateStore()
+    await store.putFile(file)
+    await store.putFile({ ...file, fileId: 'f2', name: 'other.pdf', createdAt: '2026-09-14T00:00:00.000Z' })
+    await store.putLayout(layout)
+    const list = await store.listFiles()
+    expect(list.map((f) => [f.fileId, f.name, f.pageCount, f.slotCount, f.updatedAt])).toEqual([
+      ['f2', 'other.pdf', 1, 0, '2026-09-14T00:00:00.000Z'],
+      ['f1', 'form.pdf', 1, 1, '2026-09-13T00:00:00.000Z'],
+    ])
+    // Summaries never carry the bytes.
+    expect('source' in list[0]!).toBe(false)
+  })
+
+  it('deleteFile removes the file, its layout and values, and the session if it was open', async () => {
+    const { IndexedDbTemplateStore } = await import('../src/lib/persistence/indexedDbTemplateStore')
+    const store = new IndexedDbTemplateStore()
+    await store.putFile(file)
+    await store.putLayout(layout)
+    await store.putValues(values)
+    await store.put({ fileId: 'f1', step: 'write' })
+    await store.deleteFile('f1')
+    expect(await store.getFile('f1')).toBeNull()
+    expect(await store.getLayout('f1')).toBeNull()
+    expect(await store.getValues('f1')).toBeNull()
+    expect(await store.get()).toBeNull()
+    expect(await store.listFiles()).toEqual([])
+  })
+
+  it('deleteFile leaves another open session alone', async () => {
+    const { IndexedDbTemplateStore } = await import('../src/lib/persistence/indexedDbTemplateStore')
+    const store = new IndexedDbTemplateStore()
+    await store.putFile(file)
+    await store.put({ fileId: 'other', step: 'layout' })
+    await store.deleteFile('f1')
+    expect(await store.get()).toEqual({ fileId: 'other', step: 'layout' })
+  })
 })

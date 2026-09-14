@@ -34,7 +34,7 @@ export function TemplateEditor({
   store: TemplateStore & SessionStore
   onStartOver(): void
 }) {
-  const { doc, fileId, layout, values } = opened
+  const { doc, name: fileName, fileId, layout, values } = opened
   const [step, setStep] = useState<Step>(opened.step)
   const [names, setNames] = useState<Record<string, string>>(() =>
     Object.fromEntries((layout?.slots ?? []).map((s) => [s.id, s.name])),
@@ -156,6 +156,7 @@ export function TemplateEditor({
         onPlaceSlot={step === 'layout' ? handlePlaceSlot : undefined}
         onDuplicateSlot={handleDuplicate}
         slotLabels={names}
+        fileName={fileName}
         pageIndex={pageIndex}
         onPageChange={setPageIndex}
         onStartOver={handleStartOver}

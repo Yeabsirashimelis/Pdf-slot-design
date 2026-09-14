@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { downloadName } from './downloadName'
 
 /**
  * Performs the one render and saves exactly its bytes. `aria-disabled`,
@@ -15,10 +16,13 @@ export function DownloadButton({
   isRendering,
   render,
   downloadBlockedReason,
+  fileName,
 }: {
   isRendering: boolean
   render(): Promise<Uint8Array | null>
   downloadBlockedReason: string | null
+  /** The uploaded file's name; the download keeps it (see downloadName). */
+  fileName?: string
 }) {
   const handleDownload = async () => {
     if (downloadBlockedReason) return
@@ -30,7 +34,7 @@ export function DownloadButton({
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'edited.pdf'
+    a.download = downloadName(fileName)
     a.click()
     URL.revokeObjectURL(url)
   }

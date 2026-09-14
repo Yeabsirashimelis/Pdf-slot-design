@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Dropzone, type UploadedFile } from '@/features/upload/Dropzone'
+import { SavedFiles } from '@/features/files/SavedFiles'
 import { TemplateEditor } from '@/features/template/TemplateEditor'
 import { openFile, type OpenedFile } from '@/features/template/openFile'
 import { isFileId } from '@/lib/files/fileHash'
@@ -65,6 +66,17 @@ export default function Home() {
     }
   }
 
+  // Open a file the browser already holds: same path as an upload, from
+  // the stored bytes and name.
+  const handleOpenSaved = async (fileId: string) => {
+    const file = await templateStore.getFile(fileId)
+    if (!file) {
+      toast.error("That file isn't saved here any more.")
+      return
+    }
+    await handleFile({ bytes: file.source, name: file.name })
+  }
+
   // No max width on the editor: the page opens at fit-width, and a capped
   // column made a landscape form open at 100% -- print size, 6-7pt text at
   // 8px. The dropzone alone stays a centred column.
@@ -87,6 +99,7 @@ export default function Home() {
         ) : (
           <div className="mx-auto w-full max-w-4xl">
             <Dropzone onFile={handleFile} />
+            <SavedFiles store={templateStore} onOpen={(id) => void handleOpenSaved(id)} />
           </div>
         )}
       </div>

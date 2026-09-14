@@ -1,6 +1,6 @@
 import { toast } from 'sonner'
 import type { FileId, StoredFile, TemplateLayout, TemplateValues } from '@pdf-slot/core'
-import type { OpenSession, SessionStore, TemplateStore } from './templateStore'
+import type { OpenSession, SessionStore, StoredFileSummary, TemplateStore } from './templateStore'
 
 const DB_NAME = 'pdf-slot-editor'
 // v1 held a single `session` record (document bytes + slots). v2 keys
@@ -75,6 +75,26 @@ async function read<T>(store: StoreName, key: string): Promise<T | null> {
   }
 }
 
+async function readAll<T>(store: StoreName): Promise<T[]> {
+  try {
+    const db = await openDatabase()
+    try {
+      return await new Promise<T[]>((resolve, reject) => {
+        const tx = db.transaction(store, 'readonly')
+        const req = tx.objectStore(store).getAll()
+        req.onsuccess = () => resolve(req.result as T[])
+        req.onerror = () => reject(req.error ?? new Error('Failed to read'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
+      })
+    } finally {
+      db.close()
+    }
+  } catch (err) {
+    console.error(`Failed to read ${store}`, err)
+    return []
+  }
+}
+
 async function write(store: StoreName, key: string, value: unknown | undefined): Promise<void> {
   try {
     const db = await openDatabase()
@@ -116,6 +136,27 @@ export class IndexedDbTemplateStore implements TemplateStore, SessionStore {
   }
   putValues(values: TemplateValues): Promise<void> {
     return write('values', values.fileId, values)
+  }
+  async listFiles(): Promise<StoredFileSummary[]> {
+    const [files, layouts] = await Promise.all([readAll<StoredFile>('files'), readAll<TemplateLayout>('layouts')])
+    const layoutById = new Map(layouts.map((l) => [l.fileId, l]))
+    return files
+      .map((f) => {
+        const layout = layoutById.get(f.fileId)
+        return {
+          fileId: f.fileId,
+          name: f.name,
+          pageCount: f.pages.length,
+          slotCount: layout?.slots.length ?? 0,
+          updatedAt: layout?.updatedAt ?? f.createdAt,
+        }
+      })
+      .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
+  }
+  async deleteFile(fileId: FileId): Promise<void> {
+    await Promise.all([write('files', fileId, undefined), write('layouts', fileId, undefined), write('values', fileId, undefined)])
+    const session = await this.get()
+    if (session?.fileId === fileId) await this.clear()
   }
   get(): Promise<OpenSession | null> {
     return read<OpenSession>('session', SESSION_KEY)

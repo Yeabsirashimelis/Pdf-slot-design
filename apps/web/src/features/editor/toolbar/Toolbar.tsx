@@ -42,6 +42,8 @@ export type ToolbarProps = {
    * `sonner` toast Editor raises for the same value (see Editor.tsx).
    */
   downloadBlockedReason: string | null
+  /** The uploaded file's name, kept for the download. */
+  fileName?: string
   slots: Slot[]
   selectedId: string | null
   /**
@@ -95,6 +97,7 @@ export function Toolbar({
   isRendering,
   render,
   downloadBlockedReason,
+  fileName,
   slots,
   selectedId,
   updateSlotAndCommit,
@@ -138,7 +141,12 @@ export function Toolbar({
 
         <Separator orientation="vertical" className="h-6" />
 
-        <DownloadButton isRendering={isRendering} render={render} downloadBlockedReason={downloadBlockedReason} />
+        <DownloadButton
+          isRendering={isRendering}
+          render={render}
+          downloadBlockedReason={downloadBlockedReason}
+          fileName={fileName}
+        />
 
         {onStartOver && (
           <>

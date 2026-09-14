@@ -7,6 +7,8 @@ import type { Step, TemplateStore } from '@/lib/persistence/templateStore'
 
 export type OpenedFile = {
   doc: EditorDocument
+  /** The name the file was uploaded (or stored) under. */
+  name: string
   fileId: FileId
   layout: TemplateLayout | null
   values: TemplateValues | null
@@ -46,5 +48,5 @@ export async function openFile(pdfBytes: Uint8Array, name: string, store: Templa
   if (!existing) {
     await store.putFile({ fileId, name, source, pages: doc.pages, createdAt: new Date().toISOString() })
   }
-  return { doc, fileId, layout, values, step: layout && layout.slots.length > 0 ? 'write' : 'layout' }
+  return { doc, name: existing?.name ?? name, fileId, layout, values, step: layout && layout.slots.length > 0 ? 'write' : 'layout' }
 }

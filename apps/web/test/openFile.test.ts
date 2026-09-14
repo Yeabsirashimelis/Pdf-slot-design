@@ -18,6 +18,8 @@ function memoryStore(): TemplateStore & { layouts: Map<string, TemplateLayout>; 
     putLayout: async (l) => { layouts.set(l.fileId, l) },
     getValues: async () => null,
     putValues: async () => {},
+    listFiles: async () => [],
+    deleteFile: async () => {},
   }
 }
 
@@ -129,4 +131,16 @@ describe('openFile', () => {
     expect(opened.fileId).toMatch(/^[0-9a-f]{32}$/)
     expect(opened.step).toBe('layout')
   })
+})
+
+it('carries the file name -- the stored one when the file is already known', async () => {
+  const store = memoryStore()
+  const bytes = await blankPdf()
+  const first = await openFile(bytes, 'original.pdf', store)
+  expect(first.name).toBe('original.pdf')
+  // A re-upload under another name (or a downloaded copy named "edited.pdf")
+  // keeps the name it was first saved under.
+  store.stored.set(first.fileId, { fileId: first.fileId, name: 'original.pdf', source: bytes, pages: first.doc.pages, createdAt: 't' })
+  const again = await openFile(bytes.slice(), 'renamed.pdf', store)
+  expect(again.name).toBe('original.pdf')
 })

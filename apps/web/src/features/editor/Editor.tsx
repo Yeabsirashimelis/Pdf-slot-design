@@ -81,6 +81,7 @@ export function Editor({
   pageIndex: controlledPageIndex,
   onPageChange,
   slotLabels,
+  fileName,
   onStartOver,
   renderOnCommit = RENDER_ON_COMMIT,
 }: {
@@ -113,6 +114,8 @@ export function Editor({
   onPageChange?(page: number): void
   /** Names to show as a small label above each slot's box, by slot id. */
   slotLabels?: Record<string, string>
+  /** The uploaded file's name, kept for the download. */
+  fileName?: string
   /** Returns to the dropzone. Optional so callers/tests that have no
    * "start over" need not pass it -- Toolbar simply omits the control. */
   onStartOver?(): void
@@ -337,6 +340,7 @@ export function Editor({
         isRendering={isRendering}
         render={render}
         downloadBlockedReason={downloadBlockedReason}
+        fileName={fileName}
         slots={store.slots}
         selectedId={store.selectedId}
         updateSlotAndCommit={updateSlotAndCommit}
