@@ -221,7 +221,7 @@ export function SlotPanel({
         {/* The list scrolls on its own when it outgrows the viewport; the
             heading above and the actions below stay put. */}
         <ScrollArea className="-mx-1 min-h-0 flex-1 px-1">
-          <div className="flex flex-col gap-1">{groups.map((g) => renderGroup(g, step === 'layout' ? chip : field))}</div>
+          <div className="flex flex-col gap-1 pr-3">{groups.map((g) => renderGroup(g, step === 'layout' ? chip : field))}</div>
         </ScrollArea>
 
         {step === 'layout' ? (
