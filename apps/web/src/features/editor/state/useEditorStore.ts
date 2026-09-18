@@ -56,6 +56,12 @@ export type EditorStore = {
    * One undo step.
    */
   duplicateSlot(id: string): string | null
+  /**
+   * Adds a slot built from a snapshot (the in-app clipboard: every setting
+   * of a slot copied earlier, which may since have been deleted) at the
+   * given page and position, selects it, and returns its id. One undo step.
+   */
+  pasteSlot(snapshot: Slot, target: { page: number; x: number; y: number }): string
   /** Moves a slot by PDF points (y up), as one undo step -- the arrow keys. */
   nudgeSlot(id: string, dx: number, dy: number): void
   updateSlot(id: string, patch: Partial<Slot>): void
@@ -118,6 +124,13 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
     return copy.id
   }, [history.present])
 
+  const pasteSlot = useCallback((snapshot: Slot, target: { page: number; x: number; y: number }): string => {
+    const pasted: Slot = { ...snapshot, id: randomId(), page: target.page, x: target.x, y: target.y }
+    setHistory((state) => applyAddSlot(state, pasted))
+    setSelectedId(pasted.id)
+    return pasted.id
+  }, [])
+
   const nudgeSlot = useCallback((id: string, dx: number, dy: number) => {
     setHistory((state) => {
       const slot = state.present.find((s) => s.id === id)
@@ -172,6 +185,7 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
     selectedId,
     addSlot,
     duplicateSlot,
+    pasteSlot,
     nudgeSlot,
     updateSlot,
     removeSlot,
