@@ -17,6 +17,7 @@ import {
   type Viewport,
 } from '@pdf-slot/core'
 import { SlotLines } from './SlotLines'
+import { placeholderText } from './placeholder'
 import type { ResizeEdge } from './dragGeometry'
 import { useSlotGestures } from './useSlotGestures'
 
@@ -102,9 +103,16 @@ export function SlotOverlay({
     // the one-shot focus already happened, so the body above is a no-op).
   }, [autoFocus, onFocused])
 
+  // Step 1, nothing written yet: show "Your <name> here…" in the slot's own
+  // font and size so its fit can be judged. Laid out and drawn exactly like
+  // real text (same engine, same spans), only faded -- and only on screen:
+  // `slot.text` stays empty and the PDF never sees it.
+  const placeholder = readOnly && slot.text === '' && label ? placeholderText(label) : null
+  const shownText = placeholder ?? slot.text
+
   const lines = layoutText(
     {
-      text: slot.text,
+      text: shownText,
       size: slot.size,
       width: slot.width,
       align: slot.align,
@@ -207,7 +215,13 @@ export function SlotOverlay({
           {label}
         </span>
       )}
-      {!hideDomText && <SlotLines slot={slot} lines={lines} viewport={viewport} metrics={metrics} />}
+      {placeholder ? (
+        <div data-testid="slot-placeholder" style={{ opacity: 0.45 }}>
+          <SlotLines slot={{ ...slot, text: placeholder }} lines={lines} viewport={viewport} metrics={metrics} />
+        </div>
+      ) : (
+        !hideDomText && <SlotLines slot={slot} lines={lines} viewport={viewport} metrics={metrics} />
+      )}
       {/*
         Invisible input surface layered over the rendered lines: its own
         text is transparent (only the caret is visible), so the glyphs the

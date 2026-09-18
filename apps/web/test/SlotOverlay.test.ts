@@ -192,4 +192,28 @@ describe('SlotOverlay geometry', () => {
     const { textarea } = renderOverlay(true)
     expect(textarea.style.userSelect).toBe('text')
   })
+
+  describe('placeholder (step 1)', () => {
+    const empty = () => ({ ...makeSlot(), text: '', width: 60, size: 14 })
+
+    it('an empty, named, read-only box shows "Your <name> here…" faded, laid out like real text', () => {
+      const { box } = renderOverlay(false, { readOnly: true, label: 'Date', slot: empty() })
+      const ph = box.querySelector('[data-testid="slot-placeholder"]') as HTMLElement
+      // 60pt wide at 14pt: the placeholder wraps (one span per line, the
+      // wrap consuming the space), and the box grows to show that.
+      const spans = Array.from(ph.querySelectorAll('span')).map((el) => el.textContent)
+      expect(spans.length).toBeGreaterThan(1)
+      expect(spans.join(' ')).toBe('Your Date here…')
+      expect(parseFloat(ph.style.opacity)).toBeLessThan(1)
+      expect(parseFloat(box.style.height)).toBeGreaterThan(14 * 1.2 * 1.5)
+    })
+
+    it('is not shown once the slot has text, without a name, or in step 2', () => {
+      expect(renderOverlay(false, { readOnly: true, label: 'Date', slot: { ...empty(), text: 'x' } }).box.querySelector('[data-testid="slot-placeholder"]')).toBeNull()
+      cleanup()
+      expect(renderOverlay(false, { readOnly: true, slot: empty() }).box.querySelector('[data-testid="slot-placeholder"]')).toBeNull()
+      cleanup()
+      expect(renderOverlay(false, { readOnly: false, label: 'Date', slot: empty() }).box.querySelector('[data-testid="slot-placeholder"]')).toBeNull()
+    })
+  })
 })
