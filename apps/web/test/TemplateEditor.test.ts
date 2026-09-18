@@ -333,4 +333,30 @@ describe('TemplateEditor', () => {
     expect(parseFloat(second.style.top)).toBeCloseTo(40 + 12 * zoom, 3)
     expect(chipNames()).toEqual(['CO# copy', 'CO# copy (2)'])
   })
+
+  it('Alt+drag leaves the slot where it is and drags a copy named "<name> copy"', async () => {
+    HTMLElement.prototype.setPointerCapture ??= () => {}
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = memoryStore()
+    const layoutStep: OpenedFile = { ...knownFile, values: null, step: 'layout' }
+    const { container } = render(createElement(TemplateEditor, { opened: layoutStep, store, onStartOver: vi.fn() }))
+    await waitFor(() => screen.getByTestId('slot-chip-s1'))
+    const source = container.querySelector('[data-slot-id="s1"]') as HTMLElement
+    const before = { left: source.style.left, top: source.style.top }
+
+    fireEvent.pointerDown(source, { pointerId: 1, clientX: 0, clientY: 0, altKey: true })
+    fireEvent.pointerMove(source, { pointerId: 1, clientX: 30, clientY: 20, altKey: true })
+    fireEvent.pointerUp(source, { pointerId: 1 })
+
+    const boxes = Array.from(container.querySelectorAll('[data-slot-id]')) as HTMLElement[]
+    expect(boxes).toHaveLength(3)
+    expect(source.style.left).toBe(before.left)
+    expect(source.style.top).toBe(before.top)
+    const copy = boxes.find((b) => b.dataset.slotId !== 's1' && b.dataset.slotId !== 's2')!
+    expect(parseFloat(copy.style.left)).toBeCloseTo(parseFloat(before.left) + 30, 3)
+    expect(parseFloat(copy.style.top)).toBeCloseTo(parseFloat(before.top) + 20, 3)
+    expect(copy.style.outline).toContain('var(--slot-selection)')
+    const names = Array.from(container.querySelectorAll('[data-testid^="slot-chip-"]:not([data-testid^="slot-chip-remove-"]):not([data-testid^="slot-chip-duplicate-"])')).map((c) => c.textContent)
+    expect(names).toContain('CO# copy')
+  })
 })

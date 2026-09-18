@@ -118,7 +118,7 @@ export function Editor({
   /** When given, pasting (Ctrl/Cmd+V) asks the parent instead of calling
    * `store.pasteSlot` directly -- so the parent can name the copy after
    * `label`, the copied slot's name at the time it was copied. */
-  onPasteSlot?(snapshot: Slot, label: string | undefined, target: PasteTarget): void
+  onPasteSlot?(snapshot: Slot, label: string | undefined, target: PasteTarget): string
   /** Controlled page (with `onPageChange`); Editor keeps its own otherwise. */
   pageIndex?: number
   onPageChange?(page: number): void
@@ -222,13 +222,18 @@ export function Editor({
   // top-left), so a paste can land under the pointer; null once it leaves.
   const pointerRef = useRef<LogicalPoint | null>(null)
   const clipboard = useSlotClipboard()
+  // Paste and Alt+drag both add a copy of a snapshot at a position; the
+  // parent (which owns names) gets first refusal, as for duplicate.
+  const addCopy = (snapshot: Slot, label: string | undefined, target: PasteTarget): string =>
+    onPasteSlot ? onPasteSlot(snapshot, label, target) : pasteSlotAndCommit(snapshot, target)
   const pasteCopied = () => {
     if (locked) return
     const held = clipboard.take(pointerRef.current, viewport, pageIndex)
-    if (!held) return
-    if (onPasteSlot) onPasteSlot(held.slot, held.label, held.target)
-    else pasteSlotAndCommit(held.slot, held.target)
+    if (held) addCopy(held.slot, held.label, held.target)
   }
+  // Alt+drag: the copy starts exactly over its source, then follows the pointer.
+  const cloneInPlace = (slot: Slot): string | null =>
+    locked ? null : addCopy(slot, slotLabels?.[slot.id], { page: slot.page, x: slot.x, y: slot.y })
 
   // A failed render is surfaced rather than silently dropped -- otherwise
   // the edit that failed to render would just vanish (see isSlotCommitted:
@@ -429,7 +434,8 @@ export function Editor({
                   setAwaitingFocusAfterClick(false)
                 }}
                 onSelect={() => store.select(slot.id)}
-                onChange={(patch) => store.updateSlot(slot.id, patch)}
+                onChange={(patch, targetId = slot.id) => store.updateSlot(targetId, patch)}
+                onCloneStart={() => cloneInPlace(slot)}
                 onCommit={handleCommit}
                 textCommitted={isSlotCommitted(slot)}
                 locked={locked}

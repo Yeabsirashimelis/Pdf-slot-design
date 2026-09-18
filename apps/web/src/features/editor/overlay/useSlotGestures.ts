@@ -13,10 +13,11 @@ import { applyDragDelta, applyEdgeResize, type DragOrigin, type ResizeEdge, type
  */
 const DRAG_THRESHOLD_PX = 4
 
-type PendingPointer = { pointerId: number; startScreen: { x: number; y: number }; origin: DragOrigin }
+type PendingPointer = { pointerId: number; startScreen: { x: number; y: number }; origin: DragOrigin; clone: boolean }
 
 type DragState =
-  | { kind: 'move'; pointerId: number; startScreen: { x: number; y: number }; origin: DragOrigin }
+  /** `targetId`: the slot the move patches go to -- a clone's id for an Alt+drag, otherwise unset (this slot). */
+  | { kind: 'move'; pointerId: number; startScreen: { x: number; y: number }; origin: DragOrigin; targetId?: string }
   | { kind: 'resize'; edge: ResizeEdge; pointerId: number; startScreen: { x: number; y: number }; origin: ResizeOrigin }
 
 type Handlers = {
@@ -43,6 +44,12 @@ type Handlers = {
  * `consumeDragBlur`) can tell "blurred for a drag" from "the user left
  * the field" -- only the latter commits; the drag's pointerup is the real
  * commit point.
+ *
+ * Alt held at pointerdown makes the promoted drag a *clone* drag (the
+ * Figma gesture): `onCloneStart` is asked for a copy of this slot, placed
+ * exactly over it, and every move patch is then addressed to the copy --
+ * so this box stays put and the copy follows the pointer. If no clone
+ * can be made (no callback, or it returns null), it is a plain drag.
  */
 export function useSlotGestures({
   slot,
@@ -53,6 +60,7 @@ export function useSlotGestures({
   onSelect,
   onChange,
   onCommit,
+  onCloneStart,
 }: {
   slot: Slot
   /** The box as shown (text height or the stored minimum), so a top/bottom resize starts from the visible edge. */
@@ -61,8 +69,11 @@ export function useSlotGestures({
   locked: boolean
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   onSelect(): void
-  onChange(patch: Partial<Slot>): void
+  /** `targetId` is set only for a clone drag: the patch belongs to the copy, not this slot. */
+  onChange(patch: Partial<Slot>, targetId?: string): void
   onCommit(): void
+  /** Makes an in-place copy of this slot and returns its id (null: no copy, drag normally). */
+  onCloneStart?(): string | null
 }): {
   body: Handlers
   resize(edge: ResizeEdge): Handlers
@@ -98,6 +109,7 @@ export function useSlotGestures({
       pointerId: event.pointerId,
       startScreen: { x: event.clientX, y: event.clientY },
       origin: { x: slot.x, y: slot.y },
+      clone: event.altKey,
     }
   }
 
@@ -107,8 +119,10 @@ export function useSlotGestures({
       const dx = event.clientX - pending.startScreen.x
       const dy = event.clientY - pending.startScreen.y
       if (Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
-        dragRef.current = { kind: 'move', pointerId: pending.pointerId, startScreen: pending.startScreen, origin: pending.origin }
-        onSelect()
+        const targetId = (pending.clone && onCloneStart?.()) || undefined
+        dragRef.current = { kind: 'move', pointerId: pending.pointerId, startScreen: pending.startScreen, origin: pending.origin, targetId }
+        // A clone drag selects the copy (onCloneStart does), not this slot.
+        if (!targetId) onSelect()
         suppressNextBlurCommit.current = true
         textareaRef.current?.blur()
       }
@@ -119,7 +133,9 @@ export function useSlotGestures({
     const dxScreen = event.clientX - drag.startScreen.x
     const dyScreen = event.clientY - drag.startScreen.y
     if (drag.kind === 'move') {
-      onChange(applyDragDelta(drag.origin, dxScreen, dyScreen, viewport))
+      const patch = applyDragDelta(drag.origin, dxScreen, dyScreen, viewport)
+      if (drag.targetId) onChange(patch, drag.targetId)
+      else onChange(patch)
     } else {
       onChange(applyEdgeResize(drag.edge, drag.origin, dxScreen, dyScreen, viewport))
     }

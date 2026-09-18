@@ -87,9 +87,10 @@ export function TemplateEditor({
     setNames((n) => ({ ...n, [copyId]: copyName(n[id] ?? 'Slot', Object.values(n)) }))
   }
 
-  const handlePaste = (snapshot: Slot, label: string | undefined, target: PasteTarget) => {
+  const handlePaste = (snapshot: Slot, label: string | undefined, target: PasteTarget): string => {
     const pastedId = editor.pasteSlot(snapshot, target)
     setNames((n) => ({ ...n, [pastedId]: copyName(label ?? 'Slot', Object.values(n)) }))
+    return pastedId
   }
 
   const handleRemove = (id: string) => {

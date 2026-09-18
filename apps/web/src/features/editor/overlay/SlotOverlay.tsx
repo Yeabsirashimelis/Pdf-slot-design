@@ -43,6 +43,7 @@ export function SlotOverlay({
   highlighted = false,
   readOnly = false,
   label,
+  onCloneStart,
 }: {
   slot: Slot
   viewport: Viewport
@@ -53,7 +54,8 @@ export function SlotOverlay({
   /** Called once autoFocus has been acted on, so the caller can clear its one-shot flag. */
   onFocused(): void
   onSelect(): void
-  onChange(patch: Partial<Slot>): void
+  /** `targetId` is set only while Alt+dragging: the patch is for the copy being dragged, not this slot. */
+  onChange(patch: Partial<Slot>, targetId?: string): void
   /** Ends the current gesture (drag, resize, or text edit), closing its undo boundary. */
   onCommit(): void
   /**
@@ -77,6 +79,13 @@ export function SlotOverlay({
   readOnly?: boolean
   /** The slot's name, shown as a small tag above the box so a box on a busy form is identifiable without the panel. */
   label?: string
+  /**
+   * Alt+drag (the Figma gesture): asked once, when the drag starts, for a
+   * copy of this slot placed over it; returns the copy's id. The copy then
+   * follows the pointer and this box stays put. Omitted: Alt+drag is a
+   * plain drag.
+   */
+  onCloneStart?(): string | null
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [focused, setFocused] = useState(false)
@@ -133,6 +142,7 @@ export function SlotOverlay({
     onSelect,
     onChange,
     onCommit,
+    onCloneStart,
   })
 
   const handleTextChange = (event: ChangeEvent<HTMLTextAreaElement>) => {

@@ -163,4 +163,28 @@ describe('SlotOverlay geometry', () => {
     expect(box.style.cursor).toBe('move')
     expect(box.querySelectorAll('[data-resize-edge]').length).toBe(4)
   })
+
+  it('Alt+drag leaves the box where it is and moves a copy: the clone is asked for once, then patches target it', () => {
+    const onChange = vi.fn()
+    const onCloneStart = vi.fn(() => 'copy-1')
+    const { box } = renderOverlay(true, { onChange, onCloneStart })
+    fireEvent.pointerDown(box, { pointerId: 1, clientX: 0, clientY: 0, altKey: true })
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 30, clientY: 0, altKey: true })
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 40, clientY: 0, altKey: true })
+    expect(onCloneStart).toHaveBeenCalledTimes(1)
+    // At zoom 1 a 40px drag is 40pt; every patch names the copy, never this slot.
+    expect(onChange.mock.calls.every(([, id]) => id === 'copy-1')).toBe(true)
+    expect(onChange).toHaveBeenLastCalledWith({ x: 50, y: 700 }, 'copy-1')
+    fireEvent.pointerUp(box, { pointerId: 1 })
+  })
+
+  it('a plain drag (no Alt) never asks for a clone and patches this slot', () => {
+    const onChange = vi.fn()
+    const onCloneStart = vi.fn(() => 'copy-1')
+    const { box } = renderOverlay(true, { onChange, onCloneStart })
+    fireEvent.pointerDown(box, { pointerId: 1, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 30, clientY: 0 })
+    expect(onCloneStart).not.toHaveBeenCalled()
+    expect(onChange).toHaveBeenLastCalledWith({ x: 40, y: 700 })
+  })
 })
