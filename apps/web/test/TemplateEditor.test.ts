@@ -359,4 +359,20 @@ describe('TemplateEditor', () => {
     const names = Array.from(container.querySelectorAll('[data-testid^="slot-chip-"]:not([data-testid^="slot-chip-remove-"]):not([data-testid^="slot-chip-duplicate-"])')).map((c) => c.textContent)
     expect(names).toContain('CO# copy')
   })
+
+  it('the page stage is not text-selectable and never starts a native drag (which would hijack a slot drag)', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = memoryStore()
+    const layoutStep: OpenedFile = { ...knownFile, values: null, step: 'layout' }
+    render(createElement(TemplateEditor, { opened: layoutStep, store, onStartOver: vi.fn() }))
+    const stage = await waitFor(() => screen.getByTestId('page-stage'))
+    expect(stage.style.userSelect).toBe('none')
+    // A native dragstart bubbling from anywhere inside the stage is cancelled.
+    const box = await waitFor(() => {
+      const el = stage.querySelector('[data-slot-id="s1"]')
+      if (!el) throw new Error('no slot yet')
+      return el
+    })
+    expect(fireEvent.dragStart(box)).toBe(false)
+  })
 })

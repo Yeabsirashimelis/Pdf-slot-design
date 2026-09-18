@@ -279,6 +279,8 @@ export function SlotOverlay({
             fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
             overflow: 'hidden',
             whiteSpace: 'pre-wrap',
+            // The stage is user-select: none; the one place text is selectable is here.
+            userSelect: 'text',
           }}
         />
       )}

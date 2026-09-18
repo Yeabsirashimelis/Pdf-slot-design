@@ -389,9 +389,16 @@ export function Editor({
         locked={locked}
       />
       <div
-        style={{ position: 'relative', display: 'inline-block' }}
+        // Nothing on the stage is text to select or a thing to drag natively:
+        // a drag across empty canvas would otherwise silently select the
+        // overlay's labels and lines, and the next press inside that
+        // selection would start the browser's own drag-and-drop of it (a
+        // "no drop" cursor, a ghost of the page) instead of our slot drag.
+        // The textarea opts back in (SlotOverlay) so typing still selects.
+        style={{ position: 'relative', display: 'inline-block', userSelect: 'none' }}
         data-testid="page-stage"
         data-zoom={zoom}
+        onDragStart={(event) => event.preventDefault()}
         onPointerMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect()
           pointerRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top }

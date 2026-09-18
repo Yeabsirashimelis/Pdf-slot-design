@@ -187,4 +187,9 @@ describe('SlotOverlay geometry', () => {
     expect(onCloneStart).not.toHaveBeenCalled()
     expect(onChange).toHaveBeenLastCalledWith({ x: 40, y: 700 })
   })
+
+  it('the text box stays selectable even though the stage around it is not', () => {
+    const { textarea } = renderOverlay(true)
+    expect(textarea.style.userSelect).toBe('text')
+  })
 })
