@@ -97,7 +97,10 @@ describe('SlotPanel hints', () => {
     expect(hints.textContent).toMatch(/undo/)
     expect(hints.textContent).toMatch(/redo/)
     expect(hints.textContent).toMatch(/duplicate/)
-    expect(hints.querySelectorAll('kbd[data-slot="kbd"]').length).toBeGreaterThanOrEqual(5)
+    expect(hints.textContent).toMatch(/copy/)
+    expect(hints.textContent).toMatch(/paste/)
+    expect(hints.textContent).toMatch(/Alt.*drag/)
+    expect(hints.querySelectorAll('kbd[data-slot="kbd"]').length).toBeGreaterThanOrEqual(10)
   })
 })
 

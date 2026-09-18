@@ -243,7 +243,18 @@ export function SlotPanel({
                 <Kbd>Ctrl</Kbd>
                 <Kbd>D</Kbd>
               </KbdGroup>{' '}
-              duplicate · arrows nudge (Shift = 10pt) · double-click a chip to rename
+              duplicate ·{' '}
+              <KbdGroup>
+                <Kbd>Ctrl</Kbd>
+                <Kbd>C</Kbd>
+              </KbdGroup>{' '}
+              /{' '}
+              <KbdGroup>
+                <Kbd>Ctrl</Kbd>
+                <Kbd>V</Kbd>
+              </KbdGroup>{' '}
+              copy / paste (under the pointer) · <Kbd>Alt</Kbd> + drag duplicates · arrows nudge (Shift = 10pt) ·
+              double-click a chip to rename
             </p>
             <HintButton
               hint="Save the layout and start writing into the slots"
