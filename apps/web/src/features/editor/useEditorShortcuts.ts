@@ -14,12 +14,15 @@ import { flushSync } from 'react-dom'
  *   would still see the pre-undo slots.
  * - Ctrl/Cmd+D: duplicate the selected slot (the browser's bookmark
  *   shortcut is suppressed).
+ * - Ctrl/Cmd+C / Ctrl/Cmd+V: copy the selected slot to the in-app
+ *   clipboard / paste it. Ignored while a text field is focused, where
+ *   they stay the native text copy and paste.
  * - Arrow keys: nudge the selected slot 1pt (Shift: 10pt). Screen down is
  *   PDF y down, so ArrowDown passes a negative dy. Ignored while typing
  *   in a textarea, where the arrows move the caret.
  *
- * `duplicateSelected` and `nudgeSelected` are read through refs so the
- * listener never goes stale without being re-registered per render.
+ * The slot actions are read through refs so the listener never goes
+ * stale without being re-registered per render.
  */
 /** Arrow key -> (dx, dy) in PDF points per step; PDF y grows upward. */
 const ARROWS: Record<string, readonly [number, number]> = {
@@ -35,35 +38,45 @@ export function useEditorShortcuts({
   commit,
   duplicateSelected,
   nudgeSelected,
+  copySelected,
+  pasteCopied,
 }: {
   undo(): void
   redo(): void
   commit(): void
   duplicateSelected(): void
   nudgeSelected(dx: number, dy: number): void
+  copySelected(): void
+  pasteCopied(): void
 }): void {
-  const duplicateRef = useRef(duplicateSelected)
-  const nudgeRef = useRef(nudgeSelected)
+  const actionsRef = useRef({ duplicateSelected, nudgeSelected, copySelected, pasteCopied })
   useEffect(() => {
-    duplicateRef.current = duplicateSelected
-    nudgeRef.current = nudgeSelected
+    actionsRef.current = { duplicateSelected, nudgeSelected, copySelected, pasteCopied }
   })
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const inTextField = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement
       const arrow = ARROWS[event.key]
       if (arrow && !event.metaKey && !event.ctrlKey && !event.altKey) {
-        if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return
+        if (inTextField) return
         event.preventDefault()
         const step = event.shiftKey ? 10 : 1
-        nudgeRef.current(arrow[0] * step, arrow[1] * step)
+        actionsRef.current.nudgeSelected(arrow[0] * step, arrow[1] * step)
         return
       }
       const isModified = event.metaKey || event.ctrlKey
       if (!isModified) return
-      if (event.key.toLowerCase() === 'd') {
+      const letter = event.key.toLowerCase()
+      if (letter === 'd') {
         event.preventDefault()
-        duplicateRef.current()
+        actionsRef.current.duplicateSelected()
+        return
+      }
+      if ((letter === 'c' || letter === 'v') && !inTextField) {
+        event.preventDefault()
+        if (letter === 'c') actionsRef.current.copySelected()
+        else actionsRef.current.pasteCopied()
         return
       }
       if (event.key.toLowerCase() !== 'z') return

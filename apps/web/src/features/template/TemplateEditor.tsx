@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { toLayout, toSlots, toValues, type Point } from '@pdf-slot/core'
+import { toLayout, toSlots, toValues, type Point, type Slot } from '@pdf-slot/core'
 import type { SessionStore, Step, TemplateStore } from '@/lib/persistence/templateStore'
 import { Editor } from '@/features/editor/Editor'
 import { useEditorStore } from '@/features/editor/state/useEditorStore'
+import type { PasteTarget } from '@/features/editor/useSlotClipboard'
 import { copyName } from './copyName'
 import { NameSlotDialog } from './NameSlotDialog'
 import { SlotPanel } from './SlotPanel'
@@ -86,6 +87,11 @@ export function TemplateEditor({
     setNames((n) => ({ ...n, [copyId]: copyName(n[id] ?? 'Slot', Object.values(n)) }))
   }
 
+  const handlePaste = (snapshot: Slot, label: string | undefined, target: PasteTarget) => {
+    const pastedId = editor.pasteSlot(snapshot, target)
+    setNames((n) => ({ ...n, [pastedId]: copyName(label ?? 'Slot', Object.values(n)) }))
+  }
+
   const handleRemove = (id: string) => {
     editor.removeSlot(id)
     setNames((n) => Object.fromEntries(Object.entries(n).filter(([key]) => key !== id)))
@@ -155,6 +161,7 @@ export function TemplateEditor({
         readOnly={step === 'layout'}
         onPlaceSlot={step === 'layout' ? handlePlaceSlot : undefined}
         onDuplicateSlot={handleDuplicate}
+        onPasteSlot={step === 'layout' ? handlePaste : undefined}
         slotLabels={names}
         fileName={fileName}
         pageIndex={pageIndex}

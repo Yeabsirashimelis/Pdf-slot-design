@@ -25,6 +25,7 @@ import { useCommitRender } from './pipeline/useCommitRender'
 import { createSlotCommands } from './pipeline/slotCommands'
 import { Toolbar } from './toolbar/Toolbar'
 import { useEditorShortcuts } from './useEditorShortcuts'
+import { useSlotClipboard, type PasteTarget } from './useSlotClipboard'
 import { useZoom } from './useZoom'
 
 /** Stable id so the unsupported-character toast is replaced, not stacked. */
@@ -79,6 +80,7 @@ export function Editor({
   readOnly = false,
   onPlaceSlot,
   onDuplicateSlot,
+  onPasteSlot,
   pageIndex: controlledPageIndex,
   onPageChange,
   slotLabels,
@@ -113,6 +115,10 @@ export function Editor({
    * parent instead of calling `store.duplicateSlot` directly -- so the
    * parent can name the copy. Receives the source slot's id. */
   onDuplicateSlot?(id: string): void
+  /** When given, pasting (Ctrl/Cmd+V) asks the parent instead of calling
+   * `store.pasteSlot` directly -- so the parent can name the copy after
+   * `label`, the copied slot's name at the time it was copied. */
+  onPasteSlot?(snapshot: Slot, label: string | undefined, target: PasteTarget): void
   /** Controlled page (with `onPageChange`); Editor keeps its own otherwise. */
   pageIndex?: number
   onPageChange?(page: number): void
@@ -198,7 +204,7 @@ export function Editor({
   // this needs flushSync) so the exact same logic is directly testable
   // against a real store + real useCommitRender, without mounting the rest
   // of Editor.
-  const { updateSlotAndCommit, removeSlotAndCommit, duplicateSlotAndCommit } = createSlotCommands(
+  const { updateSlotAndCommit, removeSlotAndCommit, duplicateSlotAndCommit, pasteSlotAndCommit } = createSlotCommands(
     store,
     handleCommit,
   )
@@ -210,6 +216,18 @@ export function Editor({
       return null
     }
     return duplicateSlotAndCommit(id)
+  }
+
+  // The last pointer position over the page stage (logical px from its
+  // top-left), so a paste can land under the pointer; null once it leaves.
+  const pointerRef = useRef<LogicalPoint | null>(null)
+  const clipboard = useSlotClipboard()
+  const pasteCopied = () => {
+    if (locked) return
+    const held = clipboard.take(pointerRef.current, viewport, pageIndex)
+    if (!held) return
+    if (onPasteSlot) onPasteSlot(held.slot, held.label, held.target)
+    else pasteSlotAndCommit(held.slot, held.target)
   }
 
   // A failed render is surfaced rather than silently dropped -- otherwise
@@ -320,6 +338,12 @@ export function Editor({
       store.nudgeSlot(store.selectedId, dx, dy)
       commit()
     },
+    copySelected: () => {
+      const selected = store.slots.find((slot) => slot.id === store.selectedId)
+      if (locked || !selected) return
+      clipboard.copy(selected, slotLabels?.[selected.id])
+    },
+    pasteCopied,
   })
 
   if (!page) return null
@@ -359,7 +383,18 @@ export function Editor({
         onStartOver={onStartOver}
         locked={locked}
       />
-      <div style={{ position: 'relative', display: 'inline-block' }} data-testid="page-stage" data-zoom={zoom}>
+      <div
+        style={{ position: 'relative', display: 'inline-block' }}
+        data-testid="page-stage"
+        data-zoom={zoom}
+        onPointerMove={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect()
+          pointerRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+        }}
+        onPointerLeave={() => {
+          pointerRef.current = null
+        }}
+      >
         {/*
           Once a commit has produced real output bytes, those bytes -- not
           doc.source -- are what pdf.js paints: from this point on the

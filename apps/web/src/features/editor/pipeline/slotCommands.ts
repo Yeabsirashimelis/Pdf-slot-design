@@ -11,6 +11,7 @@ export type SlotMutations = {
   updateSlot(id: string, patch: Partial<Slot>): void
   removeSlot(id: string): void
   duplicateSlot(id: string): string | null
+  pasteSlot(snapshot: Slot, target: { page: number; x: number; y: number }): string
 }
 
 export type SlotCommands = {
@@ -18,6 +19,8 @@ export type SlotCommands = {
   removeSlotAndCommit(id: string): void
   /** Returns the copy's id (null if `id` is unknown), after committing. */
   duplicateSlotAndCommit(id: string): string | null
+  /** Returns the pasted slot's id, after committing. */
+  pasteSlotAndCommit(snapshot: Slot, target: { page: number; x: number; y: number }): string
 }
 
 /**
@@ -67,6 +70,14 @@ export function createSlotCommands(store: SlotMutations, commitAndRender: () => 
       })
       commitAndRender()
       return copyId
+    },
+    pasteSlotAndCommit(snapshot, target) {
+      let pastedId = ''
+      flushSync(() => {
+        pastedId = store.pasteSlot(snapshot, target)
+      })
+      commitAndRender()
+      return pastedId
     },
   }
 }

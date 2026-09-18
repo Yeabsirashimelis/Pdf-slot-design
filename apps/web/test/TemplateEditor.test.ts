@@ -288,4 +288,49 @@ describe('TemplateEditor', () => {
     await waitFor(() => expect(store.layouts.get('file-1')?.slots).toHaveLength(4))
     expect(store.layouts.get('file-1')!.slots.map((s) => s.name)).toEqual(['CO#', 'Date', 'CO# copy', 'CO# copy (2)'])
   })
+
+  it('Ctrl+C / Ctrl+V pastes a copy of the selected slot on the current page, under the pointer, named "<name> copy"', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = memoryStore()
+    const twoPages: OpenedFile = {
+      ...knownFile, values: null, step: 'layout',
+      doc: { ...doc, pages: [{ width: 612, height: 792 }, { width: 612, height: 792 }] },
+    }
+    const { container } = render(createElement(TemplateEditor, { opened: twoPages, store, onStartOver: vi.fn() }))
+    await waitFor(() => screen.getByTestId('slot-chip-s1'))
+    const chipNames = () =>
+      Array.from(container.querySelectorAll('[data-testid^="slot-chip-"]:not([data-testid^="slot-chip-remove-"]):not([data-testid^="slot-chip-duplicate-"])')).map((c) => c.textContent)
+
+    fireEvent.click(screen.getByTestId('slot-chip-s1'))
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true })
+    // The clipboard outlives the source.
+    fireEvent.click(screen.getByTestId('slot-chip-remove-s1'))
+    fireEvent.click(screen.getByLabelText('Next page'))
+    await waitFor(() => expect(container.querySelectorAll('[data-slot-id]')).toHaveLength(0))
+
+    // The pointer is over the page: the copy lands under it.
+    const stage = screen.getByTestId('page-stage')
+    fireEvent.pointerMove(stage, { clientX: 80, clientY: 40 })
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true })
+
+    let boxes = container.querySelectorAll('[data-slot-id]')
+    expect(boxes).toHaveLength(1)
+    const pasted = boxes[0] as HTMLElement
+    expect(pasted.style.left).toBe('80px')
+    expect(pasted.style.top).toBe('40px')
+    expect(pasted.style.outline).toContain('var(--slot-selection)')
+    // Only the current page's group is open in the panel.
+    expect(chipNames()).toEqual(['CO# copy'])
+
+    // Pointer gone: a repeat paste cascades 12pt from the previous one.
+    fireEvent.pointerLeave(stage)
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true })
+    boxes = container.querySelectorAll('[data-slot-id]')
+    expect(boxes).toHaveLength(2)
+    const zoom = Number(stage.dataset.zoom)
+    const second = boxes[1] as HTMLElement
+    expect(parseFloat(second.style.left)).toBeCloseTo(80 + 12 * zoom, 3)
+    expect(parseFloat(second.style.top)).toBeCloseTo(40 + 12 * zoom, 3)
+    expect(chipNames()).toEqual(['CO# copy', 'CO# copy (2)'])
+  })
 })
