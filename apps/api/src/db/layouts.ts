@@ -3,19 +3,13 @@ import type { TemplateLayout, TemplateValues } from '@pdf-slot/core'
 import { iso, type Db } from './client.js'
 import { layouts, values } from './schema.js'
 
-/** `updatedAt` is a free-form string at the contract layer; a value that isn't a valid date must not crash the write. */
-function toTimestamp(value: string): Date {
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? new Date() : d
-}
-
 export async function getLayout(db: Db, fileId: string): Promise<TemplateLayout | null> {
   const [r] = await db.select().from(layouts).where(eq(layouts.fileId, fileId)).limit(1)
   return r ? { fileId: r.fileId, slots: r.slots, updatedAt: iso(r.updatedAt) } : null
 }
 
 export async function putLayout(db: Db, layout: TemplateLayout): Promise<void> {
-  const row = { fileId: layout.fileId, slots: layout.slots, updatedAt: toTimestamp(layout.updatedAt) }
+  const row = { fileId: layout.fileId, slots: layout.slots, updatedAt: new Date(layout.updatedAt) }
   await db.insert(layouts).values(row).onConflictDoUpdate({ target: layouts.fileId, set: { slots: row.slots, updatedAt: row.updatedAt } })
 }
 
@@ -25,7 +19,7 @@ export async function getValues(db: Db, fileId: string): Promise<TemplateValues 
 }
 
 export async function putValues(db: Db, v: TemplateValues): Promise<void> {
-  const row = { fileId: v.fileId, values: v.values, updatedAt: toTimestamp(v.updatedAt) }
+  const row = { fileId: v.fileId, values: v.values, updatedAt: new Date(v.updatedAt) }
   await db.insert(values).values(row).onConflictDoUpdate({ target: values.fileId, set: { values: row.values, updatedAt: row.updatedAt } })
 }
 
