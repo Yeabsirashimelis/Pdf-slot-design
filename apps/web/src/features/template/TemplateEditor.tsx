@@ -172,6 +172,9 @@ export function TemplateEditor({
       <NameSlotDialog
         open={pending !== null}
         initialName={pending?.kind === 'rename' ? names[pending.id] : ''}
+        taken={Object.entries(names)
+          .filter(([id]) => id !== (pending?.kind === 'rename' ? pending.id : undefined))
+          .map(([, n]) => n)}
         onSubmit={handleNameSubmit}
         onCancel={() => setPending(null)}
       />

@@ -16,10 +16,11 @@ import { Label } from '@/components/ui/label'
  * positioning. Empty (after trimming) is refused; Esc/Cancel places nothing.
  */
 export function NameSlotDialog({
-  open, initialName = '', onSubmit, onCancel,
+  open, initialName = '', taken = [], onSubmit, onCancel,
 }: {
   open: boolean
   initialName?: string
+  taken?: readonly string[]
   onSubmit(name: string): void
   onCancel(): void
 }) {
@@ -33,9 +34,12 @@ export function NameSlotDialog({
     if (open) setName(initialName)
   }
 
+  const trimmedName = name.trim()
+  const isTaken = taken.includes(trimmedName)
+
   const submit = () => {
     const trimmed = name.trim()
-    if (trimmed === '') return
+    if (trimmed === '' || isTaken) return
     onSubmit(trimmed)
   }
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -63,10 +67,15 @@ export function NameSlotDialog({
             onKeyDown={handleKeyDown}
             placeholder="e.g. Date"
           />
+          {isTaken && (
+            <p className="text-xs text-destructive" data-testid="slot-name-taken">
+              A slot named &ldquo;{trimmedName}&rdquo; already exists on this file. Names must be unique.
+            </p>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onCancel} data-testid="slot-name-cancel">Cancel</Button>
-          <Button onClick={submit} disabled={name.trim() === ''} data-testid="slot-name-submit">
+          <Button onClick={submit} disabled={trimmedName === '' || isTaken} data-testid="slot-name-submit">
             {initialName ? 'Rename' : 'Add slot'}
           </Button>
         </DialogFooter>
