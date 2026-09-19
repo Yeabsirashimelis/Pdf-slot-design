@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "lib": ["ES2022", "DOM"],
+    "strict": true, "noUncheckedIndexedAccess": true, "skipLibCheck": true, "types": ["node"],
+    "plugins": [{ "name": "workflow" }]
+  },
+  "include": ["src", "test", "nitro.config.ts", "drizzle.config.ts"]
+}

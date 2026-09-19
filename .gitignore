@@ -4,6 +4,9 @@ out/
 build/
 dist/
 *.tsbuildinfo
+.nitro/
+.output/
+.blobs/
 
 .env
 .env*.local
