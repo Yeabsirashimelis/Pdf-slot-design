@@ -40,8 +40,8 @@ export async function getJob(db: Db, id: string): Promise<JobStatus | null> {
   }
 }
 
-export async function getJobItems(db: Db, jobId: string, indices: number[]): Promise<{ index: number; record: JobRecord }[]> {
-  return db.select({ index: jobItems.index, record: jobItems.record }).from(jobItems)
+export async function getJobItems(db: Db, jobId: string, indices: number[]): Promise<{ index: number; record: JobRecord; status: 'pending' | 'done' | 'failed' }[]> {
+  return db.select({ index: jobItems.index, record: jobItems.record, status: jobItems.status }).from(jobItems)
     .where(and(eq(jobItems.jobId, jobId), inArray(jobItems.index, indices))).orderBy(asc(jobItems.index))
 }
 
@@ -49,16 +49,21 @@ export async function markItem(
   db: Db, jobId: string, index: number,
   result: { status: 'done'; pdfPath: string } | { status: 'failed'; error: string },
 ): Promise<void> {
-  // Transactional: the item's own status and the job's running counters must move together, or a crash
-  // between the two statements would leave the job's done/failed counts short of its items' real state.
+  // Transactional and idempotent: the job's done/failed counters are recomputed from the item rows on
+  // every call rather than incremented, so a Workflow retry that re-marks an item it already marked (e.g.
+  // after a transient DB error partway through a batch) cannot double-count it -- done + failed can never
+  // exceed total, no matter how many times the same index is marked.
   await db.transaction(async (tx) => {
     if (result.status === 'done') {
       await tx.update(jobItems).set({ status: 'done', pdfPath: result.pdfPath, error: null }).where(and(eq(jobItems.jobId, jobId), eq(jobItems.index, index)))
-      await tx.update(jobs).set({ done: sql`${jobs.done} + 1`, status: 'running' }).where(eq(jobs.id, jobId))
     } else {
       await tx.update(jobItems).set({ status: 'failed', error: result.error, pdfPath: null }).where(and(eq(jobItems.jobId, jobId), eq(jobItems.index, index)))
-      await tx.update(jobs).set({ failed: sql`${jobs.failed} + 1`, status: 'running' }).where(eq(jobs.id, jobId))
     }
+    await tx.update(jobs).set({
+      done: sql`(select count(*)::int from ${jobItems} where ${jobItems.jobId} = ${jobId} and ${jobItems.status} = 'done')`,
+      failed: sql`(select count(*)::int from ${jobItems} where ${jobItems.jobId} = ${jobId} and ${jobItems.status} = 'failed')`,
+      status: 'running',
+    }).where(eq(jobs.id, jobId))
   })
 }
 

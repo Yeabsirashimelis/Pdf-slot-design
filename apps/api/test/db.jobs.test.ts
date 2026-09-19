@@ -12,7 +12,7 @@ describe('jobs repository', () => {
     expect(await getJob(db, 'j1')).toMatchObject({ id: 'j1', status: 'queued', total: 3, done: 0, failed: 0, items: [
       { index: 0, status: 'pending', error: null }, { index: 1, status: 'pending', error: null }, { index: 2, status: 'pending', error: null },
     ] })
-    expect(await getJobItems(db, 'j1', [2, 0])).toEqual([{ index: 0, record: { Name: 'A' } }, { index: 2, record: { Name: 'C' } }])
+    expect(await getJobItems(db, 'j1', [2, 0])).toEqual([{ index: 0, record: { Name: 'A' }, status: 'pending' }, { index: 2, record: { Name: 'C' }, status: 'pending' }])
     await markItem(db, 'j1', 0, { status: 'done', pdfPath: 'jobs/j1/record-0001.pdf' })
     await markItem(db, 'j1', 1, { status: 'failed', error: 'boom' })
     const job = (await getJob(db, 'j1'))!
@@ -39,9 +39,25 @@ describe('jobs repository', () => {
     expect(job?.total).toBe(1200)
     expect(job?.items).toHaveLength(1200)
     expect(await getJobItems(db, 'j2', [0, 500, 1199])).toEqual([
-      { index: 0, record: { Name: 'n0' } },
-      { index: 500, record: { Name: 'n500' } },
-      { index: 1199, record: { Name: 'n1199' } },
+      { index: 0, record: { Name: 'n0' }, status: 'pending' },
+      { index: 500, record: { Name: 'n500' }, status: 'pending' },
+      { index: 1199, record: { Name: 'n1199' }, status: 'pending' },
     ])
+  })
+
+  it('marking the same item twice does not double-count', async () => {
+    const db = await createTestDb()
+    await upsertFile(db, { fileId: FILE_ID, name: 'a.pdf', pages: [{ width: 1, height: 1 }], blobPath: 'p', createdAt: '2026-09-19T00:00:00.000Z' })
+
+    await createJob(db, { id: 'j3', fileId: FILE_ID, records: [{ Name: 'A' }] })
+    await markItem(db, 'j3', 0, { status: 'done', pdfPath: 'jobs/j3/record-0001.pdf' })
+    await markItem(db, 'j3', 0, { status: 'done', pdfPath: 'jobs/j3/record-0001.pdf' })
+    expect((await getJob(db, 'j3'))!.done).toBe(1)
+
+    await createJob(db, { id: 'j4', fileId: FILE_ID, records: [{ Name: 'B' }] })
+    await markItem(db, 'j4', 0, { status: 'failed', error: 'boom' })
+    await markItem(db, 'j4', 0, { status: 'done', pdfPath: 'jobs/j4/record-0001.pdf' })
+    const job4 = (await getJob(db, 'j4'))!
+    expect([job4.done, job4.failed]).toEqual([1, 0])
   })
 })

@@ -65,4 +65,17 @@ describe('generation steps', () => {
     await finishJob('j1')
     expect(await getJob(bad.db, 'j1')).toMatchObject({ status: 'failed', failed: 1 })
   })
+
+  it('a retried batch does not re-render or double-count', async () => {
+    const { db, blobs } = await setup([{ Name: 'A' }, { Name: 'B' }])
+    await renderBatch('j1', [0, 1])
+    const pathsAfterFirst = blobs.paths().slice().sort()
+    const jobAfterFirst = (await getJob(db, 'j1'))!
+
+    await renderBatch('j1', [0, 1])
+    const job = (await getJob(db, 'j1'))!
+    expect([job.done, job.failed]).toEqual([jobAfterFirst.done, jobAfterFirst.failed])
+    expect([job.done, job.failed]).toEqual([2, 0])
+    expect(blobs.paths().slice().sort()).toEqual(pathsAfterFirst)
+  })
 })

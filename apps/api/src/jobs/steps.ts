@@ -47,7 +47,10 @@ export async function renderBatch(jobId: string, indices: number[]): Promise<voi
   const ctx = await getJobContext()
   const [{ doc, layout }, fonts, items] = await Promise.all([loadTemplate(jobId), ctx.fonts(), getJobItems(ctx.db, jobId, indices)])
   const metrics = metricsFor(fonts)
-  for (const { index, record } of items) {
+  for (const { index, record, status } of items) {
+    // A Workflow retry re-runs renderBatch from the top with the same indices; items this call (or an
+    // earlier attempt at it) already finished must not be re-rendered or re-marked.
+    if (status !== 'pending') continue
     const slots = toSlots(layout, { fileId: layout.fileId, updatedAt: layout.updatedAt, values: recordToValues(layout, record) })
     const unsupported = findUnsupportedSlots(slots, metrics)
     if (unsupported.length > 0) {
