@@ -1,14 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { toast } from 'sonner'
 import { createHttpTemplateStore } from '@/lib/persistence/httpTemplateStore'
 
-vi.mock('sonner', () => ({ toast: { warning: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { warning: vi.fn(), error: vi.fn() } }))
 
 const fileId = 'a'.repeat(64)
 const okJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
 describe('HttpTemplateStore', () => {
   const fetchMock = vi.fn<typeof fetch>()
-  beforeEach(() => { vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset() })
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock)
+    fetchMock.mockReset()
+    vi.mocked(toast.warning).mockClear()
+    vi.mocked(toast.error).mockClear()
+  })
   afterEach(() => vi.unstubAllGlobals())
   const store = () => createHttpTemplateStore('http://api.test')
 
@@ -32,6 +38,34 @@ describe('HttpTemplateStore', () => {
     const form = init?.body as FormData
     expect(JSON.parse(form.get('meta') as string)).toEqual({ name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: 't' })
     expect((form.get('source') as File).size).toBe(1)
+  })
+
+  it('a 409 that parses as our error envelope is shown with its own reason, not the unreachable warning, and resolves', async () => {
+    const layout = { fileId, updatedAt: '2024-01-01T00:00:00.000Z', slots: [] }
+    fetchMock.mockResolvedValueOnce(okJson({ error: { code: 'duplicate_slot_name', message: 'Two slots are named "Name"' } }, 409))
+    await expect(store().putLayout(layout)).resolves.toBeUndefined()
+    expect(toast.error).toHaveBeenCalledWith('Two slots are named "Name"')
+    expect(toast.warning).not.toHaveBeenCalled()
+  })
+
+  it('a 500 warns unreachable once and never calls toast.error', async () => {
+    const layout = { fileId, updatedAt: '2024-01-01T00:00:00.000Z', slots: [] }
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }))
+    await store().putLayout(layout)
+    expect(toast.warning).toHaveBeenCalledTimes(1)
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('two consecutive 409s each show their own reason -- the error toast is not latched', async () => {
+    const layout = { fileId, updatedAt: '2024-01-01T00:00:00.000Z', slots: [] }
+    fetchMock
+      .mockResolvedValueOnce(okJson({ error: { code: 'duplicate_slot_name', message: 'first' } }, 409))
+      .mockResolvedValueOnce(okJson({ error: { code: 'duplicate_slot_name', message: 'second' } }, 409))
+    await store().putLayout(layout)
+    await store().putLayout(layout)
+    expect(toast.error).toHaveBeenCalledTimes(2)
+    expect(toast.error).toHaveBeenNthCalledWith(1, 'first')
+    expect(toast.error).toHaveBeenNthCalledWith(2, 'second')
   })
 
   it('layout/values/list/delete map to their routes; a network failure never rejects', async () => {

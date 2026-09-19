@@ -1,6 +1,6 @@
 import { toast } from 'sonner'
 import type { FileId, StoredFile, TemplateLayout, TemplateValues } from '@pdf-slot/core'
-import { fileMetaSchema, storedFileSummarySchema, templateLayoutSchema, templateValuesSchema } from '@pdf-slot/contracts'
+import { apiErrorSchema, fileMetaSchema, storedFileSummarySchema, templateLayoutSchema, templateValuesSchema } from '@pdf-slot/contracts'
 import type { StoredFileSummary, TemplateStore } from './templateStore'
 
 let hasWarned = false
@@ -13,9 +13,32 @@ function warnUnreachable(): void {
 }
 
 /**
+ * A 4xx other than 404 is the server reaching us and rejecting the request
+ * (bad input, a business rule like a duplicate slot name) -- not the API
+ * being unreachable. Shown with its own reason every time: unlike
+ * `warnUnreachable`, this never latches, because each rejection is new
+ * information about the request that just failed.
+ */
+async function reportRejection(res: Response, method: string, path: string): Promise<void> {
+  let message = `Request failed (${res.status})`
+  try {
+    const parsed = apiErrorSchema.safeParse(await res.json())
+    if (parsed.success) message = parsed.data.error.message
+  } catch {
+    // Body wasn't our error envelope (or wasn't JSON at all) -- keep the generic message.
+  }
+  console.error(`${method} ${path} -> ${res.status}: ${message}`)
+  toast.error(message)
+}
+
+/**
  * `TemplateStore` over the Hono API. Same contract as the IndexedDB store:
- * never rejects -- a failed request warns once and reads as "nothing
- * saved" / drops the write. Shapes are validated with the shared
+ * never rejects -- a failed request reads as "nothing saved" / drops the
+ * write. Two failure modes are told apart: the API being unreachable
+ * (network error, 5xx) warns once via `warnUnreachable`; the API being
+ * reachable but rejecting the request (4xx other than 404) shows its own
+ * reason every time via `reportRejection`, so a real server error is never
+ * misreported as the API being down. Shapes are validated with the shared
  * contracts, so a server that drifts is caught here, not deep in the editor.
  */
 export function createHttpTemplateStore(baseUrl: string): TemplateStore {
@@ -25,6 +48,10 @@ export function createHttpTemplateStore(baseUrl: string): TemplateStore {
     try {
       const res = await fetch(url(path), init)
       if (res.status === 404) return null
+      if (res.status >= 400 && res.status < 500) {
+        await reportRejection(res, init?.method ?? 'GET', path)
+        return null
+      }
       if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} -> ${res.status}`)
       return res
     } catch (err) {
