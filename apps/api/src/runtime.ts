@@ -35,8 +35,15 @@ const nitroFontSource: FontSource = async (name) => {
 }
 let fontsPromise: Promise<Awaited<ReturnType<typeof loadFonts>>> | null = null
 // Memoised once per process: steps.ts keys a WeakMap of parsed font metrics off the returned
-// object's identity, so every call here must resolve to the SAME FontBytes instance.
-const fonts = () => (fontsPromise ??= loadFonts(nitroFontSource))
+// object's identity, so every call here must resolve to the SAME FontBytes instance. A rejection
+// is NOT memoised -- a transient read failure would otherwise poison every later step in this
+// process, since Workflow retries the step but this module would keep handing back the same
+// rejected promise.
+const fonts = () =>
+  (fontsPromise ??= loadFonts(nitroFontSource).catch((err: unknown) => {
+    fontsPromise = null
+    throw err
+  }))
 
 export async function productionDeps(): Promise<Deps> {
   return { db, blobs, config, startJob: async (jobId) => { await start(generateJob, [jobId]) } }

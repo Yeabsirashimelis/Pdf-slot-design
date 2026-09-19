@@ -28,6 +28,18 @@ describe('disk blob store', () => {
     expect(await blobs.get('a.pdf')).toBeNull()
   })
 
+  // The BlobStore contract: a second put to the same path replaces the object. PUT /files/:id is
+  // idempotent and Workflow may retry a step after its blob was already written, so every
+  // implementation (including the Vercel one, which needs `allowOverwrite`) must honour this.
+  it('a second put to the same path replaces the bytes and content type', async () => {
+    const blobs = createDiskBlobStore(dir)
+    await blobs.put('a.pdf', new Uint8Array([1, 2, 3]), 'application/pdf')
+    await blobs.put('a.pdf', new Uint8Array([7]), 'application/octet-stream')
+    const a = await blobs.get('a.pdf')
+    expect(a?.contentType).toBe('application/octet-stream')
+    expect(Array.from(await readAll(a!.stream))).toEqual([7])
+  })
+
   it('returns null for a path that never existed', async () => {
     const blobs = createDiskBlobStore(dir)
     expect(await blobs.get('never-existed')).toBeNull()

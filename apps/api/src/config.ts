@@ -15,7 +15,9 @@ export function readConfig(env: Record<string, string | undefined>): Config {
     databaseUrl: env.DATABASE_URL!,
     blobToken: env.BLOB_READ_WRITE_TOKEN ?? '',
     apiKey: env.API_KEY!,
-    webOrigin: env.WEB_ORIGIN!,
+    // The CORS check compares against the browser's `Origin` header, which never carries a trailing
+    // slash; a copy-pasted `https://app.example.com/` would otherwise block every request.
+    webOrigin: env.WEB_ORIGIN!.replace(/\/+$/, ''),
     ...(blobDir ? { blobDir } : {}),
   }
 }

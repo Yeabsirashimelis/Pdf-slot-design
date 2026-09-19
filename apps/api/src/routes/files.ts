@@ -3,7 +3,7 @@ import { fileIdSchema, fileMetaSchema, putFileMetaSchema } from '@pdf-slot/contr
 import type { AppEnv } from '../app.js'
 import { ApiError, notFound } from '../errors.js'
 import { deleteFile, getFileMeta, listFiles, upsertFile } from '../db/files.js'
-import { deleteJobBlobsForFile } from '../db/jobs.js'
+import { listJobBlobPathsForFile } from '../db/jobs.js'
 
 export const sourcePath = (fileId: string) => `files/${fileId}.pdf`
 
@@ -54,7 +54,7 @@ filesRoutes.delete('/files/:id', async (c) => {
   const { db, blobs } = c.get('deps')
   const fileId = fileIdParam(c.req.param('id'))
   // Job output blobs first (the rows cascade with the file), then the file's own bytes.
-  const jobPaths = await deleteJobBlobsForFile(db, fileId)
+  const jobPaths = await listJobBlobPathsForFile(db, fileId)
   const row = await deleteFile(db, fileId)
   if (!row) throw notFound('File')
   await blobs.delete([...jobPaths, row.blobPath])

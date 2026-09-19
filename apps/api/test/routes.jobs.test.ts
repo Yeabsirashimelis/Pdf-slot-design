@@ -23,6 +23,14 @@ describe('jobs routes', () => {
     expect(await noAuth.json()).toEqual({ error: { code: 'unauthorized', message: 'Invalid or missing API key' } })
     expect((await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }, { ...auth, Authorization: 'Bearer wrong' }))).status).toBe(401)
   })
+  it('a malformed Authorization header is refused in the error envelope, never as plain text', async () => {
+    const app = createApp(await testDeps())
+    const res = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }, { ...auth, Authorization: 'Basic xyz' }))
+    expect([400, 401]).toContain(res.status)
+    expect(res.headers.get('content-type')).toMatch(/application\/json/)
+    const body = await res.json()
+    expect(body).toEqual({ error: { code: expect.stringMatching(/^(unauthorized|invalid_request)$/), message: expect.any(String) } })
+  })
   it('creates a job, starts the workflow, and reports status', async () => {
     const startJob = vi.fn(async () => {})
     const deps = await testDeps({ startJob })

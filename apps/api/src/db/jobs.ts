@@ -3,8 +3,8 @@ import type { JobRecord, JobStatus } from '@pdf-slot/contracts'
 import { iso, type Db } from './client.js'
 import { jobItems, jobs } from './schema.js'
 
-/** Every blob path a file's jobs produced -- so deleting the file can delete them too. Rows themselves cascade. */
-export async function deleteJobBlobsForFile(db: Db, fileId: string): Promise<string[]> {
+/** Lists every blob path a file's jobs produced (zips and item PDFs), so the caller deleting the file can delete them too. Only reads: the rows themselves cascade with the file. */
+export async function listJobBlobPathsForFile(db: Db, fileId: string): Promise<string[]> {
   const rows = await db.select({ zipPath: jobs.zipPath, pdfPath: jobItems.pdfPath }).from(jobs)
     .leftJoin(jobItems, eq(jobItems.jobId, jobs.id)).where(eq(jobs.fileId, fileId))
   const paths = new Set<string>()
