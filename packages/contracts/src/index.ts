@@ -31,13 +31,13 @@ export const templateSlotSchema = z.object({
 export const templateLayoutSchema = z.object({
   fileId: fileIdSchema,
   slots: z.array(templateSlotSchema),
-  updatedAt: z.string(),
+  updatedAt: z.iso.datetime(),
 }) satisfies z.ZodType<TemplateLayout>
 
 export const templateValuesSchema = z.object({
   fileId: fileIdSchema,
   values: z.record(z.string(), z.string()),
-  updatedAt: z.string(),
+  updatedAt: z.iso.datetime(),
 }) satisfies z.ZodType<TemplateValues>
 
 /** `StoredFile` without its bytes: what `GET /files/:id` returns; the bytes come from `/source`. */

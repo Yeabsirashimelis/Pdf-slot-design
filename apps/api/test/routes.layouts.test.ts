@@ -21,7 +21,7 @@ describe('/files/:id/layout and /values', () => {
   it('refuses a layout with two slots of one name (409) and a body whose fileId disagrees with the path (400)', async () => {
     const app = createApp(await testDeps())
     await putTestFile(app)
-    const dup = { fileId: FILE_ID, updatedAt: 't', slots: [slot(), slot({ id: 's2' })] }
+    const dup = { fileId: FILE_ID, updatedAt: '2026-09-19T00:00:00.000Z', slots: [slot(), slot({ id: 's2' })] }
     const res = await app.request(`/files/${FILE_ID}/layout`, json(dup))
     expect(res.status).toBe(409)
     expect((await res.json()).error).toEqual({ code: 'duplicate_slot_name', message: 'Two slots are named "Name"' })

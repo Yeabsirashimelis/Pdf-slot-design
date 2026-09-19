@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { bearerAuth } from 'hono/bearer-auth'
-import { HTTPException } from 'hono/http-exception'
 import { zValidator } from '@hono/zod-validator'
 import { createJobRequestSchema } from '@pdf-slot/contracts'
 import type { AppEnv } from '../app.js'
@@ -15,16 +14,9 @@ export const jobsRoutes = new Hono<AppEnv>()
 jobsRoutes.post(
   '/files/:id/jobs',
   // The one endpoint that costs real compute: only callers holding the workspace key may start a job.
-  // bearerAuth throws an HTTPException on failure; the shared error handler doesn't special-case it, so
-  // catch it here and return its 401 response directly rather than letting it fall through as a 500.
-  async (c, next) => {
-    try {
-      await bearerAuth<AppEnv>({ token: c.get('deps').config.apiKey })(c, next)
-    } catch (err) {
-      if (err instanceof HTTPException) return err.getResponse()
-      throw err
-    }
-  },
+  // bearerAuth throws an HTTPException on failure; the shared error handler (errors.ts) wraps its 401
+  // in our error envelope.
+  async (c, next) => bearerAuth<AppEnv>({ token: c.get('deps').config.apiKey })(c, next),
   zValidator('json', createJobRequestSchema, (result) => {
     if (!result.success) throw new ApiError(400, 'invalid_request', 'records must be 1..5000 objects of strings')
   }),

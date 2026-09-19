@@ -17,10 +17,11 @@ describe('contracts', () => {
     expect(fileIdSchema.safeParse('not-an-id').success).toBe(false)
   })
 
-  it('a layout round-trips; height is optional; an unknown font is refused', () => {
+  it('a layout round-trips; height is optional; an unknown font is refused; updatedAt must be ISO', () => {
     const layout = { fileId: hash, updatedAt: '2026-09-19T00:00:00.000Z', slots: [slot, { ...slot, id: 's2', height: 40 }] }
     expect(templateLayoutSchema.parse(layout)).toEqual(layout)
     expect(templateLayoutSchema.safeParse({ ...layout, slots: [{ ...slot, fontId: 'comic' }] }).success).toBe(false)
+    expect(templateLayoutSchema.safeParse({ ...layout, updatedAt: 't' }).success).toBe(false)
   })
 
   it('a job request needs 1..MAX_JOB_RECORDS string records', () => {

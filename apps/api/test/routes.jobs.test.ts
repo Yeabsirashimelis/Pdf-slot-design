@@ -10,13 +10,15 @@ const post = (body: unknown, headers: Record<string, string> = auth) => ({ metho
 async function withLayout(app: ReturnType<typeof createApp>) {
   await putTestFile(app)
   await app.request(`/files/${FILE_ID}/layout`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fileId: FILE_ID, updatedAt: 't', slots: [slot()] }) })
+    body: JSON.stringify({ fileId: FILE_ID, updatedAt: '2026-09-19T00:00:00.000Z', slots: [slot()] }) })
 }
 
 describe('jobs routes', () => {
   it('needs the API key', async () => {
     const app = createApp(await testDeps())
-    expect((await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }, { 'Content-Type': 'application/json' }))).status).toBe(401)
+    const noAuth = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }, { 'Content-Type': 'application/json' }))
+    expect(noAuth.status).toBe(401)
+    expect(await noAuth.json()).toEqual({ error: { code: 'unauthorized', message: 'Invalid or missing API key' } })
     expect((await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }, { ...auth, Authorization: 'Bearer wrong' }))).status).toBe(401)
   })
   it('creates a job, starts the workflow, and reports status', async () => {
