@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ArrowLeft, ArrowRight, ChevronRight, Copy, X } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
@@ -42,6 +42,7 @@ export function SlotPanel({
   onBack,
   onChangeText,
   onSave,
+  generate,
 }: {
   step: Step
   slots: PanelSlot[]
@@ -58,6 +59,8 @@ export function SlotPanel({
   onBack(): void
   onChangeText(id: string, text: string): void
   onSave(): void
+  /** Rendered after Save in step 2 -- the "Generate from data" panel, when the app has an API. */
+  generate?: ReactNode
 }) {
   // Which page groups are open. Reset to "just the current page" whenever
   // the page changes -- adjusted during render (React's documented pattern
@@ -266,13 +269,16 @@ export function SlotPanel({
             </HintButton>
           </div>
         ) : (
-          <HintButton
-            hint="Keep what you typed for this file (it also saves on its own as you type)"
-            onClick={onSave}
-            data-testid="panel-save"
-          >
-            Save
-          </HintButton>
+          <>
+            <HintButton
+              hint="Keep what you typed for this file (it also saves on its own as you type)"
+              onClick={onSave}
+              data-testid="panel-save"
+            >
+              Save
+            </HintButton>
+            {generate}
+          </>
         )}
       </aside>
     </TooltipProvider>

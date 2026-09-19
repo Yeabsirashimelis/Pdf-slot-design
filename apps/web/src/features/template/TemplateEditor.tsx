@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { toLayout, toSlots, toValues, type Point, type Slot } from '@pdf-slot/core'
+import { apiUrl } from '@/lib/persistence'
 import type { SessionStore, Step, TemplateStore } from '@/lib/persistence/templateStore'
 import { Editor } from '@/features/editor/Editor'
 import { useEditorStore } from '@/features/editor/state/useEditorStore'
 import type { PasteTarget } from '@/features/editor/useSlotClipboard'
+import { GeneratePanel } from '@/features/generate/GeneratePanel'
 import { copyName } from './copyName'
 import { NameSlotDialog } from './NameSlotDialog'
 import { SlotPanel } from './SlotPanel'
@@ -153,6 +155,7 @@ export function TemplateEditor({
         onBack={handleBack}
         onChangeText={(id, text) => editor.updateSlot(id, { text })}
         onSave={handleSave}
+        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} /> : undefined}
       />
       <Editor
         doc={doc}
