@@ -16,7 +16,6 @@
     "@electric-sql/pglite": "^0.5.8",
     "@hono/node-server": "^2.1.1",
     "@hono/zod-validator": "^0.9.1",
-    "@neondatabase/serverless": "^1.1.0",
     "@pdf-slot/contracts": "^0.0.0",
     "@pdf-slot/core": "^0.0.0",
     "@vercel/blob": "^2.8.0",
@@ -24,6 +23,7 @@
     "fflate": "^0.8.2",
     "hono": "^4.13.8",
     "nitro": "^3.0.260903-beta",
+    "pg": "^8.23.0",
     "rollup": "^4.63.3",
     "workflow": "^4.8.9",
     "zod": "^4.6.5"
@@ -32,6 +32,7 @@
     "@cantoo/pdf-lib": "^2.9.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22",
+    "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.11.0",
     "tsx": "^4",
