@@ -66,12 +66,12 @@
 }
 
 /*
- * Editorial theme, lifted from docs/design-tokens.md (Elli UI's default):
+ * Editorial theme, lifted from Elli UI's default theme:
  * navy ink on cream. Applied with pastel discipline -- colour lives in
  * low-saturation *surfaces* (muted, soft, alpha) and in dark *ink* on them,
  * never in vibrating fills -- so the editor is quiet to look at for hours
  * and every text pair clears WCAG 4.5:1 (text/page 17.3, muted-fg/card 5.9,
- * muted-fg/muted 5.0, primary-fg/primary 11.2, accent-fg/accent 10.0). Values are the doc's;
+ * muted-fg/muted 5.0, primary-fg/primary 11.2, accent-fg/accent 10.0). Values are Elli UI's;
  * only the names are mapped onto shadcn's token set.
  */
 :root {

@@ -46,6 +46,31 @@ The five TTFs the renderer embeds are bundled from `packages/core/src/fonts/file
 working directory) whenever the asset lookup comes back empty -- this only ever matters locally;
 a real `nitro build` always resolves fonts through the bundled assets.
 
+## Limits
+
+Things a caller or operator should know that the code does not announce on its own:
+
+- **Uploads are capped at 4.5 MB.** `PUT /files/:id` runs as a Vercel Function, and the platform
+  rejects a request body over 4.5 MB with a `413` before the handler runs -- so the cap cannot be
+  raised in this code, and the `413` body is the platform's plain text, not our error envelope.
+  The web client recognises the status and tells the user the PDF is too large to save on the
+  server; editing and downloading still work, since neither needs the server. IndexedDB mode (the
+  web app without `NEXT_PUBLIC_API_URL`) has no such cap.
+- **`GET /jobs/:id` returns every item on every poll.** The response carries the full `items` array
+  (one entry per record, up to `MAX_JOB_RECORDS` = 5000), not a delta. The web client polls it every
+  two seconds while a job runs; that is fine at the current record limit, and paging or a `since`
+  cursor is the change to make if the limit grows.
+- **Migrations are applied by hand, not at build.** The design spec had `drizzle-kit migrate` run as
+  the API's build step; in practice it is `npm run db:migrate` against the target `DATABASE_URL`
+  (see *Deploying*), run before the deploy that needs it. The build then never needs write access
+  to the production database, and a schema change stays an explicit, reviewable step rather than a
+  side effect of every deploy.
+- **Only job creation is authenticated.** `POST /files/:id/jobs` requires the bearer `API_KEY`
+  because it is the one endpoint that costs real compute. Every other route -- uploading, reading
+  and deleting files, layouts and values, reading job status and downloading a zip -- is open to any
+  caller allowed by CORS. That is the intended single-workspace model, not an oversight; a
+  multi-tenant deployment would need per-user auth on all of them.
+
 ## Tests
 
 ```bash
