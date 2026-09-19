@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -26,5 +26,21 @@ describe('disk blob store', () => {
     expect(Array.from(await readAll((await blobs.get('b.zip'))!.stream))).toEqual([9])
     await blobs.delete(['a.pdf', 'missing'])
     expect(await blobs.get('a.pdf')).toBeNull()
+  })
+
+  it('returns null for a path that never existed', async () => {
+    const blobs = createDiskBlobStore(dir)
+    expect(await blobs.get('never-existed')).toBeNull()
+  })
+
+  it('refuses a path that escapes the store directory', async () => {
+    const blobs = createDiskBlobStore(dir)
+    const escapedFile = path.join(dir, '..', 'escape.txt')
+
+    await expect(blobs.put('../escape.txt', new Uint8Array([1]), 'text/plain')).rejects.toThrow(
+      'Blob path escapes the store',
+    )
+
+    await expect(access(escapedFile)).rejects.toThrow()
   })
 })
