@@ -12,6 +12,12 @@ describe('parseRecords', () => {
       records: [{ Name: 'Tesfaye, Abel', Date: '18 Sep' }, { Name: 'Sara', Date: 'say "hi"' }],
     })
     expect(parseRecords('Name\n')).toEqual({ error: 'No rows under the header' })
+  })
+  it('strips a UTF-8 byte-order mark from the start of a CSV, so the first header names the slot', () => {
+    // Excel and Windows editors prefix UTF-8 CSV with U+FEFF; left in, the first column would be
+    // keyed "\uFEFFName" and never match a slot named "Name".
+    expect(parseRecords('\uFEFFName,Date\nAbel,18 Sep\n')).toEqual({ records: [{ Name: 'Abel', Date: '18 Sep' }] })
+    expect(parseRecords('\uFEFF[{"Name":"Abel"}]')).toEqual({ records: [{ Name: 'Abel' }] })
     expect(parseRecords('')).toEqual({ error: 'Paste a JSON array or CSV' })
   })
 })

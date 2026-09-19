@@ -2,7 +2,10 @@ export type ParsedRecords = { records: Record<string, string>[] } | { error: str
 
 /** A pasted JSON array of objects, or CSV whose header row names the slots. */
 export function parseRecords(text: string): ParsedRecords {
-  const trimmed = text.trim()
+  // Excel and Windows editors prefix a UTF-8 CSV with a byte-order mark. Stripped explicitly, not
+  // left to `trim()` (which happens to treat U+FEFF as whitespace): left in, the first header cell
+  // would be "\uFEFFName" and never match a slot named "Name".
+  const trimmed = text.replace(/^\uFEFF/, '').trim()
   if (trimmed === '') return { error: 'Paste a JSON array or CSV' }
   if (trimmed.startsWith('[') || trimmed.startsWith('{')) return parseJson(trimmed)
   // Neither a comma nor a line break: not recognisable as tabular data at

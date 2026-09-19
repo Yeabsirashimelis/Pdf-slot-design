@@ -13,19 +13,32 @@ function warnUnreachable(): void {
 }
 
 /**
+ * The platform in front of the API caps a request body at 4.5 MB and answers
+ * a 413 itself, with a plain-text body our envelope parser cannot read. Only
+ * `PUT /files/:id` carries a body that size, so the message names the PDF.
+ */
+const UPLOAD_TOO_LARGE = 'This PDF is too large to save on the server (limit 4.5 MB). You can still edit and download it.'
+
+/** A caller-supplied reason for a status whose body the server does not explain in our envelope. */
+type RequestOptions = { rejectionMessages?: Readonly<Record<number, string>> }
+
+/**
  * A 4xx other than 404 is the server reaching us and rejecting the request
  * (bad input, a business rule like a duplicate slot name) -- not the API
  * being unreachable. Shown with its own reason every time: unlike
  * `warnUnreachable`, this never latches, because each rejection is new
- * information about the request that just failed.
+ * information about the request that just failed. A `known` message wins
+ * over the body: it is for statuses the platform answers on our behalf.
  */
-async function reportRejection(res: Response, method: string, path: string): Promise<void> {
-  let message = `Request failed (${res.status})`
-  try {
-    const parsed = apiErrorSchema.safeParse(await res.json())
-    if (parsed.success) message = parsed.data.error.message
-  } catch {
-    // Body wasn't our error envelope (or wasn't JSON at all) -- keep the generic message.
+async function reportRejection(res: Response, method: string, path: string, known?: string): Promise<void> {
+  let message = known ?? `Request failed (${res.status})`
+  if (!known) {
+    try {
+      const parsed = apiErrorSchema.safeParse(await res.json())
+      if (parsed.success) message = parsed.data.error.message
+    } catch {
+      // Body wasn't our error envelope (or wasn't JSON at all) -- keep the generic message.
+    }
   }
   console.error(`${method} ${path} -> ${res.status}: ${message}`)
   toast.error(message)
@@ -44,12 +57,12 @@ async function reportRejection(res: Response, method: string, path: string): Pro
 export function createHttpTemplateStore(baseUrl: string): TemplateStore {
   const url = (path: string) => `${baseUrl.replace(/\/$/, '')}${path}`
 
-  async function request(path: string, init?: RequestInit): Promise<Response | null> {
+  async function request(path: string, init?: RequestInit, options?: RequestOptions): Promise<Response | null> {
     try {
       const res = await fetch(url(path), init)
       if (res.status === 404) return null
       if (res.status >= 400 && res.status < 500) {
-        await reportRejection(res, init?.method ?? 'GET', path)
+        await reportRejection(res, init?.method ?? 'GET', path, options?.rejectionMessages?.[res.status])
         return null
       }
       if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} -> ${res.status}`)
@@ -74,13 +87,22 @@ export function createHttpTemplateStore(baseUrl: string): TemplateStore {
       if (!meta) return null
       const res = await request(`/files/${fileId}/source`)
       if (!res) return null
-      return { ...meta, source: new Uint8Array(await res.arrayBuffer()) }
+      // Reading the body is a second network operation that can fail on its own (the connection
+      // dropped after the headers arrived), so it is guarded exactly like the request: the store
+      // never rejects, and a failed read is "nothing saved" plus the one-time unreachable warning.
+      try {
+        return { ...meta, source: new Uint8Array(await res.arrayBuffer()) }
+      } catch (err) {
+        console.error(err)
+        warnUnreachable()
+        return null
+      }
     },
     async putFile(file: StoredFile): Promise<void> {
       const form = new FormData()
       form.set('meta', JSON.stringify({ name: file.name, pages: file.pages, createdAt: file.createdAt }))
       form.set('source', new Blob([Uint8Array.from(file.source)], { type: 'application/pdf' }), file.name)
-      await request(`/files/${file.fileId}`, { method: 'PUT', body: form })
+      await request(`/files/${file.fileId}`, { method: 'PUT', body: form }, { rejectionMessages: { 413: UPLOAD_TOO_LARGE } })
     },
     getLayout: (fileId) => json(`/files/${fileId}/layout`, (raw) => templateLayoutSchema.parse(raw) as TemplateLayout),
     putLayout: (layout) => put(`/files/${layout.fileId}/layout`, layout),

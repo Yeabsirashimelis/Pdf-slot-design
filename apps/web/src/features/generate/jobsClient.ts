@@ -9,9 +9,12 @@ export async function createJob(apiUrl: string, fileId: string, records: Record<
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ records }),
     })
-    const body = (await res.json()) as { jobId?: string; error?: { message: string } }
+    const body = (await res.json()) as { jobId?: unknown; error?: { message?: string } }
     if (!res.ok) return { error: res.status === 401 ? 'The API key was refused' : body.error?.message ?? `Request failed (${res.status})` }
-    return { jobId: body.jobId! }
+    // A 2xx is not proof of a job: a proxy or a drifted server can answer 202 with some other body,
+    // and polling `/jobs/undefined` would spin until the user gave up.
+    if (typeof body.jobId !== 'string' || body.jobId === '') return { error: 'The server did not return a job id' }
+    return { jobId: body.jobId }
   } catch {
     return { error: 'The API is unreachable' }
   }

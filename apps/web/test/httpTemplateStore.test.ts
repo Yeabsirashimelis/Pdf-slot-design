@@ -1,19 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { toast } from 'sonner'
-import { createHttpTemplateStore } from '@/lib/persistence/httpTemplateStore'
 
-vi.mock('sonner', () => ({ toast: { warning: vi.fn(), error: vi.fn() } }))
+// Hoisted so the same spies survive `vi.resetModules()` below: a re-imported `sonner` gets these
+// again, and the assertions here keep pointing at the functions the store actually calls.
+const toast = vi.hoisted(() => ({ warning: vi.fn(), error: vi.fn() }))
+vi.mock('sonner', () => ({ toast }))
 
 const fileId = 'a'.repeat(64)
 const okJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
 describe('HttpTemplateStore', () => {
   const fetchMock = vi.fn<typeof fetch>()
-  beforeEach(() => {
+  let createHttpTemplateStore: typeof import('@/lib/persistence/httpTemplateStore')['createHttpTemplateStore']
+  beforeEach(async () => {
+    // The "unreachable" warning latches once per module instance, so each test gets a fresh
+    // module: what one test provokes must not decide what the next one can observe.
+    vi.resetModules()
+    ;({ createHttpTemplateStore } = await import('@/lib/persistence/httpTemplateStore'))
     vi.stubGlobal('fetch', fetchMock)
     fetchMock.mockReset()
-    vi.mocked(toast.warning).mockClear()
-    vi.mocked(toast.error).mockClear()
+    toast.warning.mockClear()
+    toast.error.mockClear()
   })
   afterEach(() => vi.unstubAllGlobals())
   const store = () => createHttpTemplateStore('http://api.test')
@@ -29,6 +35,18 @@ describe('HttpTemplateStore', () => {
     expect(await store().getFile(fileId)).toBeNull()
   })
 
+  it('getFile resolves null (and warns once) when the source body read fails mid-stream', async () => {
+    // The meta request and the source request both succeed; the failure is in reading the
+    // second body -- a connection dropped after the headers arrived. The store's contract is
+    // "never rejects", so this must read as "nothing saved", exactly like a failed fetch.
+    fetchMock
+      .mockResolvedValueOnce(okJson({ fileId, name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: '2026-09-19T00:00:00.000Z' }))
+      .mockResolvedValueOnce({ ok: true, status: 200, arrayBuffer: () => Promise.reject(new TypeError('network error')) } as unknown as Response)
+    await expect(store().getFile(fileId)).resolves.toBeNull()
+    expect(toast.warning).toHaveBeenCalledTimes(1)
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
   it('putFile sends multipart meta + source', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
     await store().putFile({ fileId, name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: '2026-09-19T00:00:00.000Z', source: new Uint8Array([9]) })
@@ -38,6 +56,17 @@ describe('HttpTemplateStore', () => {
     const form = init?.body as FormData
     expect(JSON.parse(form.get('meta') as string)).toEqual({ name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: '2026-09-19T00:00:00.000Z' })
     expect((form.get('source') as File).size).toBe(1)
+  })
+
+  it('a 413 on putFile tells the user the PDF is too large for the server and drops the write', async () => {
+    // The platform, not our API, answers a 413 -- with a plain-text body, never our envelope --
+    // so the generic "Request failed (413)" would leave the user guessing. They can keep working:
+    // the editor and the download never needed the server.
+    fetchMock.mockResolvedValueOnce(new Response('Request Entity Too Large', { status: 413 }))
+    await expect(store().putFile({ fileId, name: 'big.pdf', pages: [{ width: 1, height: 1 }], createdAt: '2026-09-19T00:00:00.000Z', source: new Uint8Array([9]) })).resolves.toBeUndefined()
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(toast.error).toHaveBeenCalledWith('This PDF is too large to save on the server (limit 4.5 MB). You can still edit and download it.')
+    expect(toast.warning).not.toHaveBeenCalled()
   })
 
   it('a 409 that parses as our error envelope is shown with its own reason, not the unreachable warning, and resolves', async () => {
