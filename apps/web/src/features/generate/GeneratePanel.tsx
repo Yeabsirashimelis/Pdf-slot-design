@@ -27,6 +27,7 @@ export function GeneratePanel({ apiUrl, fileId }: { apiUrl: string; fileId: stri
     setError(null)
     const parsed = parseRecords(text)
     if ('error' in parsed) { setError(parsed.error); return }
+    if (apiKey.trim() === '') { setError('Enter your API key'); return }
     saveKey(apiKey)
     const result = await createJob(apiUrl, fileId, parsed.records, apiKey)
     if ('error' in result) { setError(result.error); return }

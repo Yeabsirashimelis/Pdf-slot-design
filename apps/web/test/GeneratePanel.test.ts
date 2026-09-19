@@ -43,4 +43,15 @@ describe('GeneratePanel', () => {
     expect(screen.getByTestId('generate-error').textContent).toMatch(/JSON array or CSV/)
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('refuses a blank API key without overwriting the previously-saved one', () => {
+    localStorage.setItem('pdf-slot-api-key', 'saved')
+    render(createElement(GeneratePanel, { apiUrl: 'http://api.test', fileId }))
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: '' } })
+    fireEvent.change(screen.getByTestId('generate-records'), { target: { value: '[{"Name":"A"}]' } })
+    fireEvent.click(screen.getByTestId('generate-submit'))
+    expect(screen.getByTestId('generate-error').textContent).toBe('Enter your API key')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(localStorage.getItem('pdf-slot-api-key')).toBe('saved')
+  })
 })
