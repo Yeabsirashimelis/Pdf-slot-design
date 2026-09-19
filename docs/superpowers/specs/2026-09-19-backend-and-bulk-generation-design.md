@@ -160,8 +160,13 @@ retries a failed step, so a job cannot silently stop halfway.
   `BLOB_READ_WRITE_TOKEN` (Blob store), `API_KEY`, `WEB_ORIGIN`.
 - `apps/web` gets `NEXT_PUBLIC_API_URL` in production; unset locally unless
   the developer runs the API.
-- Migrations: `drizzle-kit generate` checked in; `drizzle-kit migrate` run
-  as the API's build step.
+- Migrations: `drizzle-kit generate` checked in; applied with
+  `npm run db:migrate -w api` against the target database before a deploy
+  (built as a manual step, not at build time: a build must not mutate the
+  production database, and preview builds share no database of their own).
+- Not exercised yet: the first Vercel deploy of `apps/api` (project link,
+  Neon and Blob provisioning, env) is done with the user, see
+  `apps/api/README.md`.
 
 ## Testing
 
