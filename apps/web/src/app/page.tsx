@@ -7,7 +7,7 @@ import { SavedFiles } from '@/features/files/SavedFiles'
 import { TemplateEditor } from '@/features/template/TemplateEditor'
 import { openFile, type OpenedFile } from '@/features/template/openFile'
 import { isFileId } from '@/lib/files/fileHash'
-import { templateStore } from '@/lib/persistence/indexedDbTemplateStore'
+import { templateStore } from '@/lib/persistence'
 
 export default function Home() {
   const [opened, setOpened] = useState<OpenedFile | null>(null)
