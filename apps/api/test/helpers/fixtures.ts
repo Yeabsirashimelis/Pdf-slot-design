@@ -27,6 +27,6 @@ export const slot = (over: Record<string, unknown> = {}) => ({
 export async function putTestFile(app: Hono<AppEnv>, fileId = FILE_ID, bytes?: Uint8Array) {
   const form = new FormData()
   form.set('meta', JSON.stringify({ name: 'form.pdf', pages: [{ width: 612, height: 792 }, { width: 612, height: 792 }], createdAt: '2026-09-19T00:00:00.000Z' }))
-  form.set('source', new Blob([bytes ?? (await twoPagePdf())], { type: 'application/pdf' }), 'form.pdf')
+  form.set('source', new Blob([Uint8Array.from(bytes ?? (await twoPagePdf()))], { type: 'application/pdf' }), 'form.pdf')
   return app.request(`/files/${fileId}`, { method: 'PUT', body: form })
 }
