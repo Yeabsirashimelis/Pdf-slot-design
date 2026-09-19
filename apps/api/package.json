@@ -1,0 +1,38 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@hono/node-server": "^2.1.1",
+    "@hono/zod-validator": "^0.9.1",
+    "@neondatabase/serverless": "^1.1.0",
+    "@pdf-slot/contracts": "^0.0.0",
+    "@pdf-slot/core": "^0.0.0",
+    "@vercel/blob": "^2.8.0",
+    "drizzle-orm": "^0.45.2",
+    "fflate": "^0.8.2",
+    "hono": "^4.13.8",
+    "nitro": "^3.0.260903-beta",
+    "rollup": "^4.63.3",
+    "workflow": "^4.8.9",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4",
+    "typescript": "^5",
+    "vitest": "^4"
+  }
+}
