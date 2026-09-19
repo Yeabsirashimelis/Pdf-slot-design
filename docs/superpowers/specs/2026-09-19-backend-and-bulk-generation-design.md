@@ -87,7 +87,7 @@ All bodies JSON except the file upload. Every response is validated against
 | `PUT /files/:id/values` | `TemplateValues` → 204 | |
 | `POST /files/:id/jobs` | `{ records: Record<string,string>[] }` → `{ jobId }` (202) | **Bearer API key**; 400 if no layout or empty records; max 5000 records |
 | `GET /jobs/:id` | → `{ status, total, done, failed, zipUrl?, items: [{index,status,error?}] }` | polled by the UI |
-| `GET /jobs/:id/zip` | → 302 to a short-lived Blob download URL | only when `done` |
+| `GET /jobs/:id/zip` | → `application/zip` bytes, streamed from Blob | 409 until `done` |
 
 Errors are `{ error: { code, message } }` with a 4xx/5xx status. CORS allows
 the web app's origin (`WEB_ORIGIN` env).
@@ -152,8 +152,10 @@ retries a failed step, so a job cannot silently stop halfway.
 
 ## Deployment
 
-- `apps/api` is its own Vercel project (framework: Hono, Node 24, Fluid
-  compute), root directory `apps/api`, with Workflow enabled. Env:
+- `apps/api` is its own Vercel project (Hono on Nitro -- the build system
+  the Workflow SDK's Hono guide requires; Node 24, Fluid compute), root
+  directory `apps/api`, with Workflow enabled. The renderer's fonts are
+  bundled from `packages/core` as Nitro server assets. Env:
   `DATABASE_URL` (injected by the Neon Marketplace integration),
   `BLOB_READ_WRITE_TOKEN` (Blob store), `API_KEY`, `WEB_ORIGIN`.
 - `apps/web` gets `NEXT_PUBLIC_API_URL` in production; unset locally unless
@@ -164,9 +166,11 @@ retries a failed step, so a job cannot silently stop halfway.
 ## Testing
 
 - `packages/contracts`: schema round-trips for every shape.
-- `apps/api`: route tests with Hono's `app.request()` against a real
-  Postgres (`DATABASE_URL_TEST`; a Neon branch or local Docker) and an
-  in-memory Blob fake behind a small `BlobStore` interface; the Workflow
+- `apps/api`: route tests with Hono's `app.request()` against PGlite (an
+  in-process Postgres running the committed migrations -- no Docker, no
+  network) and an in-memory blob store behind a small `BlobStore`
+  interface (a disk-backed one serves local development without a Blob
+  token); the Workflow
   steps are plain functions and are tested directly (fonts + a two-page
   fixture from core), including: a record missing a slot renders blank, an
   unrenderable character fails only that item, the zip contains one PDF
