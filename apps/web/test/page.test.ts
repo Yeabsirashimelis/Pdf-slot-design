@@ -106,7 +106,7 @@ describe('Home', () => {
 
   it('restores the last open file into its step on load', async () => {
     memory.session = { fileId: FILE_ID, step: 'write' }
-    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
+    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: '2026-09-19T00:00:00.000Z' })
     // openFile's own landing rule says 'layout'; the session's step must win.
     const restored: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: knownLayout, values: null, step: 'layout' }
     openFileMock.mockResolvedValue(restored)
@@ -126,7 +126,7 @@ describe('Home', () => {
 
   it('a restore that fails falls back to the dropzone and clears the session', async () => {
     memory.session = { fileId: FILE_ID, step: 'write' }
-    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
+    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: '2026-09-19T00:00:00.000Z' })
     openFileMock.mockRejectedValueOnce(new Error('boom'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -152,7 +152,7 @@ describe('Home', () => {
 
   it('a session with a random (non-hash) file id is not restored and is cleared', async () => {
     memory.session = { fileId: 'random-uuid', step: 'write' }
-    memory.files.set('random-uuid', { fileId: 'random-uuid', name: 'x.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
+    memory.files.set('random-uuid', { fileId: 'random-uuid', name: 'x.pdf', source: bytes, pages: doc.pages, createdAt: '2026-09-19T00:00:00.000Z' })
 
     const Home = (await import('../src/app/page')).default
     render(createElement(Home))
@@ -279,7 +279,7 @@ describe('Home', () => {
   })
 
   it('Delete asks first, then removes the file from the list and the store', async () => {
-    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
+    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: '2026-09-19T00:00:00.000Z' })
     memory.layouts.set(FILE_ID, knownLayout)
 
     const Home = (await import('../src/app/page')).default

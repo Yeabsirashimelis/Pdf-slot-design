@@ -20,10 +20,10 @@ describe('HttpTemplateStore', () => {
 
   it('getFile joins meta and bytes; null on 404', async () => {
     fetchMock
-      .mockResolvedValueOnce(okJson({ fileId, name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: 't' }))
+      .mockResolvedValueOnce(okJson({ fileId, name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: '2026-09-19T00:00:00.000Z' }))
       .mockResolvedValueOnce(new Response(new Uint8Array([1, 2]), { status: 200 }))
     const file = await store().getFile(fileId)
-    expect(file).toEqual({ fileId, name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: 't', source: new Uint8Array([1, 2]) })
+    expect(file).toEqual({ fileId, name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: '2026-09-19T00:00:00.000Z', source: new Uint8Array([1, 2]) })
     expect(fetchMock.mock.calls.map((c) => String(c[0]))).toEqual([`http://api.test/files/${fileId}`, `http://api.test/files/${fileId}/source`])
     fetchMock.mockResolvedValueOnce(okJson({ error: { code: 'not_found', message: 'x' } }, 404))
     expect(await store().getFile(fileId)).toBeNull()
@@ -31,12 +31,12 @@ describe('HttpTemplateStore', () => {
 
   it('putFile sends multipart meta + source', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
-    await store().putFile({ fileId, name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: 't', source: new Uint8Array([9]) })
+    await store().putFile({ fileId, name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: '2026-09-19T00:00:00.000Z', source: new Uint8Array([9]) })
     const [url, init] = fetchMock.mock.calls[0]!
     expect(String(url)).toBe(`http://api.test/files/${fileId}`)
     expect(init?.method).toBe('PUT')
     const form = init?.body as FormData
-    expect(JSON.parse(form.get('meta') as string)).toEqual({ name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: 't' })
+    expect(JSON.parse(form.get('meta') as string)).toEqual({ name: 'a.pdf', pages: [{ width: 1, height: 1 }], createdAt: '2026-09-19T00:00:00.000Z' })
     expect((form.get('source') as File).size).toBe(1)
   })
 

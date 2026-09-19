@@ -45,10 +45,14 @@ export const fileMetaSchema = z.object({
   fileId: fileIdSchema,
   name: z.string().min(1),
   pages: z.array(pageSizeSchema).min(1),
-  createdAt: z.string(),
+  createdAt: z.iso.datetime(),
 })
 export type FileMeta = z.infer<typeof fileMetaSchema>
-export type _FileMetaMatchesCore = FileMeta extends Omit<StoredFile, 'source'> ? true : never
+// Compile-time check that the wire shape is still core's `StoredFile` minus its bytes: if either side
+// drifts, this assignment stops type-checking. A bare type alias would not -- an unused conditional
+// type is never evaluated, so the mismatch would go unnoticed.
+const _fileMetaMatchesCore: FileMeta extends Omit<StoredFile, 'source'> ? true : never = true
+void _fileMetaMatchesCore
 
 /** The multipart `meta` part of `PUT /files/:id` (the id is in the path). */
 export const putFileMetaSchema = fileMetaSchema.omit({ fileId: true })

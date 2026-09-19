@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createJobRequestSchema, fileIdSchema, jobStatusSchema, storedFileSummarySchema, templateLayoutSchema,
+  createJobRequestSchema, fileIdSchema, fileMetaSchema, jobStatusSchema, storedFileSummarySchema, templateLayoutSchema,
   MAX_JOB_RECORDS,
 } from '../src/index.js'
 
@@ -22,6 +22,13 @@ describe('contracts', () => {
     expect(templateLayoutSchema.parse(layout)).toEqual(layout)
     expect(templateLayoutSchema.safeParse({ ...layout, slots: [{ ...slot, fontId: 'comic' }] }).success).toBe(false)
     expect(templateLayoutSchema.safeParse({ ...layout, updatedAt: 't' }).success).toBe(false)
+  })
+
+  it('file meta createdAt must be an ISO datetime, like every other timestamp the API returns', () => {
+    const meta = { fileId: hash, name: 'a.pdf', pages: [{ width: 612, height: 792 }], createdAt: '2026-09-19T00:00:00.000Z' }
+    expect(fileMetaSchema.parse(meta)).toEqual(meta)
+    expect(fileMetaSchema.safeParse({ ...meta, createdAt: 't' }).success).toBe(false)
+    expect(fileMetaSchema.safeParse({ ...meta, createdAt: '2026-09-19' }).success).toBe(false)
   })
 
   it('a job request needs 1..MAX_JOB_RECORDS string records', () => {

@@ -6,7 +6,7 @@ import { GeneratePanel } from '@/features/generate/GeneratePanel'
 const fileId = 'a'.repeat(64)
 const okJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 const status = (over: Partial<Record<string, unknown>>) => ({
-  id: 'j1', fileId, status: 'running', total: 2, done: 1, failed: 0, error: null, createdAt: 't', finishedAt: null,
+  id: 'j1', fileId, status: 'running', total: 2, done: 1, failed: 0, error: null, createdAt: '2026-09-19T00:00:00.000Z', finishedAt: null,
   items: [{ index: 0, status: 'done', error: null }, { index: 1, status: 'pending', error: null }], ...over,
 })
 
