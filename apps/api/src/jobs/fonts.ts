@@ -1,13 +1,18 @@
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
-import { FONT_FILES, FONT_IDS, type FontBytes } from '@pdf-slot/core'
+import type { FontBytes } from '@pdf-slot/core'
+import { decodeEmbeddedFonts } from '@pdf-slot/core/fonts/embedded'
 
-/** Where font bytes come from: disk in tests/dev, Nitro server assets in production (see runtime.ts). */
-export type FontSource = (fileName: string) => Promise<Uint8Array>
-
-export const diskFontSource = (dir: string): FontSource => (name) => readFile(path.join(dir, name)).then((b) => new Uint8Array(b))
-
-export async function loadFonts(source: FontSource): Promise<FontBytes> {
-  const entries = await Promise.all(FONT_IDS.map(async (id) => [id, await source(FONT_FILES[id])] as const))
-  return Object.fromEntries(entries) as FontBytes
+/**
+ * The renderer's fonts, decoded from the data compiled into this bundle (packages/core's
+ * embedded module, byte-identical to the TTFs the editor ships -- see test/fonts.test.ts). No
+ * file or asset lookup, so the one code path serves dev, tests, `nitro build` and a Workflow
+ * step on Vercel, which sees neither the repository nor Nitro's asset storage.
+ *
+ * Memoised for the life of the provider: steps.ts keys a WeakMap of parsed font metrics off the
+ * returned object's identity, so every call must resolve to the SAME FontBytes instance. A throw
+ * is not memoised -- the next call decodes again rather than every later step in the process
+ * inheriting one failure.
+ */
+export function embeddedFontProvider(): () => Promise<FontBytes> {
+  let fonts: FontBytes | null = null
+  return async () => (fonts ??= decodeEmbeddedFonts())
 }

@@ -13,7 +13,7 @@ export function setJobContext(ctx: JobContext): void {
 
 export async function getJobContext(): Promise<JobContext> {
   if (!current) {
-    // Lazy and dynamic on purpose: runtime.ts imports nitro/runtime, which only exists inside a Nitro build.
+    // Lazy and dynamic on purpose: runtime.ts reads the environment and connects to production services at module load, which tests never want.
     const { productionJobContext } = await import('../runtime.js')
     current = await productionJobContext()
   }

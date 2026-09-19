@@ -2,12 +2,20 @@ import { unzipSync } from 'fflate'
 import { createApp, type Deps } from '../../src/app.js'
 import { createMemoryBlobStore } from '../../src/blob/memoryBlobStore.js'
 import { setJobContext } from '../../src/jobs/context.js'
+import { embeddedFontProvider } from '../../src/jobs/fonts.js'
 import { finishJob, loadJob, renderBatch } from '../../src/jobs/steps.js'
 import { createTestDb } from '../helpers/db.js'
 import { coreFonts } from '../helpers/fixtures.js'
 
-/** The same font bytes the editor ships. One object for every boot, so steps.ts parses metrics from it once per worker. */
+/** The font bytes the editor ships, read from packages/core's TTFs: what a suite renders its expected output with. */
 export const fonts = coreFonts()
+/**
+ * What the API renders with: the fonts compiled into its bundle, exactly as a Workflow step on
+ * Vercel does. Deliberately not `fonts` above -- a suite that checks generated PDFs against the
+ * editor's render is then also checking that the embedded copy matches the shipped TTFs. One
+ * provider for every boot, so steps.ts parses metrics from it once per worker.
+ */
+const serverFonts = embeddedFontProvider()
 
 export const API_KEY = 'test-key'
 export const API_URL = 'http://api.test'
@@ -41,7 +49,7 @@ export async function bootApi(): Promise<BootedApi> {
     startJob: async (jobId: string) => { started.push(jobId) },
   }
   const app = createApp(deps)
-  setJobContext({ db, blobs, fonts: async () => fonts })
+  setJobContext({ db, blobs, fonts: serverFonts })
 
   const fetchViaApp: typeof fetch = async (input, init) => app.request(input, init)
 
