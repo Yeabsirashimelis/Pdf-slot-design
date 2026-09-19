@@ -1,8 +1,10 @@
+import { eq } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import { createApp } from '../src/app.js'
 import { testDeps } from './helpers/deps.js'
 import { FILE_ID, putTestFile, slot } from './helpers/fixtures.js'
 import { setJobStatus } from '../src/db/jobs.js'
+import { jobs } from '../src/db/schema.js'
 
 const auth = { Authorization: 'Bearer test-key', 'Content-Type': 'application/json' }
 const post = (body: unknown, headers: Record<string, string> = auth) => ({ method: 'POST', headers, body: JSON.stringify(body) })
@@ -31,6 +33,16 @@ describe('jobs routes', () => {
     const { jobId } = await res.json()
     expect(startJob).toHaveBeenCalledWith(jobId)
     expect(await (await app.request(`/jobs/${jobId}`)).json()).toMatchObject({ id: jobId, fileId: FILE_ID, status: 'queued', total: 2, items: [{ index: 0, status: 'pending' }, { index: 1, status: 'pending' }] })
+  })
+  it('marks the job failed if the workflow cannot start; the client still gets a 500', async () => {
+    const startJob = vi.fn(async () => { throw new Error('boom') })
+    const deps = await testDeps({ startJob })
+    const app = createApp(deps)
+    await withLayout(app)
+    const res = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }))
+    expect(res.status).toBe(500)
+    const [row] = await deps.db.select({ id: jobs.id }).from(jobs).where(eq(jobs.fileId, FILE_ID)).limit(1)
+    expect(await (await app.request(`/jobs/${row!.id}`)).json()).toMatchObject({ status: 'failed', error: 'Could not start the generation job' })
   })
   it('400 without a layout or with no records; 404 for an unknown file or job', async () => {
     const app = createApp(await testDeps())

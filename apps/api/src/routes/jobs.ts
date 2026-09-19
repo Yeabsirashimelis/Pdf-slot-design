@@ -6,7 +6,7 @@ import type { AppEnv } from '../app.js'
 import { ApiError, notFound } from '../errors.js'
 import { getFileMeta } from '../db/files.js'
 import { getLayout } from '../db/layouts.js'
-import { createJob, getJob, getJobRow } from '../db/jobs.js'
+import { createJob, getJob, getJobRow, setJobStatus } from '../db/jobs.js'
 import { fileIdParam } from './files.js'
 
 export const jobsRoutes = new Hono<AppEnv>()
@@ -28,7 +28,14 @@ jobsRoutes.post(
     if (!layout || layout.slots.length === 0) throw new ApiError(400, 'no_layout', 'Lay out at least one slot before generating')
     const id = crypto.randomUUID()
     await createJob(db, { id, fileId, records: c.req.valid('json').records })
-    await startJob(id)
+    try {
+      await startJob(id)
+    } catch (err) {
+      // The job row exists and was accepted (202 was promised implicitly by getting this far); if the
+      // workflow never starts, it must not sit `queued` forever with nothing to explain why.
+      await setJobStatus(db, id, { status: 'failed', error: 'Could not start the generation job', finishedAt: new Date() })
+      throw err
+    }
     return c.json({ jobId: id }, 202)
   },
 )

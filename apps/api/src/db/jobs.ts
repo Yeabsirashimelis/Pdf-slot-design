@@ -13,11 +13,15 @@ export async function deleteJobBlobsForFile(db: Db, fileId: string): Promise<str
 }
 
 export async function createJob(db: Db, input: { id: string; fileId: string; records: JobRecord[] }): Promise<void> {
-  await db.insert(jobs).values({ id: input.id, fileId: input.fileId, status: 'queued', total: input.records.length })
-  // Chunked: a single statement with 5000 rows is fine for Postgres but not for every driver's parameter limit.
-  for (let i = 0; i < input.records.length; i += 500) {
-    await db.insert(jobItems).values(input.records.slice(i, i + 500).map((record, j) => ({ jobId: input.id, index: i + j, record })))
-  }
+  // Transactional: without it, a failure partway through the chunk loop would leave a job row whose
+  // item count never reaches `total`, and nothing would ever retry the missing chunks.
+  await db.transaction(async (tx) => {
+    await tx.insert(jobs).values({ id: input.id, fileId: input.fileId, status: 'queued', total: input.records.length })
+    // Chunked: a single statement with 5000 rows is fine for Postgres but not for every driver's parameter limit.
+    for (let i = 0; i < input.records.length; i += 500) {
+      await tx.insert(jobItems).values(input.records.slice(i, i + 500).map((record, j) => ({ jobId: input.id, index: i + j, record })))
+    }
+  })
 }
 
 export async function getJobRow(db: Db, id: string) {
@@ -45,13 +49,17 @@ export async function markItem(
   db: Db, jobId: string, index: number,
   result: { status: 'done'; pdfPath: string } | { status: 'failed'; error: string },
 ): Promise<void> {
-  if (result.status === 'done') {
-    await db.update(jobItems).set({ status: 'done', pdfPath: result.pdfPath, error: null }).where(and(eq(jobItems.jobId, jobId), eq(jobItems.index, index)))
-    await db.update(jobs).set({ done: sql`${jobs.done} + 1`, status: 'running' }).where(eq(jobs.id, jobId))
-  } else {
-    await db.update(jobItems).set({ status: 'failed', error: result.error, pdfPath: null }).where(and(eq(jobItems.jobId, jobId), eq(jobItems.index, index)))
-    await db.update(jobs).set({ failed: sql`${jobs.failed} + 1`, status: 'running' }).where(eq(jobs.id, jobId))
-  }
+  // Transactional: the item's own status and the job's running counters must move together, or a crash
+  // between the two statements would leave the job's done/failed counts short of its items' real state.
+  await db.transaction(async (tx) => {
+    if (result.status === 'done') {
+      await tx.update(jobItems).set({ status: 'done', pdfPath: result.pdfPath, error: null }).where(and(eq(jobItems.jobId, jobId), eq(jobItems.index, index)))
+      await tx.update(jobs).set({ done: sql`${jobs.done} + 1`, status: 'running' }).where(eq(jobs.id, jobId))
+    } else {
+      await tx.update(jobItems).set({ status: 'failed', error: result.error, pdfPath: null }).where(and(eq(jobItems.jobId, jobId), eq(jobItems.index, index)))
+      await tx.update(jobs).set({ failed: sql`${jobs.failed} + 1`, status: 'running' }).where(eq(jobs.id, jobId))
+    }
+  })
 }
 
 export async function setJobStatus(
