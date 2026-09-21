@@ -158,8 +158,6 @@ export function TemplateEditor({
         doc={doc}
         store={editor}
         locked={step === 'write'}
-        highlighted={step === 'write'}
-        readOnly={step === 'layout'}
         onPlaceSlot={step === 'layout' ? handlePlaceSlot : undefined}
         onDuplicateSlot={handleDuplicate}
         onPasteSlot={step === 'layout' ? handlePaste : undefined}

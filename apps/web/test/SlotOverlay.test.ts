@@ -100,13 +100,9 @@ describe('SlotOverlay geometry', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('every slot shows a wash and a hairline; highlighted uses the stronger wash', () => {
-    const plain = renderOverlay(false).box
-    expect(plain.style.backgroundColor).toContain('var(--slot-highlight)')
-    expect(plain.style.boxShadow).toContain('inset')
-    cleanup()
-    const { box } = renderOverlay(false, { highlighted: true })
-    expect(box.style.backgroundColor).toContain('var(--slot-highlight-strong)')
+  it('every slot shows a wash and a hairline', () => {
+    const { box } = renderOverlay(false)
+    expect(box.style.backgroundColor).toContain('var(--slot-highlight)')
     expect(box.style.boxShadow).toContain('inset')
   })
 
@@ -143,25 +139,82 @@ describe('SlotOverlay geometry', () => {
     const { box } = renderOverlay(false, { slot: { ...makeSlot(), height: 120 } })
     expect(box.style.height).toBe('120px')
   })
+})
 
-  it('shows its name as a small label above the box when given one', () => {
-    const { box } = renderOverlay(false, { label: 'Date' })
-    const label = box.querySelector('[data-testid="slot-label"]') as HTMLElement
-    expect(label.textContent).toBe('Date')
-    // Above the box, not inside it, and never in the way of the pointer.
-    expect(label.style.bottom).toBe('100%')
-    expect(label.style.pointerEvents).toBe('none')
-    cleanup()
-    expect(renderOverlay(false).box.querySelector('[data-testid="slot-label"]')).toBeNull()
+describe('SlotOverlay on a scaled stage', () => {
+  afterEach(() => cleanup())
+
+  it('divides pointer deltas by the screen scale: a 40px drag on a 2x stage moves the slot 20pt', () => {
+    const onChange = vi.fn()
+    const { box } = renderOverlay(true, { onChange, screenScale: 2 })
+    fireEvent.pointerDown(box, { pointerId: 1, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 40, clientY: 0 })
+    expect(onChange).toHaveBeenLastCalledWith({ x: 10 + 20, y: 700 })
   })
 
-  it('readOnly: no text box at all -- the box is about where, not what; typed text still shows', () => {
-    const { box } = renderOverlay(true, { readOnly: true, slot: { ...makeSlot(), text: 'written earlier' } })
+  it('keeps the outline and the grab strips the same size on screen at any zoom', () => {
+    const { box } = renderOverlay(true, { screenScale: 4 })
+    // 2 screen px of outline is 0.5 stage px on a 4x stage.
+    expect(box.style.outline).toContain('0.5px')
+    const strip = box.querySelector('[data-resize-edge="right"]') as HTMLElement
+    expect(strip.style.width).toBe('2px')
+  })
+})
+
+describe('SlotOverlay name and size', () => {
+  afterEach(() => cleanup())
+
+  it('an empty slot shows its name as a placeholder in its own typography, faded and marked as such', () => {
+    const { box } = renderOverlay(false, { slot: { ...makeSlot(), text: '' }, name: 'Date' })
+    const spans = box.querySelectorAll('[data-slot-line][data-placeholder]')
+    expect(spans.length).toBeGreaterThan(0)
+    expect(box.textContent).toContain('Date')
+    expect((spans[0] as HTMLElement).style.fontFamily).toBe('PdfSlotSans')
+    expect((spans[0] as HTMLElement).style.color).toContain('color-mix')
+  })
+
+  it('the placeholder gives way to text, and a committed slot hides its DOM text but never its placeholder', () => {
+    const withText = renderOverlay(false, { name: 'Date', textCommitted: true }).box
+    expect(withText.querySelector('[data-slot-line][data-placeholder]')).toBeNull()
+    // No line spans at all: the canvas is showing this text.
+    expect(withText.querySelectorAll('[data-slot-line]').length).toBe(0)
+    cleanup()
+    const empty = renderOverlay(false, { slot: { ...makeSlot(), text: '' }, name: 'Date', textCommitted: true }).box
+    expect(empty.textContent).toContain('Date')
+  })
+
+  it('selected: prints the box size in points under it, counter-scaled', () => {
+    const { box } = renderOverlay(true, { slot: { ...makeSlot(), height: 40 }, screenScale: 2 })
+    const badge = box.querySelector('[data-testid="slot-size-badge"]') as HTMLElement
+    expect(badge.textContent).toBe('200 × 40')
+    expect(badge.style.transform).toContain('scale(0.5)')
+    cleanup()
+    expect(renderOverlay(false).box.querySelector('[data-testid="slot-size-badge"]')).toBeNull()
+  })
+
+  it('naming: an inline input in place of the textarea; Enter commits, Escape cancels, typing reports', () => {
+    const naming = { value: 'Da', onChange: vi.fn(), onCommit: vi.fn(), onCancel: vi.fn() }
+    const { box } = renderOverlay(true, { slot: { ...makeSlot(), text: '' }, naming })
     expect(box.querySelector('textarea')).toBeNull()
-    expect(box.textContent).toContain('written earlier')
-    // Still movable and resizable: the move cursor and the edge strips remain.
-    expect(box.style.cursor).toBe('move')
-    expect(box.querySelectorAll('[data-resize-edge]').length).toBe(4)
+    const input = box.querySelector('[data-testid="slot-name-inline"]') as HTMLInputElement
+    expect(input.value).toBe('Da')
+    expect(input.style.fontFamily).toBe('PdfSlotSans')
+    fireEvent.change(input, { target: { value: 'Date' } })
+    expect(naming.onChange).toHaveBeenCalledWith('Date')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(naming.onCommit).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(naming.onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('naming: a pointerdown in the input does not start a drag', () => {
+    const onChange = vi.fn()
+    const naming = { value: '', onChange: vi.fn(), onCommit: vi.fn(), onCancel: vi.fn() }
+    const { box } = renderOverlay(true, { slot: { ...makeSlot(), text: '' }, naming, onChange })
+    const input = box.querySelector('[data-testid="slot-name-inline"]') as HTMLInputElement
+    fireEvent.pointerDown(input, { pointerId: 3, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(box, { pointerId: 3, clientX: 50, clientY: 0 })
+    expect(onChange).not.toHaveBeenCalled()
   })
 
   it('Alt+drag leaves the box where it is and moves a copy: the clone is asked for once, then patches target it', () => {
@@ -191,29 +244,5 @@ describe('SlotOverlay geometry', () => {
   it('the text box stays selectable even though the stage around it is not', () => {
     const { textarea } = renderOverlay(true)
     expect(textarea.style.userSelect).toBe('text')
-  })
-
-  describe('placeholder (step 1)', () => {
-    const empty = () => ({ ...makeSlot(), text: '', width: 60, size: 14 })
-
-    it('an empty, named, read-only box shows "Your <name> here…" faded, laid out like real text', () => {
-      const { box } = renderOverlay(false, { readOnly: true, label: 'Date', slot: empty() })
-      const ph = box.querySelector('[data-testid="slot-placeholder"]') as HTMLElement
-      // 60pt wide at 14pt: the placeholder wraps (one span per line, the
-      // wrap consuming the space), and the box grows to show that.
-      const spans = Array.from(ph.querySelectorAll('span')).map((el) => el.textContent)
-      expect(spans.length).toBeGreaterThan(1)
-      expect(spans.join(' ')).toBe('Your Date here…')
-      expect(parseFloat(ph.style.opacity)).toBeLessThan(1)
-      expect(parseFloat(box.style.height)).toBeGreaterThan(14 * 1.2 * 1.5)
-    })
-
-    it('is not shown once the slot has text, without a name, or in step 2', () => {
-      expect(renderOverlay(false, { readOnly: true, label: 'Date', slot: { ...empty(), text: 'x' } }).box.querySelector('[data-testid="slot-placeholder"]')).toBeNull()
-      cleanup()
-      expect(renderOverlay(false, { readOnly: true, slot: empty() }).box.querySelector('[data-testid="slot-placeholder"]')).toBeNull()
-      cleanup()
-      expect(renderOverlay(false, { readOnly: false, label: 'Date', slot: empty() }).box.querySelector('[data-testid="slot-placeholder"]')).toBeNull()
-    })
   })
 })

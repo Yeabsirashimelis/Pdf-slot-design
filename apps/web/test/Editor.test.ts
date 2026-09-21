@@ -236,7 +236,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     expect(slotDiv).not.toBeNull()
 
     await waitFor(() => {
-      expect(slotDiv?.querySelectorAll('span').length).toBe(0)
+      expect(slotDiv?.querySelectorAll('[data-slot-line]').length).toBe(0)
     })
   })
 
@@ -281,7 +281,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     const textareaA = await placeAndTypeIntoASlot(container, 'first')
     fireEvent.blur(textareaA)
     const slotA = textareaA.closest('[data-slot-id]') as HTMLElement
-    await waitFor(() => expect(slotA.querySelectorAll('span').length).toBe(0))
+    await waitFor(() => expect(slotA.querySelectorAll('[data-slot-line]').length).toBe(0))
 
     // Slot B: place and commit. Its paint is now held open.
     const canvas = container.querySelector('canvas') as HTMLCanvasElement
@@ -298,14 +298,14 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
 
     // Mid-paint: B (changed) shows its DOM text; A (unchanged) must not.
     const slotB = textareaB.closest('[data-slot-id]') as HTMLElement
-    expect(slotB.querySelectorAll('span').length).toBeGreaterThan(0)
-    expect(slotA.querySelectorAll('span').length).toBe(0)
+    expect(slotB.querySelectorAll('[data-slot-line]').length).toBeGreaterThan(0)
+    expect(slotA.querySelectorAll('[data-slot-line]').length).toBe(0)
 
     await act(async () => {
       releasePaint!()
     })
-    await waitFor(() => expect(slotB.querySelectorAll('span').length).toBe(0))
-    expect(slotA.querySelectorAll('span').length).toBe(0)
+    await waitFor(() => expect(slotB.querySelectorAll('[data-slot-line]').length).toBe(0))
+    expect(slotA.querySelectorAll('[data-slot-line]').length).toBe(0)
   })
 
   it('opens at 100%, and 100% means the page fills the column -- so it is readable, not print-sized', async () => {
@@ -372,7 +372,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     expect(renderPdfMock).not.toHaveBeenCalled()
     // The overlay keeps showing the text: nothing else could.
     const slotDiv = textarea.closest('[data-slot-id]') as HTMLElement
-    expect(slotDiv.querySelectorAll('span').length).toBeGreaterThan(0)
+    expect(slotDiv.querySelectorAll('[data-slot-line]').length).toBeGreaterThan(0)
 
     fireEvent.click(container.querySelector('[data-testid="download-button"]') as HTMLButtonElement)
     await waitFor(() => expect(captured.blobParts).not.toBeNull())
@@ -400,7 +400,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
         id: 's1', page: 0, x: 50, y: 700, width: 200, text: '', fontId: 'sans', size: 14,
         color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2,
       }])
-      return createElement(Editor, { doc: makeDoc(), store, locked: true, highlighted: true })
+      return createElement(Editor, { doc: makeDoc(), store, locked: true })
     }
     const { container } = render(createElement(Harness))
     // Throws while absent: SlotOverlay only mounts once the fonts have

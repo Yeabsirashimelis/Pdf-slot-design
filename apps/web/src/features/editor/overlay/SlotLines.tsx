@@ -34,17 +34,25 @@ export function SlotLines({
   lines,
   viewport,
   metrics,
+  color,
+  placeholder = false,
 }: {
   slot: Slot
   lines: PositionedLine[]
   viewport: Viewport
   metrics: FontMetrics
+  /** CSS colour override -- the slot's own colour otherwise. The name placeholder uses it to read as a hint, not as text. */
+  color?: string
+  /** Marks the spans as the placeholder (the slot's name), for tests and styling hooks. */
+  placeholder?: boolean
 }) {
   return (
     <>
       {lines.map((line, i) => (
         <span
           key={i}
+          data-slot-line
+          data-placeholder={placeholder ? true : undefined}
           style={{
             position: 'absolute',
             left: toScreenLength(line.x - slot.x, viewport),
@@ -53,7 +61,9 @@ export function SlotLines({
             fontSize: toScreenLength(slot.size, viewport),
             whiteSpace: 'pre',
             fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
-            color: rgbToCss(slot.color),
+            color: color ?? rgbToCss(slot.color),
+            // Pointer events go to the box (and its textarea) below.
+            pointerEvents: 'none',
           }}
         >
           {line.text}

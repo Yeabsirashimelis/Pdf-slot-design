@@ -116,7 +116,6 @@ describe('TemplateEditor', () => {
     await placeSlot(container, 'CO#')
     // Step 1 is about where the slots go: the box on the page has no text
     // box to type into (and the panel's chips have no fields either).
-    expect(container.querySelector('[data-slot-id] textarea')).toBeNull()
     expect(container.querySelector('[data-testid^="slot-field-"]')).toBeNull()
 
     fireEvent.click(screen.getByTestId('panel-next'))
@@ -211,7 +210,6 @@ describe('TemplateEditor', () => {
     expect(screen.getByTestId('font-select-trigger')).toBeTruthy()
     // What was written still shows in the box (read-only) so its fit can be judged.
     expect(box.textContent).toContain('001')
-    expect(box.querySelector('textarea')).toBeNull()
 
     fireEvent.click(screen.getByTestId('panel-next'))
     await waitFor(() => screen.getByTestId('slot-field-s1'))

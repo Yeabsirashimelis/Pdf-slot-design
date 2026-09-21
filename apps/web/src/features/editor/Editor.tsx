@@ -76,8 +76,6 @@ export function Editor({
   initialSlots,
   store: externalStore,
   locked = false,
-  highlighted = false,
-  readOnly = false,
   onPlaceSlot,
   onDuplicateSlot,
   onPasteSlot,
@@ -101,11 +99,6 @@ export function Editor({
    * resized, restyled or added. Forwarded to every SlotOverlay and to the
    * Toolbar; clicks on empty canvas are ignored. */
   locked?: boolean
-  /** Tints every slot so a fill-in user can see where the slots are. */
-  highlighted?: boolean
-  /** Step 1 of the template flow: boxes can be placed, moved, resized and
-   * styled but not typed into (see SlotOverlay's `readOnly`). */
-  readOnly?: boolean
   /** When given, a click on empty canvas asks the parent to place a slot
    * (at `atPdf`, in PDF points, on `page`) instead of calling
    * `store.addSlot` directly -- so the parent can, say, open a naming
@@ -449,9 +442,7 @@ export function Editor({
                 onCommit={handleCommit}
                 textCommitted={isSlotCommitted(slot)}
                 locked={locked}
-                highlighted={highlighted}
-                readOnly={readOnly}
-                label={slotLabels?.[slot.id]}
+                name={slotLabels?.[slot.id]}
               />
             ))}
         </div>
