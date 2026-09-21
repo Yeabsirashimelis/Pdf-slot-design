@@ -2,10 +2,11 @@ import { createElement, useMemo, useState } from 'react'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorDocument, Slot } from '@pdf-slot/core'
+import { TooltipProvider } from '../src/components/ui/tooltip'
 
 /**
  * End-to-end (within jsdom, at the seam) check of the download pipeline
- * through the real hook and the real Toolbar: Download performs exactly
+ * through the real hook and the real DownloadButton: Download performs exactly
  * one render of the current slots (from scratch the first time, an
  * increment on top of the last output after that), saves exactly those
  * bytes, and never falls back to the source once the user has edited.
@@ -92,7 +93,7 @@ describe('commit -> preview -> download pipeline', () => {
 
   it('a first download renders once from scratch; a second one after an edit appends an increment', async () => {
     const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
-    const { Toolbar } = await import('../src/features/editor/toolbar/Toolbar')
+    const { DownloadButton } = await import('../src/features/editor/toolbar/DownloadButton')
 
     const output = new Uint8Array([42, 43])
     const outputPlus = new Uint8Array([42, 43, 44])
@@ -108,22 +109,11 @@ describe('commit -> preview -> download pipeline', () => {
         'div',
         null,
         createElement('button', { onClick: () => setText('edited'), 'data-testid': 'edit-button' }, 'Edit'),
-        createElement(Toolbar, {
-          isRendering,
-          render,
-          downloadBlockedReason: null,
-          slots: [],
-          selectedId: null,
-          updateSlotAndCommit: vi.fn(),
-          removeSlotAndCommit: vi.fn(),
-          duplicateSlotAndCommit: vi.fn(() => null),
-          zoom: 1,
-          onZoomChange: vi.fn(),
-          onFitWidth: vi.fn(),
-          pageIndex: 0,
-          pageCount: doc.pages.length,
-          onPageChange: vi.fn(),
-        }),
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(DownloadButton, { isRendering, render, downloadBlockedReason: null }),
+        ),
       )
     }
 
@@ -170,7 +160,7 @@ describe('commit -> preview -> download pipeline', () => {
     // the click genuinely happens mid-render rather than by luck of
     // microtask ordering.
     const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
-    const { Toolbar } = await import('../src/features/editor/toolbar/Toolbar')
+    const { DownloadButton } = await import('../src/features/editor/toolbar/DownloadButton')
 
     const edited = new Uint8Array([7, 7, 7])
     const releaseRender: { current: (() => void) | null } = { current: null }
@@ -197,22 +187,11 @@ describe('commit -> preview -> download pipeline', () => {
           // Blur is the commit boundary, exactly as SlotOverlay wires it.
           onBlur: commit,
         }),
-        createElement(Toolbar, {
-          isRendering,
-          render,
-          downloadBlockedReason: null,
-          slots: [],
-          selectedId: null,
-          updateSlotAndCommit: vi.fn(),
-          removeSlotAndCommit: vi.fn(),
-          duplicateSlotAndCommit: vi.fn(() => null),
-          zoom: 1,
-          onZoomChange: vi.fn(),
-          onFitWidth: vi.fn(),
-          pageIndex: 0,
-          pageCount: doc.pages.length,
-          onPageChange: vi.fn(),
-        }),
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(DownloadButton, { isRendering, render, downloadBlockedReason: null }),
+        ),
       )
     }
 
