@@ -11,9 +11,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
+    // `dark` is the editor's theme (see globals.css's `.dark` block): a
+    // neutral Figma-like palette. Set statically here -- there is no
+    // switcher -- so the first paint is already dark and nothing flashes.
     <html
       lang="en"
-      className={`${GeistSans.variable} ${GeistMono.variable} ${GeistSans.className}`}
+      className={`dark ${GeistSans.variable} ${GeistMono.variable} ${GeistSans.className}`}
     >
       {/* Browser extensions (ColorZilla's `cz-shortcut-listen`, Grammarly,
           password managers) add attributes to <body> before React hydrates,
@@ -22,7 +25,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           checked. */}
       <body className="bg-background text-foreground antialiased" suppressHydrationWarning>
         {children}
-        <Toaster />
+        {/* No next-themes provider exists, so the Toaster's own useTheme
+            would report "system"; the theme is fixed above, so say so. */}
+        <Toaster theme="dark" />
       </body>
     </html>
   )

@@ -56,6 +56,8 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-canvas: var(--canvas);
+  --color-ruler: var(--ruler);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -146,64 +148,100 @@
   --slot-highlight: rgba(26, 58, 95, 0.09);
   --slot-highlight-strong: rgba(26, 58, 95, 0.16);
   --slot-highlight-edge: rgba(26, 58, 95, 0.55);
+
+  /* Workspace behind the page, and the rulers along its edges. */
+  --canvas: #e8e4da;
+  --ruler: #f1ece2;
+  --ruler-tick: #a39b8e;
+  --ruler-text: #6b6359;
+  --ruler-highlight: #cfd8e6;
 }
 
-/* The doc's dark-blue theme, as a coherent stub -- there is no switcher yet. */
+/*
+ * Dark theme: the editor's default (layout.tsx puts `dark` on <html>). A
+ * neutral, Figma-like palette -- panels #2c2c2c, canvas #1e1e1e,
+ * hairlines #404040, one accent blue #0d99ff for selection and the
+ * primary action -- so the document, not the chrome, is the coloured
+ * thing on screen. Text pairs clear WCAG 4.5:1 (foreground/panel 12.6,
+ * muted-fg/panel 7.0, white/primary 4.6).
+ */
 .dark {
   color-scheme: dark;
-  --background: #0a0f1a;
-  --foreground: #f1f5f9;
-  --card: #0f1624;
-  --card-foreground: #f1f5f9;
-  --popover: #0f1624;
-  --popover-foreground: #f1f5f9;
-  --surface-hover: #162033;
-  --primary: #60a5fa;
-  --primary-hover: #93c5fd;
-  --primary-foreground: #0a0f1a;
-  --primary-soft: rgba(96, 165, 250, 0.12);
-  --primary-alpha: rgba(96, 165, 250, 0.25);
-  --secondary: #162033;
-  --secondary-foreground: #e2e8f0;
-  --accent: #162033;
-  --accent-foreground: #e2e8f0;
-  --muted: #162033;
-  --muted-foreground: #94a3b8;
-  --success: #4ade80;
-  --success-soft: #052e16;
-  --success-accent: #4ade80;
-  --warning: #fbbf24;
-  --warning-soft: #451a03;
-  --warning-accent: #fcd34d;
-  --info: #0891b2;
-  --info-soft: #172554;
-  --info-accent: #60a5fa;
-  --destructive: #f97316;
-  --destructive-foreground: #0a0f1a;
-  --destructive-soft: #431407;
-  --destructive-soft-foreground: #fdba74;
-  --link: #22d3ee;
-  --link-hover: #67e8f9;
-  --chart-1: #3b82f6;
-  --chart-2: #22c55e;
-  --chart-3: #eab308;
-  --chart-4: #ef4444;
-  --chart-5: #a855f7;
-  --border: #1e293b;
-  --input: #1e293b;
-  --ring: #60a5fa;
-  --sidebar: #0f1624;
-  --sidebar-foreground: #e2e8f0;
-  --sidebar-primary: #60a5fa;
-  --sidebar-primary-foreground: #0a0f1a;
-  --sidebar-accent: #162033;
-  --sidebar-accent-foreground: #e2e8f0;
-  --sidebar-border: #1e293b;
-  --sidebar-ring: #60a5fa;
-  --slot-selection: #60a5fa;
-  --slot-highlight: rgba(96, 165, 250, 0.12);
-  --slot-highlight-strong: rgba(96, 165, 250, 0.2);
-  --slot-highlight-edge: rgba(96, 165, 250, 0.6);
+
+  /* Surfaces */
+  --background: #2c2c2c;
+  --foreground: #e9e9e9;
+  --card: #2c2c2c;
+  --card-foreground: #e9e9e9;
+  --popover: #222222;
+  --popover-foreground: #e9e9e9;
+  --surface-hover: #383838;
+  /* The workspace behind the page: darker than the panels, like Figma's. */
+  --canvas: #1e1e1e;
+
+  /* Brand / interactive */
+  --primary: #0d99ff;
+  --primary-hover: #3aa9ff;
+  --primary-foreground: #ffffff;
+  --primary-soft: rgba(13, 153, 255, 0.14);
+  --primary-alpha: rgba(13, 153, 255, 0.3);
+  --secondary: #383838;
+  --secondary-foreground: #e9e9e9;
+  /* The selected row in a list: the mockup's slate-blue tint. */
+  --accent: #353c56;
+  --accent-foreground: #ffffff;
+  --muted: #383838;
+  --muted-foreground: #b3b3b3;
+
+  /* Feedback */
+  --success: #1bc47d;
+  --success-soft: #16342a;
+  --success-accent: #79d9b0;
+  --warning: #ffcd29;
+  --warning-soft: #3d3418;
+  --warning-accent: #ffdc70;
+  --info: #0d99ff;
+  --info-soft: #1f3040;
+  --info-accent: #7cc4ff;
+  --destructive: #f24822;
+  --destructive-foreground: #ffffff;
+  --destructive-soft: #3f2420;
+  --destructive-soft-foreground: #ff9c85;
+  --link: #0d99ff;
+  --link-hover: #3aa9ff;
+
+  /* Charts */
+  --chart-1: #0d99ff;
+  --chart-2: #1bc47d;
+  --chart-3: #ffcd29;
+  --chart-4: #f24822;
+  --chart-5: #b3b3b3;
+
+  /* Borders, inputs, focus */
+  --border: #404040;
+  --input: #404040;
+  --ring: #0d99ff;
+
+  /* Sidebar (same surface as the panels) */
+  --sidebar: #2c2c2c;
+  --sidebar-foreground: #e9e9e9;
+  --sidebar-primary: #0d99ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #353c56;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #404040;
+  --sidebar-ring: #0d99ff;
+
+  /* Editor overlay: the accent blue at three strengths, over a white page. */
+  --slot-selection: #0d99ff;
+  --slot-highlight: rgba(13, 153, 255, 0.1);
+  --slot-highlight-strong: rgba(13, 153, 255, 0.18);
+  --slot-highlight-edge: rgba(13, 153, 255, 0.55);
+  /* Rulers: their own surface, ticks, and the selected range's wash. */
+  --ruler: #2c2c2c;
+  --ruler-tick: #6f6f6f;
+  --ruler-text: #9a9a9a;
+  --ruler-highlight: #354465;
 }
 
 @layer base {
@@ -215,6 +253,10 @@
     /* The tokens doc's 24px dot grid, tinted with the ink colour at 2%. */
     background-image: radial-gradient(circle at 1px 1px, rgba(26, 20, 16, 0.022) 1px, transparent 0);
     background-size: 24px 24px;
+  }
+  /* The dot grid is ink-on-cream; on the dark surfaces it only adds noise. */
+  .dark body {
+    background-image: none;
   }
   html {
     @apply font-sans;
