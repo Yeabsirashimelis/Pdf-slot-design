@@ -8,6 +8,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['test/**/*.test.ts'],
+    setupFiles: ['test/setup.ts'],
     // Editor/TemplateEditor cases mount pdf.js and parse the real TTF fonts
     // in jsdom; under a full parallel run they overshoot the 5s default.
     testTimeout: 20_000,
