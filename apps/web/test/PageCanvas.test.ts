@@ -66,7 +66,7 @@ describe('PageCanvas painting', () => {
     const bytes = new Uint8Array([1, 2, 3])
 
     const { container } = render(
-      createElement(PageCanvas, { bytes, pageIndex: 0, zoom: 1, onCanvasClick: vi.fn(), onRendered }),
+      createElement(PageCanvas, { bytes, pageIndex: 0, screenScale: 1, onCanvasClick: vi.fn(), onRendered }),
     )
     const visible = container.querySelector('canvas') as HTMLCanvasElement
 
@@ -88,5 +88,63 @@ describe('PageCanvas painting', () => {
     expect(drawImage.mock.calls[0]![0]).toBe(first!.canvas)
     expect(visible.width).toBe(100)
     expect(visible.height).toBe(100)
+  })
+
+  it('paints the backing store at screenScale x dpr, but only once the scale has held still', async () => {
+    vi.useFakeTimers()
+    try {
+      const { PageCanvas } = await import('../src/features/editor/canvas/PageCanvas')
+      const getViewport = vi.fn(({ scale }: { scale: number }) => ({ width: 100 * scale, height: 100 * scale }))
+      getDocumentMock.mockImplementation(() => ({
+        promise: Promise.resolve({
+          getPage: vi.fn(async () => ({
+            getViewport,
+            render: () => ({ promise: Promise.resolve(), cancel: vi.fn() }),
+          })),
+        }),
+        destroy: vi.fn(),
+      }))
+      const bytes = new Uint8Array([1])
+      const props = { bytes, pageIndex: 0, onCanvasClick: vi.fn() }
+
+      const { rerender } = render(createElement(PageCanvas, { ...props, screenScale: 1 }))
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(getViewport).toHaveBeenCalledWith({ scale: 1 })
+
+      // Three quick pinch steps: no repaint until the last one settles.
+      getViewport.mockClear()
+      rerender(createElement(PageCanvas, { ...props, screenScale: 1.5 }))
+      rerender(createElement(PageCanvas, { ...props, screenScale: 2 }))
+      rerender(createElement(PageCanvas, { ...props, screenScale: 2.5 }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100)
+      })
+      expect(getViewport).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100)
+      })
+      expect(getViewport).toHaveBeenCalledTimes(1)
+      expect(getViewport).toHaveBeenCalledWith({ scale: 2.5 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports a click in stage px: screen distance from the page corner over the screen scale', async () => {
+    const { PageCanvas } = await import('../src/features/editor/canvas/PageCanvas')
+    const onCanvasClick = vi.fn()
+    const { container } = render(
+      createElement(PageCanvas, { bytes: new Uint8Array([1]), pageIndex: 0, screenScale: 2, onCanvasClick }),
+    )
+    const canvas = container.querySelector('canvas') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 10, top: 20 } as DOMRect)
+
+    canvas.dispatchEvent(new MouseEvent('click', { clientX: 110, clientY: 60, bubbles: true }))
+
+    expect(onCanvasClick).toHaveBeenCalledWith({ x: 50, y: 20 })
   })
 })

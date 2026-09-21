@@ -2,7 +2,7 @@
 
 import { useRef } from 'react'
 import { toPdfPoint, type Slot, type Viewport } from '@pdf-slot/core'
-import type { LogicalPoint } from './canvas/coordinates'
+import type { StagePoint } from './canvas/coordinates'
 
 /** A copied slot: every setting, plus its name so the paste can be named after it. */
 export type SlotClipboard = { slot: Slot; label?: string }
@@ -31,7 +31,7 @@ export function useSlotClipboard() {
       clipboardRef.current = { slot: { ...slot }, label }
     },
     /** Null when nothing has been copied yet. Advances the fallback position for the next paste. */
-    take(pointer: LogicalPoint | null, viewport: Viewport, page: number): (SlotClipboard & { target: PasteTarget }) | null {
+    take(pointer: StagePoint | null, viewport: Viewport, page: number): (SlotClipboard & { target: PasteTarget }) | null {
       const held = clipboardRef.current
       if (!held) return null
       const target: PasteTarget = pointer

@@ -18,7 +18,7 @@ import {
 } from '@pdf-slot/core'
 import { loadFontBytes, registerFontFaces } from '@/lib/fonts/loadFonts'
 import { PageCanvas } from './canvas/PageCanvas'
-import type { LogicalPoint } from './canvas/coordinates'
+import type { StagePoint } from './canvas/coordinates'
 import { useEditorStore, type EditorStore } from './state/useEditorStore'
 import { SlotOverlay } from './overlay/SlotOverlay'
 import { useCommitRender } from './pipeline/useCommitRender'
@@ -220,7 +220,7 @@ export function Editor({
 
   // The last pointer position over the page stage (logical px from its
   // top-left), so a paste can land under the pointer; null once it leaves.
-  const pointerRef = useRef<LogicalPoint | null>(null)
+  const pointerRef = useRef<StagePoint | null>(null)
   const clipboard = useSlotClipboard()
   // Paste and Alt+drag both add a copy of a snapshot at a position; the
   // parent (which owns names) gets first refusal, as for duplicate.
@@ -319,9 +319,11 @@ export function Editor({
     [store.slots, pageIndex],
   )
 
-  const handleCanvasClick = (screen: LogicalPoint) => {
+  const handleCanvasClick = (stage: StagePoint) => {
     if (locked) return
-    const atPdf = toPdfPoint(screen, viewport)
+    // Stage px are points already (PageCanvas divided the screen distance
+    // by the zoom it was given), so the flip to PDF space is at zoom 1.
+    const atPdf = toPdfPoint(stage, { zoom: 1, pageHeight: viewport.pageHeight })
     if (onPlaceSlot) {
       onPlaceSlot(atPdf, pageIndex)
       return
@@ -388,6 +390,7 @@ export function Editor({
         onStartOver={onStartOver}
         locked={locked}
       />
+      {/* The stage is the page at this zoom; PageCanvas fills it. */}
       <div
         // Nothing on the stage is text to select or a thing to drag natively:
         // a drag across empty canvas would otherwise silently select the
@@ -395,7 +398,7 @@ export function Editor({
         // selection would start the browser's own drag-and-drop of it (a
         // "no drop" cursor, a ghost of the page) instead of our slot drag.
         // The textarea opts back in (SlotOverlay) so typing still selects.
-        style={{ position: 'relative', display: 'inline-block', userSelect: 'none' }}
+        style={{ position: 'relative', width: page.width * zoom, height: page.height * zoom, userSelect: 'none' }}
         data-testid="page-stage"
         data-zoom={zoom}
         onDragStart={(event) => event.preventDefault()}
@@ -417,7 +420,7 @@ export function Editor({
         <PageCanvas
           bytes={bytes ?? doc.source}
           pageIndex={pageIndex}
-          zoom={zoom}
+          screenScale={zoom}
           onCanvasClick={handleCanvasClick}
           onRendered={handlePainted}
         />
