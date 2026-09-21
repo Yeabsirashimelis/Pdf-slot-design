@@ -31,10 +31,7 @@ export default function Home() {
           return
         }
         const result = await openFile(file.source, file.name, templateStore)
-        // The session's step wins over openFile's landing rule: reload
-        // puts the user back where they were, not where a fresh open
-        // of the same file would start.
-        if (!cancelled) setOpened({ ...result, step: session.step })
+        if (!cancelled) setOpened(result)
       } catch (err) {
         console.error('Failed to restore the last open file', err)
         toast.error("Couldn't reopen your last file. Upload it again to continue.")
@@ -77,31 +74,35 @@ export default function Home() {
     await handleFile({ bytes: file.source, name: file.name })
   }
 
-  // No max width on the editor: the page opens at fit-width, and a capped
-  // column made a landscape form open at 100% -- print size, 6-7pt text at
-  // 8px. The dropzone alone stays a centred column.
+  // Nothing renders until the restore has been attempted (see above).
+  if (isRestoring) return null
+
+  // The editor is the whole viewport, Figma-style; the start screen is a
+  // centred column.
+  if (opened) {
+    return (
+      // Keyed on the file so a restore or a fresh open remounts the editor
+      // with new initial state instead of reusing stale hooks.
+      <TemplateEditor
+        key={opened.fileId}
+        opened={opened}
+        store={templateStore}
+        onStartOver={() => setOpened(null)}
+      />
+    )
+  }
+
   return (
     <main className="flex min-h-dvh flex-col justify-center px-6 py-10">
-      <h1 className="text-2xl font-medium tracking-tight">PDF Slot Editor</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Lay out named text slots on a PDF once; write into them every time after.
-      </p>
-      <div className="mt-6">
-        {isRestoring ? null : opened ? (
-          // Keyed on file + step so a restore or a fresh open remounts the
-          // editor with new initial state instead of reusing stale hooks.
-          <TemplateEditor
-            key={`${opened.fileId}:${opened.step}`}
-            opened={opened}
-            store={templateStore}
-            onStartOver={() => setOpened(null)}
-          />
-        ) : (
-          <div className="mx-auto w-full max-w-4xl">
-            <Dropzone onFile={handleFile} />
-            <SavedFiles store={templateStore} onOpen={(id) => void handleOpenSaved(id)} />
-          </div>
-        )}
+      <div className="mx-auto w-full max-w-4xl">
+        <h1 className="text-2xl font-medium tracking-tight">PDF Slot Editor</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Lay out named text slots on a PDF once; fill them in every time after.
+        </p>
+        <div className="mt-6">
+          <Dropzone onFile={handleFile} />
+          <SavedFiles store={templateStore} onOpen={(id) => void handleOpenSaved(id)} />
+        </div>
       </div>
     </main>
   )

@@ -104,19 +104,17 @@ describe('Home', () => {
     expect(openFileMock).not.toHaveBeenCalled()
   })
 
-  it('restores the last open file into its step on load', async () => {
-    memory.session = { fileId: FILE_ID, step: 'write' }
+  it('restores the last open file on load', async () => {
+    memory.session = { fileId: FILE_ID }
     memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
-    // openFile's own landing rule says 'layout'; the session's step must win.
-    const restored: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: knownLayout, values: null, step: 'layout' }
+    const restored: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: knownLayout, values: null }
     openFileMock.mockResolvedValue(restored)
 
     const Home = (await import('../src/app/page')).default
     render(createElement(Home))
 
     await waitFor(() => expect(screen.getByTestId('slot-panel')).toBeTruthy())
-    expect(screen.getByTestId('panel-back')).toBeTruthy()
-    expect(screen.queryByTestId('panel-next')).toBeNull()
+    expect(screen.getByTestId('inspector-panel')).toBeTruthy()
     expect(screen.queryByText('Drag a PDF or image here, or')).toBeNull()
     expect(openFileMock).toHaveBeenCalledTimes(1)
     const [calledBytes, calledName] = openFileMock.mock.calls[0] as [Uint8Array, string, unknown]
@@ -125,7 +123,7 @@ describe('Home', () => {
   })
 
   it('a restore that fails falls back to the dropzone and clears the session', async () => {
-    memory.session = { fileId: FILE_ID, step: 'write' }
+    memory.session = { fileId: FILE_ID }
     memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
     openFileMock.mockRejectedValueOnce(new Error('boom'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -139,7 +137,7 @@ describe('Home', () => {
   })
 
   it('a session whose file is gone falls back to the dropzone and clears the session', async () => {
-    memory.session = { fileId: FILE_ID, step: 'write' }
+    memory.session = { fileId: FILE_ID }
 
     const Home = (await import('../src/app/page')).default
     render(createElement(Home))
@@ -151,7 +149,7 @@ describe('Home', () => {
   })
 
   it('a session with a random (non-hash) file id is not restored and is cleared', async () => {
-    memory.session = { fileId: 'random-uuid', step: 'write' }
+    memory.session = { fileId: 'random-uuid' }
     memory.files.set('random-uuid', { fileId: 'random-uuid', name: 'x.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
 
     const Home = (await import('../src/app/page')).default
@@ -164,7 +162,7 @@ describe('Home', () => {
   })
 
   it('uploading a file opens it in the template editor', async () => {
-    const fresh: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: null, values: null, step: 'layout' }
+    const fresh: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: null, values: null }
     openFileMock.mockResolvedValue(fresh)
 
     const Home = (await import('../src/app/page')).default
@@ -175,7 +173,7 @@ describe('Home', () => {
     const file = new File([new Uint8Array([1])], 'x.pdf', { type: 'application/pdf' })
     fireEvent.change(input, { target: { files: [file] } })
 
-    await waitFor(() => expect(screen.getByTestId('panel-next')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('slot-panel')).toBeTruthy())
     expect(screen.getByTestId('slot-panel')).toBeTruthy()
     expect(screen.queryByText('Drag a PDF or image here, or')).toBeNull()
     expect(openFileMock).toHaveBeenCalledTimes(1)
@@ -201,8 +199,8 @@ describe('Home', () => {
     expect(screen.getByText('Converting…')).toBeTruthy()
     expect(screen.queryByText('Drag a PDF or image here, or')).toBeNull()
 
-    finish({ doc, name: 'known.pdf', fileId: FILE_ID, layout: null, values: null, step: 'layout' })
-    await waitFor(() => expect(screen.getByTestId('panel-next')).toBeTruthy())
+    finish({ doc, name: 'known.pdf', fileId: FILE_ID, layout: null, values: null })
+    await waitFor(() => expect(screen.getByTestId('slot-panel')).toBeTruthy())
   })
 
   it('an upload openFile rejects shows its message and stays on the dropzone', async () => {
@@ -227,7 +225,7 @@ describe('Home', () => {
     const sonner = await import('sonner')
     const warnSpy = vi.spyOn(sonner.toast, 'warning')
     const randomId = '0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b'
-    openFileMock.mockResolvedValue({ doc: { ...doc, id: randomId }, fileId: randomId, layout: null, values: null, step: 'layout' })
+    openFileMock.mockResolvedValue({ doc: { ...doc, id: randomId }, fileId: randomId, layout: null, values: null })
 
     const Home = (await import('../src/app/page')).default
     const { container } = render(createElement(Home))
@@ -236,7 +234,7 @@ describe('Home', () => {
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(input, { target: { files: [new File([new Uint8Array([1])], 'x.pdf', { type: 'application/pdf' })] } })
 
-    await waitFor(() => expect(screen.getByTestId('panel-next')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('slot-panel')).toBeTruthy())
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy.mock.calls[0]?.[0]).toMatch(/insecure connection/)
   })
@@ -244,7 +242,7 @@ describe('Home', () => {
   it('does not warn when the file id is a content hash', async () => {
     const sonner = await import('sonner')
     const warnSpy = vi.spyOn(sonner.toast, 'warning')
-    openFileMock.mockResolvedValue({ doc, fileId: FILE_ID, layout: null, values: null, step: 'layout' })
+    openFileMock.mockResolvedValue({ doc, fileId: FILE_ID, layout: null, values: null })
 
     const Home = (await import('../src/app/page')).default
     const { container } = render(createElement(Home))
@@ -253,14 +251,14 @@ describe('Home', () => {
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(input, { target: { files: [new File([new Uint8Array([1])], 'x.pdf', { type: 'application/pdf' })] } })
 
-    await waitFor(() => expect(screen.getByTestId('panel-next')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('slot-panel')).toBeTruthy())
     expect(warnSpy).not.toHaveBeenCalled()
   })
 
   it('lists saved files under the dropzone; Open reopens one from its stored bytes', async () => {
     memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: '2026-09-13T00:00:00.000Z' })
     memory.layouts.set(FILE_ID, knownLayout)
-    const restored: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: knownLayout, values: null, step: 'write' }
+    const restored: OpenedFile = { doc, name: 'known.pdf', fileId: FILE_ID, layout: knownLayout, values: null }
     openFileMock.mockResolvedValue(restored)
 
     const Home = (await import('../src/app/page')).default

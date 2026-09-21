@@ -1,7 +1,10 @@
 import type { FileId, StoredFile, TemplateLayout, TemplateValues } from '@pdf-slot/core'
 
-export type Step = 'layout' | 'write'
-export type OpenSession = { fileId: FileId; step: Step }
+/**
+ * What is open right now. (Earlier sessions also recorded a `step` of the
+ * two-step flow; a stored one is simply ignored.)
+ */
+export type OpenSession = { fileId: FileId }
 
 /** A saved file as the start screen lists it -- everything but the bytes. */
 export type StoredFileSummary = {
@@ -14,7 +17,10 @@ export type StoredFileSummary = {
 }
 
 /**
- * Per-file persistence for the two-step editor. IndexedDB implements it
+ * Per-file persistence for the editor: a file's layout (the slots, their
+ * names and typography) and its values (what was written into them) are
+ * stored separately, so a layout is made once and filled any number of
+ * times. IndexedDB implements it
  * today (indexedDbTemplateStore.ts); the Hono backend will implement the
  * same methods over HTTP. Nothing above this interface knows which.
  *
