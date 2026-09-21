@@ -16,8 +16,21 @@ export type LayoutInput = {
   originY: number
 }
 
-export function layoutHeight(lineCount: number, size: number, lineHeight: number): number {
-  return lineCount * size * lineHeight
+/**
+ * The height of the box that holds `lineCount` lines: the taller of the
+ * line boxes (`lineCount * size * lineHeight`, which leaves the usual
+ * leading under the last line) and the glyphs themselves -- from the
+ * first line's ascender, down `lineCount - 1` steps, to the last line's
+ * descender. The second term is what keeps a tight line height (below
+ * ~1.3, where PT Sans's ascender + descender exceed the step) from
+ * drawing a box the text hangs out of. Preview-only: the export places
+ * text by baseline and never reads this.
+ */
+export function layoutHeight(lineCount: number, size: number, lineHeight: number, metrics: FontMetrics): number {
+  const lineBoxes = lineCount * size * lineHeight
+  // `descender` is negative (below the baseline), hence the subtraction.
+  const glyphs = metrics.ascender(size) + (lineCount - 1) * size * lineHeight - metrics.descender(size)
+  return Math.max(lineBoxes, glyphs)
 }
 
 /**

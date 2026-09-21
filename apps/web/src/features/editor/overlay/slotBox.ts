@@ -32,8 +32,9 @@ export function layoutSlot(
   // layoutText('') returns zero lines, which would otherwise collapse the
   // box to zero height.
   const lineCount = Math.max(1, lines.length)
-  // The box is as tall as its content, or as tall as the user dragged it
-  // (slot.height, a minimum) -- whichever is more.
-  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight)
+  // The box is as tall as its content (see layoutHeight: never shorter
+  // than the glyphs, whatever the line height), or as tall as the user
+  // dragged it (slot.height, a minimum) -- whichever is more.
+  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight, metrics)
   return { lines, boxHeight: Math.max(textHeight, slot.height ?? 0), placeholder }
 }

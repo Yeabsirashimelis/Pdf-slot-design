@@ -65,8 +65,19 @@ test('empty text produces no lines', () => {
   expect(layoutText({ ...base, text: '', width: 100 }, fixed)).toEqual([])
 })
 
-test('layoutHeight scales linearly with line count', () => {
-  expect(layoutHeight(3, 10, 1.2)).toBeCloseTo(36, 6)
+test('layoutHeight is the line boxes when the leading is generous: n x size x lineHeight', () => {
+  // 3 lines of 10pt at 1.2: 36pt of line boxes, more than the 10 + 2 x 12
+  // = 34pt from the first ascender to the last descender.
+  expect(layoutHeight(3, 10, 1.2, fixed)).toBeCloseTo(36, 6)
+})
+
+test('layoutHeight never cuts the glyphs off when the line height is tight', () => {
+  // At 0.5 the line boxes are 15pt for 3 lines, but the glyphs run from
+  // the first ascender (7.5 below the top) through two 5pt steps to the
+  // last descender (2.5 more): 7.5 + 10 + 2.5 = 20pt. The box takes that.
+  expect(layoutHeight(3, 10, 0.5, fixed)).toBeCloseTo(20, 6)
+  // One line is never shorter than its own glyphs, whatever the line height.
+  expect(layoutHeight(1, 10, 0.5, fixed)).toBeCloseTo(10, 6)
 })
 
 test('CRLF line endings do not leave a trailing carriage return', () => {
