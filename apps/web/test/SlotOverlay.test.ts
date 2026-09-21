@@ -53,8 +53,6 @@ function renderOverlay(selected: boolean, extra: Partial<Parameters<typeof SlotO
       viewport: { zoom: 1, pageHeight: 792 },
       metrics,
       selected,
-      autoFocus: false,
-      onFocused: vi.fn(),
       onSelect: vi.fn(),
       onChange: vi.fn(),
       onCommit: vi.fn(),

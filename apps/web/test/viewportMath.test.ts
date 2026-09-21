@@ -5,10 +5,7 @@ import {
   ZOOM_PRESETS,
   clampZoom,
   fitPage,
-  panBy,
   stepZoom,
-  toStagePoint,
-  toViewportPoint,
   wheelZoomFactor,
   zoomAtCentre,
   zoomAtPoint,
@@ -91,12 +88,6 @@ describe('fitPage', () => {
   })
 })
 
-describe('panBy', () => {
-  it('moves the page by the given screen delta', () => {
-    expect(panBy(view, -30, 12)).toEqual({ zoom: 1, pan: { x: 70, y: 62 } })
-  })
-})
-
 describe('wheelZoomFactor', () => {
   it('scrolling up (negative deltaY) zooms in, down zooms out, symmetrically', () => {
     const inFactor = wheelZoomFactor(-100, 0)
@@ -130,13 +121,5 @@ describe('stepZoom', () => {
   it('stops at the ends of the range', () => {
     expect(stepZoom(ZOOM_MAX, 1)).toBe(ZOOM_MAX)
     expect(stepZoom(ZOOM_MIN, -1)).toBe(ZOOM_MIN)
-  })
-})
-
-describe('toStagePoint / toViewportPoint', () => {
-  it('converts a viewport point to CSS px relative to the page corner, and back', () => {
-    const stage = toStagePoint(view, { x: 150, y: 80 })
-    expect(stage).toEqual({ x: 50, y: 30 })
-    expect(toViewportPoint(view, stage)).toEqual({ x: 150, y: 80 })
   })
 })

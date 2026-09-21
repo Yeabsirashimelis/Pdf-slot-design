@@ -5,16 +5,10 @@ import { useEditorShortcuts } from '@/features/editor/useEditorShortcuts'
 const key = (init: KeyboardEventInit & { key: string }, target: EventTarget = window) =>
   target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))
 
-type Actions = Parameters<typeof useEditorShortcuts>[0]
-const actions = (over: Partial<Actions> = {}): Actions => ({
-  undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn(),
-  copySelected: vi.fn(), pasteCopied: vi.fn(), ...over,
-})
-
 describe('useEditorShortcuts', () => {
   it('arrow keys nudge by 1pt, Shift+arrow by 10pt; screen down is PDF y down', () => {
     const nudgeSelected = vi.fn()
-    renderHook(() => useEditorShortcuts(actions({ nudgeSelected })))
+    renderHook(() => useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected }))
     key({ key: 'ArrowRight' })
     key({ key: 'ArrowDown' })
     key({ key: 'ArrowLeft', shiftKey: true })
@@ -24,7 +18,7 @@ describe('useEditorShortcuts', () => {
 
   it('arrows inside a textarea move the caret, not the slot', () => {
     const nudgeSelected = vi.fn()
-    renderHook(() => useEditorShortcuts(actions({ nudgeSelected })))
+    renderHook(() => useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected }))
     const ta = document.createElement('textarea')
     document.body.appendChild(ta)
     key({ key: 'ArrowRight' }, ta)
@@ -34,7 +28,7 @@ describe('useEditorShortcuts', () => {
 
   it('Ctrl+Z undoes and commits; Ctrl+Shift+Z redoes; Ctrl+D duplicates', () => {
     const undo = vi.fn(), redo = vi.fn(), commit = vi.fn(), duplicateSelected = vi.fn()
-    renderHook(() => useEditorShortcuts(actions({ undo, redo, commit, duplicateSelected })))
+    renderHook(() => useEditorShortcuts({ undo, redo, commit, duplicateSelected, nudgeSelected: vi.fn() }))
     key({ key: 'z', ctrlKey: true })
     key({ key: 'z', ctrlKey: true, shiftKey: true })
     key({ key: 'd', ctrlKey: true })
@@ -44,9 +38,50 @@ describe('useEditorShortcuts', () => {
     expect(duplicateSelected).toHaveBeenCalledTimes(1)
   })
 
+  it('Delete/Backspace remove, Escape deselects -- but not while typing in a field', () => {
+    const deleteSelected = vi.fn(), deselect = vi.fn()
+    renderHook(() =>
+      useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn(), deleteSelected, deselect }),
+    )
+    key({ key: 'Delete' })
+    key({ key: 'Backspace' })
+    key({ key: 'Escape' })
+    expect(deleteSelected).toHaveBeenCalledTimes(2)
+    expect(deselect).toHaveBeenCalledTimes(1)
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    key({ key: 'Backspace' }, input)
+    key({ key: 'Escape' }, input)
+    expect(deleteSelected).toHaveBeenCalledTimes(2)
+    expect(deselect).toHaveBeenCalledTimes(1)
+    input.remove()
+  })
+
+  it('Ctrl/Cmd + = / − / 0 zoom in, out and to fit, and keep the browser from zooming the page', () => {
+    const zoomIn = vi.fn(), zoomOut = vi.fn(), zoomFit = vi.fn()
+    renderHook(() =>
+      useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn(), zoomIn, zoomOut, zoomFit }),
+    )
+    const plus = new KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true, cancelable: true })
+    window.dispatchEvent(plus)
+    key({ key: '+', ctrlKey: true, shiftKey: true })
+    key({ key: '-', metaKey: true })
+    key({ key: '0', ctrlKey: true })
+    expect(plus.defaultPrevented).toBe(true)
+    expect(zoomIn).toHaveBeenCalledTimes(2)
+    expect(zoomOut).toHaveBeenCalledTimes(1)
+    expect(zoomFit).toHaveBeenCalledTimes(1)
+    // Without a modifier these keys are just typing.
+    key({ key: '-' })
+    expect(zoomOut).toHaveBeenCalledTimes(1)
+  })
+
   it('Ctrl+C copies and Ctrl+V pastes the selected slot', () => {
     const copySelected = vi.fn(), pasteCopied = vi.fn()
-    renderHook(() => useEditorShortcuts(actions({ copySelected, pasteCopied })))
+    renderHook(() =>
+      useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn(), copySelected, pasteCopied }),
+    )
     key({ key: 'c', ctrlKey: true })
     key({ key: 'v', metaKey: true })
     expect(copySelected).toHaveBeenCalledTimes(1)
@@ -55,7 +90,9 @@ describe('useEditorShortcuts', () => {
 
   it('Ctrl+C / Ctrl+V inside a text field stay the native text copy and paste', () => {
     const copySelected = vi.fn(), pasteCopied = vi.fn()
-    renderHook(() => useEditorShortcuts(actions({ copySelected, pasteCopied })))
+    renderHook(() =>
+      useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn(), copySelected, pasteCopied }),
+    )
     const ta = document.createElement('textarea')
     const input = document.createElement('input')
     document.body.append(ta, input)

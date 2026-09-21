@@ -5,7 +5,7 @@
 // and Badge.
 'use client'
 
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
+import { useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
 import {
   FONT_CSS_FAMILY,
   PDF_APPLIES_KERNING,
@@ -50,8 +50,6 @@ export function SlotOverlay({
   screenScale = 1,
   metrics,
   selected,
-  autoFocus,
-  onFocused,
   onSelect,
   onChange,
   onCommit,
@@ -74,10 +72,6 @@ export function SlotOverlay({
   screenScale?: number
   metrics: FontMetrics
   selected: boolean
-  /** True for exactly one render right after this slot was created by a canvas click. */
-  autoFocus: boolean
-  /** Called once autoFocus has been acted on, so the caller can clear its one-shot flag. */
-  onFocused(): void
   onSelect(): void
   /** `targetId` is set only while Alt+dragging: the patch is for the copy being dragged, not this slot. */
   onChange(patch: Partial<Slot>, targetId?: string): void
@@ -106,16 +100,6 @@ export function SlotOverlay({
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [focused, setFocused] = useState(false)
-
-  useEffect(() => {
-    if (autoFocus) {
-      textareaRef.current?.focus()
-      onFocused()
-    }
-    // If the parent passes a fresh onFocused identity each render, this
-    // effect re-runs harmlessly (autoFocus is false on every render after
-    // the one-shot focus already happened, so the body above is a no-op).
-  }, [autoFocus, onFocused])
 
   const { lines, boxHeight, placeholder } = layoutSlot(slot, metrics, name)
 

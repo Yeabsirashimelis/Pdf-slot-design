@@ -5,11 +5,14 @@ import type { Point } from '@pdf-slot/core'
  * per PDF point -- 1 is print size, what the zoom control shows as 100%)
  * and where its top-left corner sits in the viewport (`pan`, CSS px).
  *
- * Everything here is pure arithmetic on that pair. It is the part of the
- * editor most likely to silently break the preview/download invariant
- * (a slot placed under the cursor must land on the page point that was
- * under the cursor), so it lives in one tested module and the gesture
- * hook only ever calls these.
+ * Everything here is pure arithmetic on that pair. react-zoom-pan-pinch
+ * owns the transform and the pan/pinch gestures; what it does not do the
+ * Figma way -- zoom about the cursor on an exponential curve, fit the
+ * page, step through presets -- is computed here and handed to it. It is
+ * the part of the editor most likely to silently break the
+ * preview/download invariant (a slot placed under the cursor must land on
+ * the page point that was under the cursor), so it lives in one tested
+ * module.
  */
 export type ViewState = { zoom: number; pan: Point }
 export type Size = { width: number; height: number }
@@ -71,14 +74,10 @@ export function fitPage(viewport: Size, page: Size, padding = 40): ViewState {
   }
 }
 
-export function panBy(view: ViewState, dx: number, dy: number): ViewState {
-  return { zoom: view.zoom, pan: { x: view.pan.x + dx, y: view.pan.y + dy } }
-}
-
 /** Pixels per line for `WheelEvent.deltaMode === DOM_DELTA_LINE` (Firefox with a mouse). */
 const LINE_HEIGHT_PX = 16
 /** Pixels of wheel travel for one e-fold of zoom; smaller is more sensitive. */
-const WHEEL_PIXELS_PER_E = 200
+const WHEEL_PIXELS_PER_E = 400
 /** One event can zoom by at most this factor, so a fast wheel is still a series of small steps. */
 const WHEEL_MAX_FACTOR = 1.5
 
@@ -105,13 +104,4 @@ export function stepZoom(zoom: number, direction: 1 | -1): number {
   }
   const below = ZOOM_PRESETS.filter((preset) => preset < zoom - eps)
   return below.length > 0 ? below[below.length - 1] : ZOOM_MIN
-}
-
-/** A viewport point as CSS px from the page's top-left corner (the "stage" the overlay is laid out in). */
-export function toStagePoint(view: ViewState, viewportPoint: Point): Point {
-  return { x: viewportPoint.x - view.pan.x, y: viewportPoint.y - view.pan.y }
-}
-
-export function toViewportPoint(view: ViewState, stagePoint: Point): Point {
-  return { x: stagePoint.x + view.pan.x, y: stagePoint.y + view.pan.y }
 }

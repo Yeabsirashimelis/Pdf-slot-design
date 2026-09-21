@@ -1,82 +1,96 @@
 'use client'
 
-import { Maximize2, Minus, Plus } from 'lucide-react'
+import { Minus, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
-export const ZOOM_MIN = 0.25
-export const ZOOM_MAX = 3
-const ZOOM_STEP = 0.25
-
-/** Exported so Editor's fit-width handler (which computes the target zoom
- * from measured layout width) clamps to the exact same bounds as the −/+
- * buttons here, rather than duplicating the range. */
-export function clampZoom(zoom: number): number {
-  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom))
-}
-
-/** −/percentage/+ and fit-width. `zoom` is the displayed scale (1 = fit-width). */
+/**
+ * The floating zoom pill over the canvas: −, the percentage, +. The
+ * percentage is a menu (as in Figma) with the zooms a keyboard reaches
+ * too. `scale` is CSS px per PDF point, so 100% is print size.
+ */
 export function ZoomControls({
-  zoom,
-  onZoomChange,
-  onFitWidth,
+  scale,
+  onZoomIn,
+  onZoomOut,
+  onZoomTo,
+  onFit,
 }: {
-  zoom: number
-  onZoomChange(zoom: number): void
-  onFitWidth(): void
+  scale: number
+  onZoomIn(): void
+  onZoomOut(): void
+  onZoomTo(scale: number): void
+  /** Show the whole page, as large as the workspace allows. */
+  onFit(): void
 }) {
   return (
-    <div className="flex items-center gap-1" data-testid="zoom-controls">
+    <div
+      className="flex items-center rounded-md border border-border bg-background shadow-sm"
+      data-testid="zoom-controls"
+    >
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => onZoomChange(clampZoom(zoom - ZOOM_STEP))}
-              aria-label="Zoom out"
-              data-testid="zoom-out"
-            >
+            <Button variant="ghost" size="icon-sm" onClick={onZoomOut} aria-label="Zoom out" data-testid="zoom-out">
               <Minus />
             </Button>
           }
         />
         <TooltipContent>Zoom out</TooltipContent>
       </Tooltip>
-      <span className="min-w-11 text-center text-sm tabular-nums" data-testid="zoom-percentage">
-        {Math.round(zoom * 100)}%
-      </span>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="min-w-14 px-1 font-normal tabular-nums"
+              aria-label="Zoom options"
+              data-testid="zoom-percentage"
+            >
+              {Math.round(scale * 100)}%
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end" className="min-w-44">
+          <DropdownMenuItem onClick={onZoomIn} data-testid="zoom-menu-in">
+            Zoom in <DropdownMenuShortcut>Ctrl +</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onZoomOut} data-testid="zoom-menu-out">
+            Zoom out <DropdownMenuShortcut>Ctrl −</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={onFit} data-testid="zoom-menu-fit">
+            Zoom to fit <DropdownMenuShortcut>Ctrl 0</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onZoomTo(0.5)} data-testid="zoom-menu-50">
+            Zoom to 50%
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onZoomTo(1)} data-testid="zoom-menu-100">
+            Zoom to 100%
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onZoomTo(2)} data-testid="zoom-menu-200">
+            Zoom to 200%
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => onZoomChange(clampZoom(zoom + ZOOM_STEP))}
-              aria-label="Zoom in"
-              data-testid="zoom-in"
-            >
+            <Button variant="ghost" size="icon-sm" onClick={onZoomIn} aria-label="Zoom in" data-testid="zoom-in">
               <Plus />
             </Button>
           }
         />
         <TooltipContent>Zoom in</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={onFitWidth}
-              aria-label="Fit width"
-              data-testid="zoom-fit-width"
-            >
-              <Maximize2 />
-            </Button>
-          }
-        />
-        <TooltipContent>Fit the page to the column (100%)</TooltipContent>
       </Tooltip>
     </div>
   )

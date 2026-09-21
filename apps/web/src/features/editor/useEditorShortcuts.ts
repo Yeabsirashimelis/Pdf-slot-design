@@ -17,12 +17,18 @@ import { flushSync } from 'react-dom'
  * - Ctrl/Cmd+C / Ctrl/Cmd+V: copy the selected slot to the in-app
  *   clipboard / paste it. Ignored while a text field is focused, where
  *   they stay the native text copy and paste.
+ * - Ctrl/Cmd+= / Ctrl/Cmd+− / Ctrl/Cmd+0: zoom in / out / to fit (the
+ *   browser's own page zoom is suppressed -- the canvas is the thing
+ *   being zoomed).
  * - Arrow keys: nudge the selected slot 1pt (Shift: 10pt). Screen down is
- *   PDF y down, so ArrowDown passes a negative dy. Ignored while typing
- *   in a textarea, where the arrows move the caret.
+ *   PDF y down, so ArrowDown passes a negative dy.
+ * - Delete / Backspace: remove the selected slot. Escape: deselect.
  *
- * The slot actions are read through refs so the listener never goes
- * stale without being re-registered per render.
+ * Arrows, Delete, Backspace and Escape are left alone while typing in a
+ * field, where they mean what they always mean.
+ *
+ * Every handler is read through a ref so the listener never goes stale
+ * without being re-registered per render.
  */
 /** Arrow key -> (dx, dy) in PDF points per step; PDF y grows upward. */
 const ARROWS: Record<string, readonly [number, number]> = {
@@ -32,51 +38,91 @@ const ARROWS: Record<string, readonly [number, number]> = {
   ArrowDown: [0, -1],
 }
 
-export function useEditorShortcuts({
-  undo,
-  redo,
-  commit,
-  duplicateSelected,
-  nudgeSelected,
-  copySelected,
-  pasteCopied,
-}: {
+function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLInputElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  )
+}
+
+export type EditorShortcutHandlers = {
   undo(): void
   redo(): void
   commit(): void
   duplicateSelected(): void
   nudgeSelected(dx: number, dy: number): void
-  copySelected(): void
-  pasteCopied(): void
-}): void {
-  const actionsRef = useRef({ duplicateSelected, nudgeSelected, copySelected, pasteCopied })
+  copySelected?(): void
+  pasteCopied?(): void
+  deleteSelected?(): void
+  deselect?(): void
+  zoomIn?(): void
+  zoomOut?(): void
+  zoomFit?(): void
+}
+
+export function useEditorShortcuts(handlers: EditorShortcutHandlers): void {
+  const { undo, redo, commit } = handlers
+  const handlersRef = useRef(handlers)
   useEffect(() => {
-    actionsRef.current = { duplicateSelected, nudgeSelected, copySelected, pasteCopied }
+    handlersRef.current = handlers
   })
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const inTextField = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement
-      const arrow = ARROWS[event.key]
-      if (arrow && !event.metaKey && !event.ctrlKey && !event.altKey) {
-        if (inTextField) return
-        event.preventDefault()
-        const step = event.shiftKey ? 10 : 1
-        actionsRef.current.nudgeSelected(arrow[0] * step, arrow[1] * step)
+      const h = handlersRef.current
+      const isModified = event.metaKey || event.ctrlKey
+
+      if (!isModified && !event.altKey) {
+        const arrow = ARROWS[event.key]
+        if (arrow) {
+          if (isTyping(event.target)) return
+          event.preventDefault()
+          const step = event.shiftKey ? 10 : 1
+          h.nudgeSelected(arrow[0] * step, arrow[1] * step)
+          return
+        }
+        if (event.key === 'Delete' || event.key === 'Backspace') {
+          if (isTyping(event.target)) return
+          event.preventDefault()
+          h.deleteSelected?.()
+          return
+        }
+        if (event.key === 'Escape') {
+          if (isTyping(event.target)) return
+          h.deselect?.()
+          return
+        }
         return
       }
-      const isModified = event.metaKey || event.ctrlKey
       if (!isModified) return
+
+      switch (event.key) {
+        case '=':
+        case '+':
+          event.preventDefault()
+          h.zoomIn?.()
+          return
+        case '-':
+        case '_':
+          event.preventDefault()
+          h.zoomOut?.()
+          return
+        case '0':
+          event.preventDefault()
+          h.zoomFit?.()
+          return
+      }
       const letter = event.key.toLowerCase()
       if (letter === 'd') {
         event.preventDefault()
-        actionsRef.current.duplicateSelected()
+        h.duplicateSelected()
         return
       }
-      if ((letter === 'c' || letter === 'v') && !inTextField) {
+      if ((letter === 'c' || letter === 'v') && !isTyping(event.target)) {
         event.preventDefault()
-        if (letter === 'c') actionsRef.current.copySelected()
-        else actionsRef.current.pasteCopied()
+        if (letter === 'c') h.copySelected?.()
+        else h.pasteCopied?.()
         return
       }
       if (event.key.toLowerCase() !== 'z') return

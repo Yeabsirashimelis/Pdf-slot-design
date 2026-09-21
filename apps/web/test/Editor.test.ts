@@ -1,22 +1,19 @@
-import { createElement } from 'react'
+import { createElement, useState } from 'react'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakePdfjsDocument, installFontFixtures } from './helpers/editorFixtures'
-import type { EditorDocument, Slot } from '@pdf-slot/core'
+import type { EditorDocument, Point, Slot } from '@pdf-slot/core'
 
 /**
- * Wiring tests for the guarantee this task exists to deliver: after a
- * commit, the *actual rendered PDF bytes* -- not doc.source -- are what
- * PageCanvas paints, and the slot whose text was just committed stops
- * showing its own DOM approximation of that text.
+ * Wiring tests for the workspace, driven the way a user actually would:
+ * click the page, type, blur, press keys. The guarantee at the centre of
+ * them: after a commit, the *actual rendered PDF bytes* -- not doc.source
+ * -- are what PageCanvas paints, and the slot whose text was just
+ * committed stops showing its own DOM approximation of that text.
  *
- * Unlike commitAndDownloadPipeline.test.ts (which builds its own minimal
- * Harness around useCommitRender + Toolbar), this renders the REAL Editor
- * and REAL SlotOverlay, driven the way a user actually would: click the
- * canvas, type, blur. A prior review confirmed this was the missing case --
- * reverting any of Editor.tsx's `bytes={doc.source}`, its `textCommitted`
- * prop, or its `onCommit={handleCommit}` wiring left every other test in
- * the suite green.
+ * The Harness is what TemplateEditor does around Editor, minus the
+ * panels: a real store, the real pipeline (fonts, commit → render), and
+ * the naming/placement callbacks a parent supplies.
  */
 
 const renderPdfMock = vi.fn<(doc: EditorDocument, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
@@ -45,11 +42,62 @@ vi.mock('pdfjs-dist', () => ({
   getDocument: (...args: unknown[]) => getDocumentMock(...args),
 }))
 
-function makeDoc(): EditorDocument {
-  return { id: 'doc-1', source: new Uint8Array([1, 2, 3]), pages: [{ width: 612, height: 792 }] }
+// jsdom doesn't implement the Pointer Capture API used by SlotOverlay.
+HTMLElement.prototype.setPointerCapture ??= () => {}
+
+function makeDoc(pages = 1): EditorDocument {
+  return {
+    id: 'doc-1',
+    source: new Uint8Array([1, 2, 3]),
+    pages: Array.from({ length: pages }, () => ({ width: 612, height: 792 })),
+  }
 }
 
-/** Renders Editor, places one slot via a real click, types real text into it. */
+type HarnessProps = {
+  doc: EditorDocument
+  initialSlots?: Slot[]
+  renderOnCommit?: boolean
+  locked?: boolean
+  /** Records the placements instead of adding slots, when given. */
+  onPlaceSlot?: (atPdf: Point, page: number) => void
+  onRemoveSlot?: (id: string) => void
+  onDuplicateSlot?: (id: string) => void
+}
+
+/** The workspace with a real store and pipeline; placing a slot names it "Field". */
+async function makeHarness() {
+  const { Editor } = await import('../src/features/editor/Editor')
+  const { useEditorStore } = await import('../src/features/editor/state/useEditorStore')
+  const { useEditorPipeline } = await import('../src/features/editor/useEditorPipeline')
+  return function Harness({
+    doc,
+    initialSlots = [],
+    renderOnCommit = false,
+    locked = false,
+    onPlaceSlot,
+    onRemoveSlot,
+    onDuplicateSlot,
+  }: HarnessProps) {
+    const store = useEditorStore(initialSlots)
+    const pipeline = useEditorPipeline(doc, store, { renderOnCommit })
+    const [pageIndex, setPageIndex] = useState(0)
+    return createElement(Editor, {
+      doc,
+      store,
+      pipeline,
+      pageIndex,
+      onPageChange: setPageIndex,
+      locked,
+      names: Object.fromEntries(store.slots.map((s) => [s.id, 'Field'])),
+      onPlaceSlot: onPlaceSlot ?? ((atPdf, page) => store.addSlot(atPdf, page)),
+      onRemoveSlot: onRemoveSlot ?? ((id) => pipeline.removeSlotAndCommit(id)),
+      onDuplicateSlot: onDuplicateSlot ?? ((id) => pipeline.duplicateSlotAndCommit(id)),
+      onPasteSlot: (snapshot, _label, target) => pipeline.pasteSlotAndCommit(snapshot, target),
+    })
+  }
+}
+
+/** Places one slot via a real click on the page, types real text into it. */
 async function placeAndTypeIntoASlot(container: HTMLElement, text = 'Hello world') {
   const canvas = await waitFor(() => {
     const el = container.querySelector('canvas')
@@ -60,21 +108,16 @@ async function placeAndTypeIntoASlot(container: HTMLElement, text = 'Hello world
   fireEvent.click(canvas, { clientX: 50, clientY: 50 })
 
   const textarea = await waitFor(() => {
-    const el = container.querySelector('textarea')
+    const els = container.querySelectorAll('textarea')
+    const el = els[els.length - 1]
     if (!el) throw new Error('textarea not mounted yet -- font metrics still loading?')
-    return el
+    return el as HTMLTextAreaElement
   })
 
   fireEvent.change(textarea, { target: { value: text } })
   return textarea
 }
 
-/**
- * These run Editor in verification mode (`renderOnCommit: true`): every
- * commit renders the real PDF and the canvas paints it. Off by default
- * in the product (the overlay is the preview; one render on download),
- * this mode is how the overlay is proven equal to the output.
- */
 describe('Editor wiring: commit makes the canvas (not doc.source) the truth', () => {
   beforeEach(() => {
     renderPdfMock.mockReset()
@@ -95,23 +138,22 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
   })
 
   it('tells the user when the fonts fail to load, instead of only logging', async () => {
-    // Without metrics, Editor renders no SlotOverlay at all: clicking the
-    // page creates slots that are invisible and untypeable. A console.error
-    // is not a signal a user can see.
+    // Without metrics, the workspace renders no SlotOverlay at all:
+    // clicking the page creates slots that are invisible and untypeable.
+    // A console.error is not a signal a user can see.
     //
     // Declared FIRST in this file on purpose: loadFontBytes() memoises the
     // successful fetch in a module-level cache that outlives `cleanup()`,
     // so a later test could never observe a failing fetch. It resets that
     // cache on rejection, so the tests below still load fonts normally.
-    const { Editor } = await import('../src/features/editor/Editor')
+    const Harness = await makeHarness()
     const sonner = await import('sonner')
     const errorSpy = vi.spyOn(sonner.toast, 'error')
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
 
-    const doc = makeDoc()
-    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
+    const { container } = render(createElement(Harness, { doc: makeDoc(), renderOnCommit: true }))
 
     await waitFor(() => expect(errorSpy).toHaveBeenCalled())
     expect(String(errorSpy.mock.calls.at(-1)?.[0])).toMatch(/fonts/i)
@@ -122,13 +164,11 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
   })
 
   it('feeds PageCanvas the rendered bytes, not doc.source, once a commit lands', async () => {
-    const { Editor } = await import('../src/features/editor/Editor')
-
-    const doc = makeDoc()
+    const Harness = await makeHarness()
     const renderedOutput = new Uint8Array([9, 9, 9, 9, 9])
     renderPdfMock.mockResolvedValue(renderedOutput)
 
-    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
+    const { container } = render(createElement(Harness, { doc: makeDoc(), renderOnCommit: true }))
 
     const textarea = await placeAndTypeIntoASlot(container)
     fireEvent.blur(textarea)
@@ -140,92 +180,17 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
       if (!lastCall) throw new Error('pdf.js getDocument not called yet')
       const data = (lastCall[0] as { data: Uint8Array }).data
       // doc.source is [1, 2, 3] -- distinct from renderedOutput, so this
-      // fails loudly (comparing against the wrong bytes) if Editor ever
-      // goes back to feeding PageCanvas doc.source after a commit.
+      // fails loudly (comparing against the wrong bytes) if the workspace
+      // ever goes back to feeding PageCanvas doc.source after a commit.
       expect(Array.from(data)).toEqual(Array.from(renderedOutput))
     })
   })
 
-  it('blocks download and names the offending characters for unsupported text', async () => {
-    // Spec §8's export gate, end to end through the real Editor. pdf-lib
-    // does NOT raise on this input -- it would draw .notdef boxes and save
-    // happily -- so if Editor doesn't check, nothing does.
-    const { Editor } = await import('../src/features/editor/Editor')
-    const sonner = await import('sonner')
-    const errorSpy = vi.spyOn(sonner.toast, 'error')
-
-    const doc = makeDoc()
-    renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
-
-    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
-    const textarea = await placeAndTypeIntoASlot(container, 'Hello 日本語')
-
-    // The button is `aria-disabled`, not natively `disabled` -- see the
-    // `downloadBlockedReason` doc comment on ToolbarProps: a native
-    // `disabled` attribute would make the button unfocusable and suppress
-    // pointer events, so the Tooltip explaining the block could never open.
-    const downloadButton = await waitFor(() => {
-      const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
-      if (el.getAttribute('aria-disabled') !== 'true') throw new Error('download not blocked yet')
-      return el
-    })
-    expect(downloadButton.getAttribute('aria-disabled')).toBe('true')
-
-    const message = errorSpy.mock.calls.at(-1)?.[0]
-    expect(typeof message).toBe('string')
-    expect(message).toContain('日')
-    expect(message).toContain('本')
-    expect(message).toContain('語')
-
-    // And it clears the moment the text is fixed.
-    fireEvent.change(textarea, { target: { value: 'Hello world' } })
-    await waitFor(() => {
-      const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
-      expect(el.getAttribute('aria-disabled')).toBe('false')
-    })
-  })
-
-  it('blocks download for a pasted tab character', async () => {
-    // The ordinary path into this: pasting a cell out of a spreadsheet.
-    // The textarea shows a tab stop; the PDF would show a .notdef box.
-    const { Editor } = await import('../src/features/editor/Editor')
-
-    const doc = makeDoc()
-    renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
-
-    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
-    await placeAndTypeIntoASlot(container, 'Name\tValue')
-
-    await waitFor(() => {
-      const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
-      expect(el.getAttribute('aria-disabled')).toBe('true')
-    })
-  })
-
-  it('leaves download alone for Latin and Cyrillic text across several lines', async () => {
-    const { Editor } = await import('../src/features/editor/Editor')
-
-    const doc = makeDoc()
-    renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
-
-    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
-    // Newlines share the CJK case's glyph id 0 but are consumed by
-    // layoutText and never drawn, so they must not block anything.
-    const textarea = await placeAndTypeIntoASlot(container, 'Привет мир\nHello world')
-    fireEvent.blur(textarea)
-
-    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(1))
-    const el = container.querySelector('[data-testid="download-button"]') as HTMLButtonElement
-    expect(el.getAttribute('aria-disabled')).toBe('false')
-  })
-
   it('hides the committed slot\'s own DOM text once the canvas has painted it', async () => {
-    const { Editor } = await import('../src/features/editor/Editor')
-
-    const doc = makeDoc()
+    const Harness = await makeHarness()
     renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
 
-    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
+    const { container } = render(createElement(Harness, { doc: makeDoc(), renderOnCommit: true }))
 
     const textarea = await placeAndTypeIntoASlot(container)
     fireEvent.blur(textarea)
@@ -247,9 +212,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     // re-showing its DOM text for the duration is a double-struck blink
     // of every committed slot on every commit. Only the slot whose own
     // content changed has anything to show in that window.
-    const { Editor } = await import('../src/features/editor/Editor')
-
-    const doc = makeDoc()
+    const Harness = await makeHarness()
     renderPdfMock.mockResolvedValue(new Uint8Array([7, 7]))
 
     // Paints: #1 is doc.source on mount, #2 slot A's commit, #3 slot B's.
@@ -275,7 +238,7 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
       destroy: vi.fn(),
     }))
 
-    const { container } = render(createElement(Editor, { doc, renderOnCommit: true }))
+    const { container } = render(createElement(Harness, { doc: makeDoc(), renderOnCommit: true }))
 
     // Slot A: place, type, commit, and wait until the canvas shows it.
     const textareaA = await placeAndTypeIntoASlot(container, 'first')
@@ -308,62 +271,14 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     expect(slotA.querySelectorAll('[data-slot-line]').length).toBe(0)
   })
 
-  it('opens at 100%, and 100% means the page fills the column -- so it is readable, not print-sized', async () => {
-    // Zoom is shown relative to fit-width: "100%" is the page as large as
-    // the column allows, which is what a reader expects to see first. The
-    // internal scale (PDF points -> CSS px) is what the overlay and canvas
-    // use; it is exposed on the page stage for tests.
-    const { Editor } = await import('../src/features/editor/Editor')
-    const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1224)
-    try {
-      const { container } = render(createElement(Editor, { doc: makeDoc() }))
-      const stage = await waitFor(() => {
-        const el = container.querySelector('[data-testid="page-stage"]') as HTMLElement | null
-        if (!el || el.dataset.zoom !== '2') throw new Error('not fitted yet')
-        return el
-      })
-      expect(container.querySelector('[data-testid="zoom-percentage"]')?.textContent).toBe('100%')
-      // 1224px column / 612pt page = 2 CSS px per point.
-      expect(stage.dataset.zoom).toBe('2')
-
-      // Stepping zooms relative to that: +25% of the fitted size.
-      fireEvent.click(container.querySelector('[data-testid="zoom-in"]') as HTMLButtonElement)
-      expect(container.querySelector('[data-testid="zoom-percentage"]')?.textContent).toBe('125%')
-      expect(stage.dataset.zoom).toBe('2.5')
-    } finally {
-      clientWidth.mockRestore()
-    }
-  })
-
-  it('by default a commit renders nothing -- the one render happens on Download', async () => {
+  it('by default a commit renders nothing -- the overlay stays the preview', async () => {
     // The product mode (2026-09-12 direction): editing costs nothing, the
-    // overlay stays the preview, and pressing Download performs the single
-    // render of the current slots.
-    const { Editor } = await import('../src/features/editor/Editor')
-    const doc = makeDoc()
-    const renderedOutput = new Uint8Array([9, 9, 9])
-    renderPdfMock.mockResolvedValue(renderedOutput)
+    // overlay stays the preview, and the single render happens on Download
+    // (see TemplateEditor.test.ts for that half).
+    const Harness = await makeHarness()
+    renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
 
-    const captured: { blobParts: unknown[] | null } = { blobParts: null }
-    class FakeURL extends URL {
-      static createObjectURL = vi.fn(() => 'blob:fake-url')
-      static revokeObjectURL = vi.fn()
-    }
-    vi.stubGlobal('URL', FakeURL)
-    class FakeBlob {
-      constructor(parts: unknown[]) {
-        captured.blobParts = parts
-      }
-    }
-    vi.stubGlobal('Blob', FakeBlob)
-    const originalCreateElement = document.createElement.bind(document)
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = originalCreateElement(tag)
-      if (tag === 'a') el.click = vi.fn()
-      return el
-    })
-
-    const { container } = render(createElement(Editor, { doc }))
+    const { container } = render(createElement(Harness, { doc: makeDoc() }))
     const textarea = await placeAndTypeIntoASlot(container, 'typed')
     fireEvent.blur(textarea)
     await act(async () => {
@@ -373,49 +288,129 @@ describe('Editor wiring: commit makes the canvas (not doc.source) the truth', ()
     // The overlay keeps showing the text: nothing else could.
     const slotDiv = textarea.closest('[data-slot-id]') as HTMLElement
     expect(slotDiv.querySelectorAll('[data-slot-line]').length).toBeGreaterThan(0)
+  })
+})
 
-    fireEvent.click(container.querySelector('[data-testid="download-button"]') as HTMLButtonElement)
-    await waitFor(() => expect(captured.blobParts).not.toBeNull())
-    expect(renderPdfMock).toHaveBeenCalledTimes(1)
-    expect(renderPdfMock.mock.calls[0]![1][0]!.text).toBe('typed')
-    expect(captured.blobParts?.[0]).toBe(renderedOutput)
+describe('Editor workspace: placing, locking, panning, keys', () => {
+  beforeEach(() => {
+    renderPdfMock.mockReset()
+    getDocumentMock.mockReset()
+    installFontFixtures()
+    getDocumentMock.mockReturnValue(fakePdfjsDocument())
   })
 
-  it('with onPlaceSlot, a canvas click asks the parent instead of adding a slot', async () => {
-    const { Editor } = await import('../src/features/editor/Editor')
-    const onPlaceSlot = vi.fn()
-    const { container } = render(createElement(Editor, { doc: makeDoc(), onPlaceSlot }))
-    const canvas = await waitFor(() => container.querySelector('canvas') as HTMLCanvasElement)
-    fireEvent.click(canvas, { clientX: 50, clientY: 50 })
-    expect(onPlaceSlot).toHaveBeenCalledTimes(1)
-    expect(onPlaceSlot.mock.calls[0]![1]).toBe(0)
-    expect(container.querySelector('[data-slot-id]')).toBeNull()
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
-  it('locked: canvas clicks place nothing and slots render locked', async () => {
-    const { Editor } = await import('../src/features/editor/Editor')
-    const { useEditorStore } = await import('../src/features/editor/state/useEditorStore')
-    function Harness() {
-      const store = useEditorStore([{
-        id: 's1', page: 0, x: 50, y: 700, width: 200, text: '', fontId: 'sans', size: 14,
-        color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2,
-      }])
-      return createElement(Editor, { doc: makeDoc(), store, locked: true })
-    }
-    const { container } = render(createElement(Harness))
+  const seeded: Slot = {
+    id: 's1', page: 0, x: 50, y: 700, width: 200, text: '', fontId: 'sans', size: 14,
+    color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2,
+  }
+
+  async function mountedSlot(container: HTMLElement, id = 's1') {
     // Throws while absent: SlotOverlay only mounts once the fonts have
-    // loaded, and waitFor retries only on a throw (a returned null would
-    // resolve immediately).
-    const box = await waitFor(() => {
-      const el = container.querySelector('[data-slot-id="s1"]') as HTMLElement | null
+    // loaded, and waitFor retries only on a throw.
+    return waitFor(() => {
+      const el = container.querySelector(`[data-slot-id="${id}"]`) as HTMLElement | null
       if (!el) throw new Error('slot overlay not mounted yet -- font metrics still loading?')
       return el
     })
+  }
+
+  it('a click on the page reports a PDF point -- stage px are points, y flipped from the page bottom', async () => {
+    const Harness = await makeHarness()
+    const onPlaceSlot = vi.fn()
+    const { container } = render(createElement(Harness, { doc: makeDoc(2), onPlaceSlot }))
+    const canvas = await waitFor(() => container.querySelector('canvas') as HTMLCanvasElement)
+    // jsdom reports a zero rect, so client coords are stage coords.
+    fireEvent.click(canvas, { clientX: 50, clientY: 30 })
+    expect(onPlaceSlot).toHaveBeenCalledWith({ x: 50, y: 792 - 30 }, 0)
+    expect(container.querySelector('[data-slot-id]')).toBeNull()
+  })
+
+  it('locked: clicks place nothing and slots render locked', async () => {
+    const Harness = await makeHarness()
+    const onPlaceSlot = vi.fn()
+    const { container } = render(createElement(Harness, { doc: makeDoc(), initialSlots: [seeded], locked: true, onPlaceSlot }))
+    const box = await mountedSlot(container)
     expect(box.style.cursor).toBe('text')
-    expect(box.style.backgroundColor).not.toBe('')
-    const canvas = container.querySelector('canvas') as HTMLCanvasElement
-    fireEvent.click(canvas, { clientX: 5, clientY: 5 })
-    expect(container.querySelectorAll('[data-slot-id]').length).toBe(1)
-    expect(container.querySelector('[data-testid="font-select-trigger"]')).toBeNull()
+    fireEvent.click(container.querySelector('canvas') as HTMLCanvasElement, { clientX: 5, clientY: 5 })
+    expect(onPlaceSlot).not.toHaveBeenCalled()
+  })
+
+  it('shows the name as the placeholder of an empty box, and the size badge on the selected one', async () => {
+    const Harness = await makeHarness()
+    const { container } = render(createElement(Harness, { doc: makeDoc(), initialSlots: [seeded] }))
+    const box = await mountedSlot(container)
+    expect(box.querySelector('[data-slot-line][data-placeholder]')?.textContent).toBe('Field')
+    expect(box.querySelector('[data-testid="slot-size-badge"]')).toBeNull()
+    fireEvent.focus(box.querySelector('textarea') as HTMLTextAreaElement)
+    await waitFor(() => expect(box.querySelector('[data-testid="slot-size-badge"]')?.textContent).toMatch(/^200 × \d+$/))
+  })
+
+  it('space held: a shield covers the slots so a drag pans, and a click places nothing', async () => {
+    const Harness = await makeHarness()
+    const onPlaceSlot = vi.fn()
+    const { container } = render(createElement(Harness, { doc: makeDoc(), initialSlots: [seeded], onPlaceSlot }))
+    await mountedSlot(container)
+    expect(container.querySelector('[data-testid="pan-shield"]')).toBeNull()
+    fireEvent.keyDown(window, { key: ' ' })
+    await waitFor(() => expect(container.querySelector('[data-testid="pan-shield"]')).not.toBeNull())
+    expect((container.querySelector('[data-testid="workspace"]') as HTMLElement).style.cursor).toBe('grab')
+    fireEvent.click(container.querySelector('canvas') as HTMLCanvasElement, { clientX: 5, clientY: 5 })
+    expect(onPlaceSlot).not.toHaveBeenCalled()
+    fireEvent.keyUp(window, { key: ' ' })
+    await waitFor(() => expect(container.querySelector('[data-testid="pan-shield"]')).toBeNull())
+  })
+
+  it('Delete removes the selected slot, Escape deselects; neither while typing', async () => {
+    const Harness = await makeHarness()
+    const onRemoveSlot = vi.fn()
+    const { container } = render(createElement(Harness, { doc: makeDoc(), initialSlots: [seeded], onRemoveSlot }))
+    const box = await mountedSlot(container)
+    const textarea = box.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.focus(textarea)
+    await waitFor(() => expect(box.style.outline).toContain('var(--slot-selection)'))
+
+    // In the field, Delete edits text.
+    fireEvent.keyDown(textarea, { key: 'Delete' })
+    expect(onRemoveSlot).not.toHaveBeenCalled()
+
+    fireEvent.blur(textarea)
+    fireEvent.keyDown(window, { key: 'Delete' })
+    expect(onRemoveSlot).toHaveBeenCalledWith('s1')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(box.style.outline).toBe('none'))
+  })
+
+  it('the zoom pill steps through presets and reports the scale; the page pill turns pages', async () => {
+    const Harness = await makeHarness()
+    const { container } = render(createElement(Harness, { doc: makeDoc(2) }))
+    const workspace = await waitFor(() => container.querySelector('[data-testid="workspace"]') as HTMLElement)
+    // jsdom measures nothing, so the fit lands on 100% at the origin.
+    await waitFor(() => expect(container.querySelector('[data-testid="zoom-percentage"]')?.textContent).toBe('100%'))
+    fireEvent.click(container.querySelector('[data-testid="zoom-in"]') as HTMLButtonElement)
+    await waitFor(() => expect(container.querySelector('[data-testid="zoom-percentage"]')?.textContent).toBe('150%'))
+    expect(workspace.dataset.zoom).toBe('1.5')
+    fireEvent.click(container.querySelector('[data-testid="zoom-out"]') as HTMLButtonElement)
+    await waitFor(() => expect(container.querySelector('[data-testid="zoom-percentage"]')?.textContent).toBe('100%'))
+
+    expect(container.querySelector('[data-testid="page-indicator"]')?.textContent).toBe('1 / 2')
+    fireEvent.click(container.querySelector('[data-testid="page-next"]') as HTMLButtonElement)
+    await waitFor(() => expect(container.querySelector('[data-testid="page-indicator"]')?.textContent).toBe('2 / 2'))
+  })
+
+  it('a click on the dark canvas outside the page deselects', async () => {
+    const Harness = await makeHarness()
+    const { container } = render(createElement(Harness, { doc: makeDoc(), initialSlots: [seeded] }))
+    const box = await mountedSlot(container)
+    fireEvent.focus(box.querySelector('textarea') as HTMLTextAreaElement)
+    await waitFor(() => expect(box.style.outline).toContain('var(--slot-selection)'))
+    fireEvent.click(container.querySelector('[data-testid="canvas-backdrop"]') as HTMLElement)
+    await waitFor(() => expect(box.style.outline).toBe('none'))
   })
 })
