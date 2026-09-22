@@ -168,7 +168,17 @@ describe('SlotOverlay name and size', () => {
     expect(spans.length).toBeGreaterThan(0)
     expect(box.textContent).toContain('Date')
     expect((spans[0] as HTMLElement).style.fontFamily).toBe('PdfSlotSans')
-    expect((spans[0] as HTMLElement).style.color).toContain('color-mix')
+    // In the box's accent, NEVER the slot's ink: in the slot's own colour a
+    // name is indistinguishable from text that would be exported.
+    expect((spans[0] as HTMLElement).style.color).toContain('--slot-selection')
+    expect((spans[0] as HTMLElement).style.color).not.toContain('rgb(')
+  })
+
+  it('once named, the slot takes the caret so the next thing typed is its text', () => {
+    const onFocused = vi.fn()
+    const { box } = renderOverlay(true, { slot: { ...makeSlot(), text: '' }, name: 'Date', autoFocus: true, onFocused })
+    expect(document.activeElement).toBe(box.querySelector('textarea'))
+    expect(onFocused).toHaveBeenCalledTimes(1)
   })
 
   it('the placeholder gives way to text, and a committed slot hides its DOM text but never its placeholder', () => {

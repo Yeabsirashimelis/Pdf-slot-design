@@ -51,6 +51,12 @@ export function TemplateEditor({
     namingRef.current = next
     setNaming(next)
   }
+  // The slot whose text box should take the caret next: naming a slot ends
+  // by focusing it, so the very next thing typed is the slot's *text* and
+  // not another name. Without it the box sits there showing its name as a
+  // placeholder, which reads exactly like content that would be exported --
+  // and is not.
+  const [focusSlotId, setFocusSlotId] = useState<string | null>(null)
 
   // Record which file is open, so a reload lands here again. An effect,
   // not a render-time write: a store write is a side effect React may
@@ -114,6 +120,8 @@ export function TemplateEditor({
             return
           }
           handleRename(current.id, trimmed)
+          // Named and ready to be written into: carry the caret over.
+          setFocusSlotId(current.id)
         },
         onCancel: () => {
           const current = namingRef.current
@@ -177,6 +185,8 @@ export function TemplateEditor({
           locked={locked}
           names={names}
           naming={namingState}
+          focusSlotId={focusSlotId}
+          onSlotFocused={() => setFocusSlotId(null)}
           onPlaceSlot={handlePlaceSlot}
           onDuplicateSlot={handleDuplicate}
           onRemoveSlot={handleRemove}

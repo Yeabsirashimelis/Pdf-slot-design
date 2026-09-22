@@ -5,7 +5,7 @@
 // and Badge.
 'use client'
 
-import { useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
 import {
   FONT_CSS_FAMILY,
   PDF_APPLIES_KERNING,
@@ -50,6 +50,8 @@ export function SlotOverlay({
   screenScale = 1,
   metrics,
   selected,
+  autoFocus = false,
+  onFocused,
   onSelect,
   onChange,
   onCommit,
@@ -72,6 +74,10 @@ export function SlotOverlay({
   screenScale?: number
   metrics: FontMetrics
   selected: boolean
+  /** True for one render once this slot has been named: the caret moves into its text box. */
+  autoFocus?: boolean
+  /** Called once that focus has been given, so the caller can clear its one-shot flag. */
+  onFocused?(): void
   onSelect(): void
   /** `targetId` is set only while Alt+dragging: the patch is for the copy being dragged, not this slot. */
   onChange(patch: Partial<Slot>, targetId?: string): void
@@ -100,6 +106,15 @@ export function SlotOverlay({
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [focused, setFocused] = useState(false)
+
+  // Naming a slot ends by handing it the caret, so what the user types
+  // next is the slot's text. (Without it they are left looking at the
+  // name-as-placeholder, which is not what gets exported.)
+  useEffect(() => {
+    if (!autoFocus) return
+    textareaRef.current?.focus()
+    onFocused?.()
+  }, [autoFocus, onFocused])
 
   const { lines, boxHeight, placeholder } = layoutSlot(slot, metrics, name)
 
@@ -191,10 +206,13 @@ export function SlotOverlay({
           lines={lines}
           viewport={viewport}
           metrics={metrics}
-          // The placeholder is a hint in the slot's typography, not text:
-          // the slot's own colour, faded, so it cannot be mistaken for
-          // something that will be exported.
-          color={placeholder ? `color-mix(in srgb, ${rgbToCss(slot.color)} 45%, transparent)` : undefined}
+          // The placeholder is a hint in the slot's typography, but NEVER in
+          // its ink: it is drawn in the box's own accent, the colour of the
+          // chrome around it, because in the slot's colour it is
+          // indistinguishable from text that would be exported -- a user
+          // read their slot's name as their content, saved, and found the
+          // download "missing" the text they never typed.
+          color={placeholder ? 'color-mix(in srgb, var(--slot-selection) 70%, transparent)' : undefined}
           placeholder={placeholder}
         />
       )}

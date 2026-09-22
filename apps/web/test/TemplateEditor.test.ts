@@ -120,6 +120,28 @@ describe('TemplateEditor', () => {
     expect(container.querySelectorAll('[data-slot-id]').length).toBe(0)
   })
 
+  it('naming a slot hands the caret to its text box, so the next thing typed is exported', async () => {
+    // The trap this closes: a named-but-empty slot shows its name on the
+    // page as a placeholder. It reads exactly like content -- but it is
+    // not, and the download (rightly) has none of it. Naming therefore
+    // ends in the text box, with the caret in it.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await placeSlot(container, 'Added')
+
+    const box = await waitFor(() => {
+      const el = container.querySelector('[data-slot-id]')
+      if (!el) throw new Error('overlay not mounted yet')
+      return el as HTMLElement
+    })
+    const onPage = box.querySelector('textarea') as HTMLTextAreaElement
+    await waitFor(() => expect(document.activeElement).toBe(onPage))
+
+    // So typing straight after naming becomes the slot's text, not its name.
+    fireEvent.change(onPage, { target: { value: 'Added' } })
+    expect((screen.getByTestId(`slot-field-${box.dataset.slotId}`) as HTMLTextAreaElement).value).toBe('Added')
+  })
+
   it('an empty name discards the new slot: Escape, or Enter/blur with nothing typed', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))

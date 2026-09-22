@@ -1,5 +1,6 @@
 'use client'
 
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { downloadName } from './downloadName'
@@ -51,6 +52,11 @@ export function DownloadButton({
     // since done; until then the cost is one blob held in memory.
     document.body.append(a)
     a.click()
+    // Saving is the one action with no visible result inside the app -- the
+    // file lands wherever the browser puts it, under a name that may
+    // already exist there. Say what was written, and how big, so a stale
+    // copy opened by name is not mistaken for this one.
+    toast.success(`Saved ${a.download}`, { description: `${(data.byteLength / 1024).toFixed(0)} KB` })
     window.setTimeout(() => {
       a.remove()
       URL.revokeObjectURL(url)

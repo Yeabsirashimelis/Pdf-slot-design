@@ -55,6 +55,8 @@ export function Editor({
   locked = false,
   names,
   naming = null,
+  focusSlotId = null,
+  onSlotFocused,
   onPlaceSlot,
   onDuplicateSlot,
   onRemoveSlot,
@@ -71,6 +73,10 @@ export function Editor({
   names: Record<string, string>
   /** The slot being named in place, if any (see SlotOverlay's `naming`). */
   naming?: NamingState | null
+  /** The slot whose text box should take the caret (set right after it was named). */
+  focusSlotId?: string | null
+  /** Called once that focus has been given, so the parent can clear its one-shot flag. */
+  onSlotFocused?(): void
   /** A click on empty page: the parent creates the slot (and starts naming it). */
   onPlaceSlot(atPdf: Point, page: number): void
   /** Ctrl/Cmd+D: the parent copies the slot (it owns the names). */
@@ -318,6 +324,8 @@ export function Editor({
                       screenScale={view.zoom}
                       metrics={pipeline.fontMetrics![slot.fontId]}
                       selected={store.selectedId === slot.id}
+                      autoFocus={focusSlotId === slot.id}
+                      onFocused={onSlotFocused}
                       onSelect={() => store.select(slot.id)}
                       onChange={(patch: Partial<Slot>, targetId = slot.id) => store.updateSlot(targetId, patch)}
                       onCloneStart={() => cloneInPlace(slot)}
