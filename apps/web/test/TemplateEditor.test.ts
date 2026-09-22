@@ -269,10 +269,12 @@ describe('TemplateEditor', () => {
       if (!el) throw new Error('overlay not mounted yet')
       return el as HTMLElement
     })
-    expect(box.style.cursor).toBe('move')
+    const tag = box.querySelector('[data-testid="slot-label"]') as HTMLElement
+    expect(tag.style.cursor).toBe('move')
 
     fireEvent.click(screen.getByTestId('lock-toggle'))
-    await waitFor(() => expect(box.style.cursor).toBe('text'))
+    // Locked, the name tag stops being a handle.
+    await waitFor(() => expect(tag.style.pointerEvents).toBe('none'))
     fireEvent.click(screen.getByTestId('slot-row-s1'))
     await waitFor(() => expect((screen.getByTestId('font-select-trigger') as HTMLButtonElement).disabled).toBe(true))
     expect((screen.getByTestId('slot-remove-s1') as HTMLButtonElement).disabled).toBe(true)
@@ -396,7 +398,7 @@ describe('TemplateEditor', () => {
     expect(store.layouts.get('file-1')!.slots.map((s) => s.name)).toEqual(['CO#', 'Date', 'CO# copy', 'CO# copy (2)'])
   })
 
-  it('Ctrl+C / Ctrl+V pastes a copy of the selected slot on the current page, under the pointer, named "<name> copy"', async () => {
+  it('Ctrl+C / Ctrl+V pastes the copied slot on the current page, under the pointer', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const store = memoryStore()
     const twoPages: OpenedFile = {
@@ -428,7 +430,9 @@ describe('TemplateEditor', () => {
     expect(pasted.style.left).toBe('80px')
     expect(pasted.style.top).toBe('40px')
     expect(pasted.style.outline).toContain('var(--slot-selection)')
-    expect(rowNames(container)).toEqual(['Date', 'CO# copy'])
+    // The source was removed above, so its name is free and the paste
+    // takes it back rather than inventing "CO# copy".
+    expect(rowNames(container)).toEqual(['Date', 'CO#'])
 
     // Pointer gone: a repeat paste cascades 12pt from the previous one.
     fireEvent.pointerLeave(stage)
@@ -438,7 +442,8 @@ describe('TemplateEditor', () => {
     const second = boxes[1] as HTMLElement
     expect(parseFloat(second.style.left)).toBeCloseTo(80 + 12, 3)
     expect(parseFloat(second.style.top)).toBeCloseTo(40 + 12, 3)
-    expect(rowNames(container)).toEqual(['Date', 'CO# copy', 'CO# copy (2)'])
+    // Now "CO#" is taken, so the next one is a copy.
+    expect(rowNames(container)).toEqual(['Date', 'CO#', 'CO# copy'])
   })
 
   it('Alt+drag leaves the slot where it is and drags a copy named "<name> copy"', async () => {
@@ -452,9 +457,11 @@ describe('TemplateEditor', () => {
     })
     const before = { left: source.style.left, top: source.style.top }
 
-    fireEvent.pointerDown(source, { pointerId: 1, clientX: 0, clientY: 0, altKey: true })
-    fireEvent.pointerMove(source, { pointerId: 1, clientX: 30, clientY: 20, altKey: true })
-    fireEvent.pointerUp(source, { pointerId: 1 })
+    // The name tag is the handle (the box itself is for text).
+    const tag = source.querySelector('[data-testid="slot-label"]') as HTMLElement
+    fireEvent.pointerDown(tag, { pointerId: 1, clientX: 0, clientY: 0, altKey: true })
+    fireEvent.pointerMove(tag, { pointerId: 1, clientX: 30, clientY: 20, altKey: true })
+    fireEvent.pointerUp(tag, { pointerId: 1 })
 
     const boxes = Array.from(container.querySelectorAll('[data-slot-id]')) as HTMLElement[]
     expect(boxes).toHaveLength(3)
@@ -465,6 +472,30 @@ describe('TemplateEditor', () => {
     expect(parseFloat(copy.style.top)).toBeCloseTo(parseFloat(before.top) + 20, 3)
     expect(copy.style.outline).toContain('var(--slot-selection)')
     expect(rowNames(container)).toContain('CO# copy')
+  })
+
+  it('Ctrl+X lifts a slot out and Ctrl+V puts it down again, keeping its name and its text', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: knownFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await waitFor(() => screen.getByTestId('slot-row-s1'))
+    await waitFor(() => {
+      if (container.querySelectorAll('[data-slot-id]').length < 2) throw new Error('overlays not mounted yet')
+    })
+
+    fireEvent.click(screen.getByTestId('slot-row-s1'))
+    fireEvent.change(screen.getByTestId('slot-field-s1'), { target: { value: 'carried over' } })
+    fireEvent.keyDown(window, { key: 'x', ctrlKey: true })
+    await waitFor(() => expect(rowNames(container)).toEqual(['Date']))
+
+    const stage = screen.getByTestId('page-stage')
+    fireEvent.pointerMove(stage, { clientX: 120, clientY: 60 })
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true })
+
+    // Its own name back (not "CO# copy"), and what was typed into it.
+    await waitFor(() => expect(rowNames(container)).toEqual(['CO#', 'Date']))
+    const pasted = Array.from(container.querySelectorAll('[data-slot-id]')).find((b) => (b as HTMLElement).dataset.slotId !== 's2') as HTMLElement
+    expect((screen.getByTestId(`slot-field-${pasted.dataset.slotId}`) as HTMLTextAreaElement).value).toBe('carried over')
+    expect(pasted.style.left).toBe('120px')
   })
 
   it('the page stage is not text-selectable and never starts a native drag (which would hijack a slot drag)', async () => {

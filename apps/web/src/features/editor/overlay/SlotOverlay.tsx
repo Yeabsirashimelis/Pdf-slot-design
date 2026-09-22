@@ -32,6 +32,12 @@ const RESIZE_EDGES: { edge: ResizeEdge; cursor: string; place(px: number): CSSPr
 ]
 const RESIZE_STRIP_PX = 8
 const SELECTION_OUTLINE_PX = 2
+/** The name tag's own font size, in stage px. */
+const TAG_FONT_PX = 10
+/** What that becomes on screen: never smaller than this... */
+const TAG_MIN_SCREEN_PX = 9
+/** ...and never larger, however far the page is zoomed in. */
+const TAG_MAX_SCREEN_PX = 22
 
 /** The inline name editor a freshly placed (or renamed) slot shows; see `naming` below. */
 export type SlotNaming = {
@@ -160,6 +166,9 @@ export function SlotOverlay({
   // Everything that must look the same size on screen at any zoom is
   // sized in stage px against the screen scale.
   const px = (screen: number) => screen / screenScale
+  // The tag tracks the page between the two bounds, and holds still outside them.
+  const tagOnScreen = Math.min(TAG_MAX_SCREEN_PX, Math.max(TAG_MIN_SCREEN_PX, TAG_FONT_PX * screenScale))
+  const tagScale = tagOnScreen / (TAG_FONT_PX * screenScale)
   const typography: CSSProperties = {
     fontFamily: FONT_CSS_FAMILY[slot.fontId],
     fontSize: toScreenLength(slot.size, viewport),
@@ -170,7 +179,9 @@ export function SlotOverlay({
   return (
     <div
       data-slot-id={slot.id}
-      {...gestures.body}
+      // No drag handlers here: a press inside the box belongs to the text
+      // (selecting it, placing the caret). The name tag above is what
+      // moves the slot -- see the tag below.
       style={{
         position: 'absolute',
         left: screenOrigin.x,
@@ -178,7 +189,7 @@ export function SlotOverlay({
         width: screenWidth,
         height: screenHeight,
         pointerEvents: 'auto',
-        cursor: locked ? 'text' : 'move',
+        cursor: 'text',
         // Theme tokens (globals.css) so the overlay follows the app's palette.
         // Every slot is visibly a box: a light wash and a hairline in the
         // accent, so a user can find the slots on a busy form without the
@@ -203,17 +214,24 @@ export function SlotOverlay({
       {name && (
         <span
           data-testid="slot-label"
+          {...gestures.body}
+          onPointerDown={(event) => {
+            onSelect()
+            gestures.body.onPointerDown(event)
+          }}
           style={{
             position: 'absolute',
             left: 0,
             bottom: '100%',
-            // Sized in screen px and counter-scaled, so the tag reads the
-            // same at 25% and at 400% -- it is chrome, not part of the page.
+            // The tag grows with the page, so it always reads as this
+            // slot's tag rather than a fixed pip beside a box that has
+            // outgrown it -- but with a floor and a ceiling, so it neither
+            // disappears at 10% nor swamps the page at 400%.
             transformOrigin: 'bottom left',
-            transform: `scale(${px(1)})`,
+            transform: `scale(${tagScale})`,
             marginBottom: 2,
             padding: '0 4px',
-            fontSize: 10,
+            fontSize: TAG_FONT_PX,
             lineHeight: '14px',
             fontFamily: 'var(--font-sans)',
             color: 'var(--slot-selection)',
@@ -221,7 +239,12 @@ export function SlotOverlay({
             border: '1px solid var(--slot-highlight-edge)',
             borderRadius: 3,
             whiteSpace: 'nowrap',
-            pointerEvents: 'none',
+            // The tag is the handle: dragging happens here, which leaves
+            // the box itself free for selecting text character by
+            // character without a drag being read into it.
+            pointerEvents: locked ? 'none' : 'auto',
+            cursor: locked ? 'default' : 'move',
+            touchAction: 'none',
             userSelect: 'none',
           }}
         >

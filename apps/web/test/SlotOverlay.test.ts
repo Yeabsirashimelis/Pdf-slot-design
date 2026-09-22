@@ -46,10 +46,16 @@ function makeSlot(): Slot {
   }
 }
 
+/** The name tag: the slot's drag handle (the box itself is for text). */
+function handleOf(box: HTMLElement): HTMLElement {
+  return box.querySelector('[data-testid="slot-label"]') as HTMLElement
+}
+
 function renderOverlay(selected: boolean, extra: Partial<Parameters<typeof SlotOverlay>[0]> = {}) {
   const { container } = render(
     createElement(SlotOverlay, {
       slot: makeSlot(),
+      name: 'Field',
       viewport: { zoom: 1, pageHeight: 792 },
       metrics,
       selected,
@@ -86,16 +92,40 @@ describe('SlotOverlay geometry', () => {
     expect(box.style.outline).toContain('var(--slot-selection)')
   })
 
-  it('locked: no resize handle even when selected, text cursor, and dragging does nothing', () => {
+  it('locked: no resize handle even when selected, and the tag no longer drags', () => {
     const onChange = vi.fn()
     const { box } = renderOverlay(true, { locked: true, onChange })
-    expect(box.style.cursor).toBe('text')
     // The resize handle is the only child div with cursor ew-resize.
     expect(Array.from(box.querySelectorAll('div')).some((d) => d.style.cursor === 'ew-resize')).toBe(false)
+    const tag = handleOf(box)
+    expect(tag.style.pointerEvents).toBe('none')
+    fireEvent.pointerDown(tag, { pointerId: 1, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(tag, { pointerId: 1, clientX: 40, clientY: 0 })
+    fireEvent.pointerUp(tag, { pointerId: 1 })
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('the box is for text, the tag is for moving: a drag across the box moves nothing', () => {
+    const onChange = vi.fn()
+    const { box } = renderOverlay(true, { onChange })
+    expect(box.style.cursor).toBe('text')
     fireEvent.pointerDown(box, { pointerId: 1, clientX: 0, clientY: 0 })
-    fireEvent.pointerMove(box, { pointerId: 1, clientX: 40, clientY: 0 })
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 60, clientY: 20 })
     fireEvent.pointerUp(box, { pointerId: 1 })
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('dragging the tag moves the slot, and selects it first', () => {
+    const onChange = vi.fn()
+    const onSelect = vi.fn()
+    const { box } = renderOverlay(false, { onChange, onSelect })
+    const tag = handleOf(box)
+    expect(tag.style.cursor).toBe('move')
+    fireEvent.pointerDown(tag, { pointerId: 1, clientX: 0, clientY: 0 })
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    fireEvent.pointerMove(tag, { pointerId: 1, clientX: 40, clientY: 0 })
+    expect(onChange).toHaveBeenLastCalledWith({ x: 50, y: 700 })
+    fireEvent.pointerUp(tag, { pointerId: 1 })
   })
 
   it('every slot shows a wash and a hairline', () => {
@@ -145,8 +175,9 @@ describe('SlotOverlay on a scaled stage', () => {
   it('divides pointer deltas by the screen scale: a 40px drag on a 2x stage moves the slot 20pt', () => {
     const onChange = vi.fn()
     const { box } = renderOverlay(true, { onChange, screenScale: 2 })
-    fireEvent.pointerDown(box, { pointerId: 1, clientX: 0, clientY: 0 })
-    fireEvent.pointerMove(box, { pointerId: 1, clientX: 40, clientY: 0 })
+    const tag = handleOf(box)
+    fireEvent.pointerDown(tag, { pointerId: 1, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(tag, { pointerId: 1, clientX: 40, clientY: 0 })
     expect(onChange).toHaveBeenLastCalledWith({ x: 10 + 20, y: 700 })
   })
 
@@ -181,16 +212,21 @@ describe('SlotOverlay name and size', () => {
     expect(onFocused).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the slot\'s name on a tag above the box, counter-scaled so it reads at any zoom', () => {
+  it('shows the slot\'s name on a tag above the box, growing with the page between its bounds', () => {
     const { box } = renderOverlay(false, { name: 'Date', screenScale: 2 })
-    const tag = box.querySelector('[data-testid="slot-label"]') as HTMLElement
+    const tag = handleOf(box)
     expect(tag.textContent).toBe('Date')
-    // Above the box, out of the pointer's way, and not scaled with the page.
     expect(tag.style.bottom).toBe('100%')
-    expect(tag.style.pointerEvents).toBe('none')
-    expect(tag.style.transform).toContain('scale(0.5)')
+    // 10pt at 2x is 20 screen px, inside the bounds: it tracks the page.
+    expect(tag.style.transform).toBe('scale(1)')
     cleanup()
-    expect(renderOverlay(false).box.querySelector('[data-testid="slot-label"]')).toBeNull()
+    // Far out, it stops shrinking (9px floor on a 10px tag at 0.25x).
+    const small = handleOf(renderOverlay(false, { name: 'Date', screenScale: 0.25 }).box)
+    expect(small.style.transform).toBe('scale(3.6)')
+    cleanup()
+    // Far in, it stops growing (22px ceiling at 4x).
+    const big = handleOf(renderOverlay(false, { name: 'Date', screenScale: 4 }).box)
+    expect(big.style.transform).toBe('scale(0.55)')
   })
 
   it('the placeholder gives way to text, and a committed slot hides its DOM text but never its placeholder', () => {
@@ -241,22 +277,24 @@ describe('SlotOverlay name and size', () => {
     const onChange = vi.fn()
     const onCloneStart = vi.fn(() => 'copy-1')
     const { box } = renderOverlay(true, { onChange, onCloneStart })
-    fireEvent.pointerDown(box, { pointerId: 1, clientX: 0, clientY: 0, altKey: true })
-    fireEvent.pointerMove(box, { pointerId: 1, clientX: 30, clientY: 0, altKey: true })
-    fireEvent.pointerMove(box, { pointerId: 1, clientX: 40, clientY: 0, altKey: true })
+    const tag = handleOf(box)
+    fireEvent.pointerDown(tag, { pointerId: 1, clientX: 0, clientY: 0, altKey: true })
+    fireEvent.pointerMove(tag, { pointerId: 1, clientX: 30, clientY: 0, altKey: true })
+    fireEvent.pointerMove(tag, { pointerId: 1, clientX: 40, clientY: 0, altKey: true })
     expect(onCloneStart).toHaveBeenCalledTimes(1)
     // At zoom 1 a 40px drag is 40pt; every patch names the copy, never this slot.
     expect(onChange.mock.calls.every(([, id]) => id === 'copy-1')).toBe(true)
     expect(onChange).toHaveBeenLastCalledWith({ x: 50, y: 700 }, 'copy-1')
-    fireEvent.pointerUp(box, { pointerId: 1 })
+    fireEvent.pointerUp(tag, { pointerId: 1 })
   })
 
   it('a plain drag (no Alt) never asks for a clone and patches this slot', () => {
     const onChange = vi.fn()
     const onCloneStart = vi.fn(() => 'copy-1')
     const { box } = renderOverlay(true, { onChange, onCloneStart })
-    fireEvent.pointerDown(box, { pointerId: 1, clientX: 0, clientY: 0 })
-    fireEvent.pointerMove(box, { pointerId: 1, clientX: 30, clientY: 0 })
+    const tag = handleOf(box)
+    fireEvent.pointerDown(tag, { pointerId: 1, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(tag, { pointerId: 1, clientX: 30, clientY: 0 })
     expect(onCloneStart).not.toHaveBeenCalled()
     expect(onChange).toHaveBeenLastCalledWith({ x: 40, y: 700 })
   })

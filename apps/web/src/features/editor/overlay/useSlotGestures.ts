@@ -20,11 +20,12 @@ type DragState =
   | { kind: 'move'; pointerId: number; startScreen: { x: number; y: number }; origin: DragOrigin; targetId?: string }
   | { kind: 'resize'; edge: ResizeEdge; pointerId: number; startScreen: { x: number; y: number }; origin: ResizeOrigin }
 
+/** Attached to whatever element drives the gesture: the name tag (a span) or a resize strip (a div). */
 type Handlers = {
-  onPointerDown(event: PointerEvent<HTMLDivElement>): void
-  onPointerMove(event: PointerEvent<HTMLDivElement>): void
-  onPointerUp(event: PointerEvent<HTMLDivElement>): void
-  onPointerCancel(event: PointerEvent<HTMLDivElement>): void
+  onPointerDown(event: PointerEvent<HTMLElement>): void
+  onPointerMove(event: PointerEvent<HTMLElement>): void
+  onPointerUp(event: PointerEvent<HTMLElement>): void
+  onPointerCancel(event: PointerEvent<HTMLElement>): void
 }
 
 /**
@@ -95,7 +96,7 @@ export function useSlotGestures({
     onCommit()
   }
 
-  const handleBodyPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+  const handleBodyPointerDown = (event: PointerEvent<HTMLElement>) => {
     if (locked) return
     // A resize (or an already-promoted move, defensively) owns this
     // gesture; don't also arm a pending click/drag for it.
@@ -113,7 +114,7 @@ export function useSlotGestures({
     }
   }
 
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = (event: PointerEvent<HTMLElement>) => {
     const pending = pendingRef.current
     if (pending && pending.pointerId === event.pointerId && !dragRef.current) {
       const dx = event.clientX - pending.startScreen.x
@@ -141,7 +142,7 @@ export function useSlotGestures({
     }
   }
 
-  const handleBodyPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+  const handleBodyPointerUp = (event: PointerEvent<HTMLElement>) => {
     if (pendingRef.current?.pointerId === event.pointerId) pendingRef.current = null
     endDrag(event.pointerId)
   }
