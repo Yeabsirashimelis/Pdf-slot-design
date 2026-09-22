@@ -32,6 +32,11 @@ const RESIZE_EDGES: { edge: ResizeEdge; cursor: string; place(px: number): CSSPr
 ]
 const RESIZE_STRIP_PX = 8
 const SELECTION_OUTLINE_PX = 2
+/**
+ * How the name shows through an empty box: faint enough that it cannot be
+ * taken for text that will be exported, solid enough to judge the fit.
+ */
+const PLACEHOLDER_COLOR = 'color-mix(in srgb, var(--slot-selection) 38%, transparent)'
 /** The name tag's own font size, in stage px. */
 const TAG_FONT_PX = 10
 /** What that becomes on screen: never smaller than this... */
@@ -258,12 +263,12 @@ export function SlotOverlay({
           viewport={viewport}
           metrics={metrics}
           // The placeholder is a hint in the slot's typography, but NEVER in
-          // its ink: it is drawn in the box's own accent, the colour of the
-          // chrome around it, because in the slot's colour it is
-          // indistinguishable from text that would be exported -- a user
-          // read their slot's name as their content, saved, and found the
-          // download "missing" the text they never typed.
-          color={placeholder ? 'color-mix(in srgb, var(--slot-selection) 70%, transparent)' : undefined}
+          // its ink: it is drawn faintly, in the box's own accent -- the
+          // colour of the chrome around it -- because anything close to
+          // real text is read as real text. A user took their slot's name
+          // for their content, saved, and found the download "missing"
+          // text they had never typed.
+          color={placeholder ? PLACEHOLDER_COLOR : undefined}
           placeholder={placeholder}
         />
       )}
