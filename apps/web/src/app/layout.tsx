@@ -27,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         {/* No next-themes provider exists, so the Toaster's own useTheme
             would report "system"; the theme is fixed above, so say so. */}
-        <Toaster theme="dark" />
+        <Toaster theme="dark" position="top-center" />
       </body>
     </html>
   )

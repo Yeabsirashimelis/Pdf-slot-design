@@ -181,6 +181,18 @@ describe('SlotOverlay name and size', () => {
     expect(onFocused).toHaveBeenCalledTimes(1)
   })
 
+  it('shows the slot\'s name on a tag above the box, counter-scaled so it reads at any zoom', () => {
+    const { box } = renderOverlay(false, { name: 'Date', screenScale: 2 })
+    const tag = box.querySelector('[data-testid="slot-label"]') as HTMLElement
+    expect(tag.textContent).toBe('Date')
+    // Above the box, out of the pointer's way, and not scaled with the page.
+    expect(tag.style.bottom).toBe('100%')
+    expect(tag.style.pointerEvents).toBe('none')
+    expect(tag.style.transform).toContain('scale(0.5)')
+    cleanup()
+    expect(renderOverlay(false).box.querySelector('[data-testid="slot-label"]')).toBeNull()
+  })
+
   it('the placeholder gives way to text, and a committed slot hides its DOM text but never its placeholder', () => {
     const withText = renderOverlay(false, { name: 'Date', textCommitted: true }).box
     expect(withText.querySelector('[data-slot-line][data-placeholder]')).toBeNull()

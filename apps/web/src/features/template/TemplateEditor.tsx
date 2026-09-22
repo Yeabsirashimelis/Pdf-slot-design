@@ -120,8 +120,14 @@ export function TemplateEditor({
             return
           }
           handleRename(current.id, trimmed)
-          // Named and ready to be written into: carry the caret over.
+          // Named and ready to be written into: carry the caret over, and
+          // say which of the two things just happened -- naming a slot is
+          // not the same as filling it in, and that is exactly the step
+          // that is easy to stop at by mistake.
           setFocusSlotId(current.id)
+          toast.success(current.isNew ? `Added "${trimmed}"` : `Renamed to "${trimmed}"`, {
+            description: current.isNew ? 'Now type the text that goes in it.' : undefined,
+          })
         },
         onCancel: () => {
           const current = namingRef.current

@@ -200,6 +200,34 @@ export function SlotOverlay({
         outlineOffset: -px(SELECTION_OUTLINE_PX),
       }}
     >
+      {name && (
+        <span
+          data-testid="slot-label"
+          style={{
+            position: 'absolute',
+            left: 0,
+            bottom: '100%',
+            // Sized in screen px and counter-scaled, so the tag reads the
+            // same at 25% and at 400% -- it is chrome, not part of the page.
+            transformOrigin: 'bottom left',
+            transform: `scale(${px(1)})`,
+            marginBottom: 2,
+            padding: '0 4px',
+            fontSize: 10,
+            lineHeight: '14px',
+            fontFamily: 'var(--font-sans)',
+            color: 'var(--slot-selection)',
+            background: 'var(--card)',
+            border: '1px solid var(--slot-highlight-edge)',
+            borderRadius: 3,
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
+          {name}
+        </span>
+      )}
       {!hideDomText && !naming && (
         <SlotLines
           slot={slot}
