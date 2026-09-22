@@ -15,7 +15,7 @@ import { DownloadButton } from '@/features/editor/toolbar/DownloadButton'
  * is why the earlier tests never saw it.
  */
 
-function setup(bytes = new Uint8Array([1, 2, 3])) {
+function setup(bytes = new Uint8Array([1, 2, 3]), emptySlots = 0) {
   const createObjectURL = vi.fn((blob: unknown) => {
     void blob
     return 'blob:fake-url'
@@ -55,6 +55,7 @@ function setup(bytes = new Uint8Array([1, 2, 3])) {
         render: vi.fn(async () => bytes),
         downloadBlockedReason: null,
         fileName: 'form.pdf',
+        emptySlots,
       }),
     ),
   )
@@ -102,6 +103,19 @@ describe('DownloadButton saving', () => {
 
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url')
     expect(document.querySelectorAll('a[download]').length).toBe(0)
+  })
+
+  it('says when slots had no text, since those draw nothing and look lost', async () => {
+    const sonner = await import('sonner')
+    const warning = vi.spyOn(sonner.toast, 'warning')
+    const success = vi.spyOn(sonner.toast, 'success')
+    const { createObjectURL } = setup(new Uint8Array([1]), 2)
+
+    fireEvent.click(screen.getByTestId('download-button'))
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
+
+    expect(success).not.toHaveBeenCalled()
+    expect(String(warning.mock.calls[0]?.[1]?.description)).toMatch(/2 slots had no text/)
   })
 
   it('saves exactly the bytes the render resolved with, under the file\'s own name', async () => {

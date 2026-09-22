@@ -207,6 +207,7 @@ export function TemplateEditor({
         render={pipeline.render}
         downloadBlockedReason={pipeline.downloadBlockedReason}
         fileName={fileName}
+        emptySlots={editor.slots.filter((s) => s.text.trim() === '').length}
         onSave={handleSave}
       />
     </div>

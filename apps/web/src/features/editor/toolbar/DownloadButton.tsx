@@ -25,12 +25,15 @@ export function DownloadButton({
   render,
   downloadBlockedReason,
   fileName,
+  emptySlots = 0,
 }: {
   isRendering: boolean
   render(): Promise<Uint8Array | null>
   downloadBlockedReason: string | null
   /** The uploaded file's name; the download keeps it (see downloadName). */
   fileName?: string
+  /** Slots with no text. They draw nothing, so the download says so rather than looking like it lost them. */
+  emptySlots?: number
 }) {
   const handleDownload = async () => {
     if (downloadBlockedReason) return
@@ -56,7 +59,17 @@ export function DownloadButton({
     // file lands wherever the browser puts it, under a name that may
     // already exist there. Say what was written, and how big, so a stale
     // copy opened by name is not mistaken for this one.
-    toast.success(`Saved ${a.download}`, { description: `${(data.byteLength / 1024).toFixed(0)} KB` })
+    const size = `${(data.byteLength / 1024).toFixed(0)} KB`
+    if (emptySlots > 0) {
+      // A slot with no text draws nothing. On the page it still shows its
+      // name (as a placeholder), so the download looks like it dropped
+      // something it was never given -- say it plainly instead.
+      toast.warning(`Saved ${a.download}`, {
+        description: `${size}. ${emptySlots} slot${emptySlots === 1 ? '' : 's'} had no text, so ${emptySlots === 1 ? 'it is' : 'they are'} not in the PDF.`,
+      })
+    } else {
+      toast.success(`Saved ${a.download}`, { description: size })
+    }
     window.setTimeout(() => {
       a.remove()
       URL.revokeObjectURL(url)

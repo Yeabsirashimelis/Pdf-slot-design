@@ -34,6 +34,7 @@ export function InspectorPanel({
   render,
   downloadBlockedReason,
   fileName,
+  emptySlots,
   onSave,
 }: {
   selected: Slot | null
@@ -47,6 +48,8 @@ export function InspectorPanel({
   render(): Promise<Uint8Array | null>
   downloadBlockedReason: string | null
   fileName?: string
+  /** Slots with no text, for the download's own warning. */
+  emptySlots?: number
   onSave(): void
 }) {
   const disabled = !selected || locked
@@ -64,6 +67,7 @@ export function InspectorPanel({
             render={render}
             downloadBlockedReason={downloadBlockedReason}
             fileName={fileName}
+            emptySlots={emptySlots}
           />
           <Tooltip>
             <TooltipTrigger
