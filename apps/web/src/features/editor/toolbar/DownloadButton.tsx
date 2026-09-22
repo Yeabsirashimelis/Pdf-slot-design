@@ -5,6 +5,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { downloadName } from './downloadName'
 
 /**
+ * How long the blob: URL is kept alive after the click. Generous on
+ * purpose: revoking too early aborts the save with no error at all, while
+ * holding one export in memory a few seconds longer costs nothing.
+ */
+const REVOKE_DELAY_MS = 30_000
+
+/**
  * Performs the one render and saves exactly its bytes. `aria-disabled`,
  * not native `disabled`, while blocked: a native `disabled` makes the
  * element unfocusable and suppresses pointer events, so the Tooltip
@@ -35,8 +42,19 @@ export function DownloadButton({
     const a = document.createElement('a')
     a.href = url
     a.download = downloadName(fileName)
+    // The anchor has to be IN the document to be clicked (a detached one is
+    // ignored outside Chrome), and the object URL has to outlive that click:
+    // the browser reads the blob asynchronously, so revoking in the same
+    // task can abort a download it has not finished reading -- silently, with
+    // no file and no error. A small export always won that race; a 109-page
+    // one (~1.2 MB out) did not. Both are cleaned up once the read is long
+    // since done; until then the cost is one blob held in memory.
+    document.body.append(a)
     a.click()
-    URL.revokeObjectURL(url)
+    window.setTimeout(() => {
+      a.remove()
+      URL.revokeObjectURL(url)
+    }, REVOKE_DELAY_MS)
   }
 
   return (
