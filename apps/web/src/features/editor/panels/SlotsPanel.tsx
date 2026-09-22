@@ -255,8 +255,8 @@ export function SlotsPanel({
             <Kbd>Ctrl</Kbd>
             <Kbd>V</Kbd>
           </KbdGroup>{' '}
-          copy / paste under the pointer · <Kbd>Alt</Kbd> + drag duplicates · <Kbd>Del</Kbd> remove · arrows nudge ·{' '}
-          <Kbd>Space</Kbd> + drag pans ·{' '}
+          copy / paste under the pointer · <Kbd>Alt</Kbd> + drag duplicates · <Kbd>Del</Kbd> remove · arrows nudge · hold{' '}
+          <Kbd>Space</Kbd> and drag to move the page ·{' '}
           <KbdGroup>
             <Kbd>Ctrl</Kbd>
             <Kbd>scroll</Kbd>

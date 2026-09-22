@@ -46,6 +46,29 @@ function isTyping(target: EventTarget | null): boolean {
   )
 }
 
+/**
+ * A field in one of the side panels (a value box, a name, the hex). There
+ * the clipboard is the browser's: Ctrl+C / Ctrl+V move *text*, which is
+ * how a value gets pasted in from somewhere else.
+ *
+ * On the canvas -- including a slot's own box on the page, which takes
+ * focus as soon as it is clicked -- they move *slots* instead. Without
+ * this split there is no moment when a slot is selected and no field is
+ * focused, so slot copy/paste could never fire at all.
+ */
+function isPanelField(target: EventTarget | null): boolean {
+  if (!isTyping(target) || !(target instanceof HTMLElement)) return false
+  return target.closest('[data-testid="slot-panel"], [data-testid="inspector-panel"]') !== null
+}
+
+/** Text the user has highlighted in the focused field, if any. */
+function hasTextSelection(target: EventTarget | null): boolean {
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+    return target.selectionStart !== target.selectionEnd
+  }
+  return false
+}
+
 export type EditorShortcutHandlers = {
   undo(): void
   redo(): void
@@ -119,7 +142,12 @@ export function useEditorShortcuts(handlers: EditorShortcutHandlers): void {
         h.duplicateSelected()
         return
       }
-      if ((letter === 'c' || letter === 'v') && !isTyping(event.target)) {
+      if (letter === 'c' || letter === 'v') {
+        // In a panel field the clipboard is the browser's (see
+        // isPanelField), and a highlighted run of text is always the
+        // browser's to copy, wherever it is.
+        if (isPanelField(event.target)) return
+        if (letter === 'c' && hasTextSelection(event.target)) return
         event.preventDefault()
         if (letter === 'c') h.copySelected?.()
         else h.pasteCopied?.()

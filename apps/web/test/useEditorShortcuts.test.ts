@@ -88,18 +88,54 @@ describe('useEditorShortcuts', () => {
     expect(pasteCopied).toHaveBeenCalledTimes(1)
   })
 
-  it('Ctrl+C / Ctrl+V inside a text field stay the native text copy and paste', () => {
+  it('Ctrl+C / Ctrl+V on the canvas act on the slot, even with its own text box focused', () => {
+    // A slot's box takes focus the moment it is clicked, so gating on "a
+    // field is focused" left no moment when slot copy/paste could fire.
     const copySelected = vi.fn(), pasteCopied = vi.fn()
     renderHook(() =>
       useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn(), copySelected, pasteCopied }),
     )
+    const box = document.createElement('div')
+    box.setAttribute('data-slot-id', 's1')
+    const ta = document.createElement('textarea')
+    box.append(ta)
+    document.body.append(box)
+    key({ key: 'c', ctrlKey: true }, ta)
+    key({ key: 'v', ctrlKey: true }, ta)
+    expect(copySelected).toHaveBeenCalledTimes(1)
+    expect(pasteCopied).toHaveBeenCalledTimes(1)
+    box.remove()
+  })
+
+  it('Ctrl+C with text highlighted stays the browser\'s copy, wherever it is', () => {
+    const copySelected = vi.fn()
+    renderHook(() =>
+      useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn(), copySelected }),
+    )
+    const ta = document.createElement('textarea')
+    ta.value = 'hello'
+    document.body.append(ta)
+    ta.setSelectionRange(0, 5)
+    expect(key({ key: 'c', ctrlKey: true }, ta)).toBe(true) // not prevented
+    expect(copySelected).not.toHaveBeenCalled()
+    ta.remove()
+  })
+
+  it('Ctrl+C / Ctrl+V inside a panel field stay the native text copy and paste', () => {
+    const copySelected = vi.fn(), pasteCopied = vi.fn()
+    renderHook(() =>
+      useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn(), copySelected, pasteCopied }),
+    )
+    const panel = document.createElement('aside')
+    panel.setAttribute('data-testid', 'slot-panel')
     const ta = document.createElement('textarea')
     const input = document.createElement('input')
-    document.body.append(ta, input)
+    panel.append(ta, input)
+    document.body.append(panel)
     expect(key({ key: 'c', ctrlKey: true }, ta)).toBe(true) // not prevented
     expect(key({ key: 'v', ctrlKey: true }, input)).toBe(true)
     expect(copySelected).not.toHaveBeenCalled()
     expect(pasteCopied).not.toHaveBeenCalled()
-    ta.remove(); input.remove()
+    panel.remove()
   })
 })
