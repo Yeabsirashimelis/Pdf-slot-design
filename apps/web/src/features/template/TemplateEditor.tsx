@@ -100,7 +100,14 @@ export function TemplateEditor({
   // was copied from (which may since have been renamed or deleted).
   const handlePaste = (snapshot: Slot, label: string | undefined, target: PasteTarget): string => {
     const pastedId = pipeline.pasteSlotAndCommit(snapshot, target)
-    setNames((n) => ({ ...n, [pastedId]: copyName(label ?? 'Slot', Object.values(n)) }))
+    setNames((n) => {
+      // A copy needs a name of its own; a slot that was CUT has left its
+      // name behind, so it simply keeps it -- the same slot, put down
+      // somewhere else, not a copy of anything.
+      const wanted = label ?? 'Slot'
+      const taken = Object.values(n)
+      return { ...n, [pastedId]: taken.includes(wanted) ? copyName(wanted, taken) : wanted }
+    })
     return pastedId
   }
 

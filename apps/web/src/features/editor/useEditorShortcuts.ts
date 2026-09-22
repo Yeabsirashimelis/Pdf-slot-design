@@ -14,9 +14,9 @@ import { flushSync } from 'react-dom'
  *   would still see the pre-undo slots.
  * - Ctrl/Cmd+D: duplicate the selected slot (the browser's bookmark
  *   shortcut is suppressed).
- * - Ctrl/Cmd+C / Ctrl/Cmd+V: copy the selected slot to the in-app
- *   clipboard / paste it. Ignored while a text field is focused, where
- *   they stay the native text copy and paste.
+ * - Ctrl/Cmd+C / Ctrl/Cmd+X / Ctrl/Cmd+V: copy, cut or paste the selected
+ *   slot through the in-app clipboard. In a side panel they stay the
+ *   browser's own text clipboard (see isPanelField).
  * - Ctrl/Cmd+= / Ctrl/Cmd+− / Ctrl/Cmd+0: zoom in / out / to fit (the
  *   browser's own page zoom is suppressed -- the canvas is the thing
  *   being zoomed).
@@ -76,6 +76,7 @@ export type EditorShortcutHandlers = {
   duplicateSelected(): void
   nudgeSelected(dx: number, dy: number): void
   copySelected?(): void
+  cutSelected?(): void
   pasteCopied?(): void
   deleteSelected?(): void
   deselect?(): void
@@ -142,14 +143,15 @@ export function useEditorShortcuts(handlers: EditorShortcutHandlers): void {
         h.duplicateSelected()
         return
       }
-      if (letter === 'c' || letter === 'v') {
+      if (letter === 'c' || letter === 'x' || letter === 'v') {
         // In a panel field the clipboard is the browser's (see
         // isPanelField), and a highlighted run of text is always the
         // browser's to copy, wherever it is.
         if (isPanelField(event.target)) return
-        if (letter === 'c' && hasTextSelection(event.target)) return
+        if ((letter === 'c' || letter === 'x') && hasTextSelection(event.target)) return
         event.preventDefault()
         if (letter === 'c') h.copySelected?.()
+        else if (letter === 'x') h.cutSelected?.()
         else h.pasteCopied?.()
         return
       }

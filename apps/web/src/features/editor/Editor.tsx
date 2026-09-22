@@ -203,6 +203,14 @@ export function Editor({
       if (locked || !selected) return
       clipboard.copy(selected, names[selected.id])
     },
+    cutSelected: () => {
+      const selected = store.slots.find((slot) => slot.id === store.selectedId)
+      if (locked || !selected || naming) return
+      // Held in the clipboard, gone from the page: the paste puts this
+      // very slot down again, wherever the pointer is.
+      clipboard.copy(selected, names[selected.id])
+      onRemoveSlot(selected.id)
+    },
     pasteCopied,
     deleteSelected: () => {
       if (locked || !store.selectedId || naming) return
