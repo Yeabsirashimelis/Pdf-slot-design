@@ -114,11 +114,14 @@ describe('SlotsPanel', () => {
     expect(p.onPageChange).toHaveBeenCalledTimes(2)
   })
 
-  it('the footer lists the shortcuts, copy/paste and Alt+drag included', () => {
+  it('the footer lists the shortcuts, including cut, the drag handle and how to pan', () => {
     renderPanel()
     const hints = screen.getByTestId('shortcut-hints')
-    expect(hints.textContent).toMatch(/copy \/ paste/)
+    expect(hints.textContent).toMatch(/copy \/ cut/)
+    expect(hints.textContent).toMatch(/paste under the pointer/)
+    expect(hints.textContent).toMatch(/drag a slot by its name tag/)
     expect(hints.textContent).toMatch(/Alt.*drag/)
+    expect(hints.textContent).toMatch(/two-finger scroll/)
     expect(hints.querySelectorAll('kbd[data-slot="kbd"]').length).toBeGreaterThanOrEqual(10)
   })
 
