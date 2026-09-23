@@ -53,6 +53,9 @@ export type TemplateTable = {
 /** Below this a column is no longer something you can read or click. */
 export const MIN_COLUMN_WIDTH = 8
 
+/** Below this a row -- its box or the gap to the next -- is not a row. */
+export const MIN_ROW_MEASURE = 4
+
 /**
  * A cell's slot id: derived from the table, the row and the *column key*
  * rather than stored, so the same cell keeps its identity -- and the text
@@ -180,4 +183,38 @@ export function applyRowRemoval(
     delete next[from]
   }
   return next
+}
+
+/**
+ * The same table at a new overall width, every column keeping its share.
+ *
+ * Columns are lined up with something printed on the page, so the whole
+ * table is sized as one thing far more often than a single column is:
+ * dragging its right edge should take the columns with it rather than
+ * stretching the last one.
+ */
+export function setTableWidth(table: TemplateTable, width: number): TemplateTable {
+  const current = tableWidth(table)
+  const narrowest = Math.min(...table.columns.map((column) => column.width))
+  if (current <= 0 || narrowest <= 0) return table
+  // The limit is on the scale, not on each column: clamping columns one
+  // by one would keep the wide ones and quietly change every column's
+  // share of the table, which is the one thing this must not do.
+  const factor = Math.max(MIN_COLUMN_WIDTH / narrowest, width / current)
+  return { ...table, columns: table.columns.map((column) => ({ ...column, width: column.width * factor })) }
+}
+
+/**
+ * The same table at a new overall height, by spreading its rows.
+ *
+ * The row boxes keep the height they were given; the gap between them
+ * absorbs the change, which is what lines a table up with a printed one
+ * -- drag the bottom edge onto the last ruled line and every row in
+ * between lands on its own. A table of one row has no gap to spread, so
+ * there it is the row itself that grows.
+ */
+export function setTableHeight(table: TemplateTable, height: number): TemplateTable {
+  if (table.rowCount <= 1) return { ...table, rowHeight: Math.max(MIN_ROW_MEASURE, height) }
+  const spread = (height - table.rowHeight) / (table.rowCount - 1)
+  return { ...table, rowPitch: Math.max(MIN_ROW_MEASURE, spread) }
 }

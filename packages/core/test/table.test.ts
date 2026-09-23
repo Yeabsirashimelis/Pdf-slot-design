@@ -10,6 +10,10 @@ import {
   tableCells,
   tableHeight,
   tableWidth,
+  setTableWidth,
+  setTableHeight,
+  MIN_COLUMN_WIDTH,
+  MIN_ROW_MEASURE,
   type TemplateTable,
 } from '../src/document/table.js'
 
@@ -125,5 +129,50 @@ describe('a table is a row multiplied downward', () => {
     // Two pitches down, plus the last row's own height.
     expect(tableHeight(table)).toBe(2 * 22 + 16)
     expect(columnLeft(table, 2)).toBe(130)
+  })
+})
+
+describe('sizing a whole table', () => {
+  // makeTable: 30 + 60 + 260 + 80 = 430pt across, 10 rows 22pt apart.
+  it('a new width is shared out, so columns lined up with a form stay in proportion', () => {
+    const wider = setTableWidth(makeTable(), 860)
+    expect(tableWidth(wider)).toBeCloseTo(860)
+    expect(wider.columns.map((column) => column.width)).toEqual([60, 120, 520, 160])
+  })
+
+  it('every column keeps the same share of the table it had', () => {
+    const before = makeTable()
+    const after = setTableWidth(before, 215)
+    before.columns.forEach((column, i) => {
+      expect(after.columns[i]!.width / tableWidth(after)).toBeCloseTo(column.width / tableWidth(before))
+    })
+  })
+
+  it('a table squeezed too far stops at its narrowest column, still in proportion', () => {
+    const before = makeTable()
+    const tiny = setTableWidth(before, 1)
+    expect(Math.min(...tiny.columns.map((column) => column.width))).toBeCloseTo(MIN_COLUMN_WIDTH)
+    before.columns.forEach((column, i) => {
+      expect(tiny.columns[i]!.width / tableWidth(tiny)).toBeCloseTo(column.width / tableWidth(before))
+    })
+  })
+
+  it('a new height spreads the rows and leaves the row boxes alone', () => {
+    // Ten rows: nine gaps down, plus the last row's own height.
+    const taller = setTableHeight(makeTable(), 9 * 30 + 16)
+    expect(taller.rowPitch).toBeCloseTo(30)
+    expect(taller.rowHeight).toBe(16)
+    expect(tableHeight(taller)).toBeCloseTo(9 * 30 + 16)
+  })
+
+  it('a one-row table has no gap to spread, so the row itself takes the change', () => {
+    const single = setTableHeight(makeTable({ rowCount: 1 }), 40)
+    expect(single.rowHeight).toBe(40)
+    expect(single.rowPitch).toBe(22)
+  })
+
+  it('rows never close up to nothing', () => {
+    expect(setTableHeight(makeTable(), 0).rowPitch).toBe(MIN_ROW_MEASURE)
+    expect(setTableHeight(makeTable({ rowCount: 1 }), 0).rowHeight).toBe(MIN_ROW_MEASURE)
   })
 })
