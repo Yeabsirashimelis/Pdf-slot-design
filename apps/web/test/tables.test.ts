@@ -64,6 +64,12 @@ async function drawTable(container: HTMLElement) {
   await waitFor(() => expect(container.querySelectorAll('[data-slot-id]').length).toBe(1))
 }
 
+/** The draggable boundaries on the frame -- not the panel's column fields. */
+const dividersOf = (container: HTMLElement) =>
+  Array.from(
+    container.querySelectorAll('[data-testid^="table-tbl"] [data-testid^="table-column-"]'),
+  ) as HTMLElement[]
+
 const cellBoxes = (container: HTMLElement) =>
   Array.from(container.querySelectorAll('[data-slot-id]')).filter((el) =>
     (el as HTMLElement).dataset.slotId!.includes('#'),
@@ -174,9 +180,51 @@ describe('table row slots', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByTestId('table-width')).toBeNull())
     expect(screen.queryByTestId('table-size')).toBeNull()
-    // The column dividers stay put -- they are how a single column is
-    // set, and they are on the frame whether or not it is selected.
-    expect(container.querySelector('[data-testid^="table-column-"]')).not.toBeNull()
+    // A one-column table has no boundary between columns, so no divider:
+    // its only edge is the one that sizes the whole table.
+    expect(dividersOf(container)).toHaveLength(0)
+  })
+
+  it('a divider appears between columns, but never on the right edge', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const dividers = () => dividersOf(container).length
+
+    // One column: nothing to trade with, so nothing to drag.
+    expect(dividers()).toBe(0)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    // Two columns, one boundary between them -- not two.
+    expect(dividers()).toBe(1)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
+    expect(dividers()).toBe(2)
+  })
+
+  it('dragging a boundary trades with the next column and leaves the table the same width', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
+    // 200pt drawn, split twice: 100 | 50 | 50, starting at x=40.
+    const widths = () => cellBoxes(container).map((box) => parseFloat(box.style.width))
+    const total = () => widths().reduce((a, b) => a + b, 0)
+    expect(widths()).toEqual([100, 50, 50])
+    const before = total()
+
+    const divider = dividersOf(container)[0]!
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 140, clientY: 108 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 170, clientY: 108 })
+    fireEvent.pointerUp(divider, { pointerId: 1 })
+
+    // The first column took 30pt from the second; the third never moved,
+    // and the table is the width it always was.
+    await waitFor(() => expect(widths()).toEqual([130, 20, 50]))
+    expect(total()).toBe(before)
+    expect(cellBoxes(container)[2]!.style.left).toBe('190px')
   })
 
   it('dragging the right edge sizes every column at once, each keeping its share', async () => {

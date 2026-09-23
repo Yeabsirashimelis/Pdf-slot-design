@@ -192,9 +192,12 @@ export function TableOverlay({
         outlineOffset: -px(1),
       }}
     >
-      {/* Every column boundary, including the right edge: drag to set the
-          width of the column on its left. */}
-      {table.columns.map((column, index) => {
+      {/* The boundaries between columns: drag one and the column on its
+          left takes the space from the column on its right, so the
+          table's own width never moves and no other boundary shifts.
+          The last column has nothing to its right to trade with, so it
+          has no divider -- that edge sizes the whole table instead. */}
+      {table.columns.slice(0, -1).map((column, index) => {
         const right = toScreenLength(columnLeft(table, index) + column.width - table.x, viewport)
         return (
           <Handle
@@ -203,7 +206,7 @@ export function TableOverlay({
             bind={handlers({ kind: 'column', key: column.key })}
             locked={locked}
             px={px}
-            label={`${column.name} width`}
+            label={`${column.name} width — takes from the next column`}
             cursor="ew-resize"
             area={{ left: right - px(STRIP_PX) / 2, top: 0, bottom: 0, width: px(STRIP_PX) }}
             visible={

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import {
   MIN_COLUMN_WIDTH,
   addTableRow,
+  resizeColumnBoundary,
   applyRowRemoval,
   cellId,
   removeTableRow,
@@ -79,7 +80,10 @@ export function useTables(initialTables: TemplateTable[], initialTexts: Record<s
       update(id, (table) => {
         const { columnWidth, ...rest } = patch
         const moved = { ...table, ...rest }
-        return columnWidth ? resizeColumn(moved, columnWidth.key, columnWidth.width) : moved
+        // A boundary dragged on the page trades with its neighbour and
+        // leaves the table's width alone; a width typed into the panel
+        // still sets that column outright (see setColumnWidth).
+        return columnWidth ? resizeColumnBoundary(moved, columnWidth.key, columnWidth.width) : moved
       })
     },
 
