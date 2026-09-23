@@ -198,8 +198,12 @@ describe('table row slots', () => {
     await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
     expect(screen.queryByTestId(`table-panel-${tableId}`)).not.toBeNull()
 
-    // One row left: the same bin takes the table, rather than doing nothing.
+    // One row left: the same bin offers to take the table, rather than
+    // doing nothing. It asks first -- this cannot be undone.
     fireEvent.click(screen.getByTestId(`table-remove-row-${tableId}-0`))
+    await waitFor(() => expect(screen.queryByTestId('confirm-remove-table-dialog')).not.toBeNull())
+    expect(cellBoxes(container)).toHaveLength(2)
+    fireEvent.click(screen.getByTestId('confirm-remove-table'))
     await waitFor(() => expect(cellBoxes(container)).toHaveLength(0))
     expect(screen.queryByTestId(`table-panel-${tableId}`)).toBeNull()
   })
@@ -213,8 +217,28 @@ describe('table row slots', () => {
     await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
 
     fireEvent.click(screen.getByTestId(`table-remove-${tableId}`))
+    await waitFor(() => expect(screen.queryByTestId('confirm-remove-table-dialog')).not.toBeNull())
+    fireEvent.click(screen.getByTestId('confirm-remove-table'))
     await waitFor(() => expect(cellBoxes(container)).toHaveLength(0))
     expect(screen.queryByTestId(`table-panel-${tableId}`)).toBeNull()
+  })
+
+  it('backing out of the confirmation leaves the table and its text alone', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    const box = cellBoxes(container)[0]!.querySelector('textarea')!
+    fireEvent.change(box, { target: { value: 'Extra doors' } })
+    await waitFor(() => expect(box.value).toBe('Extra doors'))
+
+    fireEvent.click(screen.getByTestId(`table-remove-${tableId}`))
+    await waitFor(() => expect(screen.queryByTestId('confirm-remove-table-dialog')).not.toBeNull())
+    fireEvent.click(screen.getByTestId('cancel-remove-table'))
+
+    await waitFor(() => expect(screen.queryByTestId('confirm-remove-table-dialog')).toBeNull())
+    expect(cellBoxes(container)).toHaveLength(1)
+    expect(cellBoxes(container)[0]!.querySelector('textarea')!.value).toBe('Extra doors')
   })
 
   it('the panel lists a table under the page it sits on', async () => {

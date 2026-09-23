@@ -2,6 +2,16 @@
 
 import { useState, type KeyboardEvent } from 'react'
 import { ArrowLeft, Copy, Keyboard, Lock, LockOpen, Table, Trash2, Type } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { Kbd } from '@/components/ui/kbd'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -79,6 +89,14 @@ export function SlotsPanel({
   onShowShortcuts?(): void
 }) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  // Removing a table takes every row with it and cannot be undone --
+  // tables are deliberately outside the undo history -- so it is asked
+  // about first, the way forgetting a file is.
+  const [pendingRemove, setPendingRemove] = useState<TemplateTable | null>(null)
+  /** How many of a table's cells have something written in them. */
+  const filledIn = (table: TemplateTable) =>
+    Object.entries(tableTexts).filter(([id, text]) => id.startsWith(`${table.id}#`) && text !== '').length
+
   const slotGroups = groupByPage(slots)
   // A page is listed when it holds a table or a slot. A table belongs to
   // a page like anything else, so it is listed under that page's heading
@@ -290,7 +308,7 @@ export function SlotsPanel({
                       }}
                       onAddRow={() => onAddTableRow?.(table.id)}
                       onRemoveRow={(row) => onRemoveTableRow?.(table.id, row)}
-                      onRemoveTable={() => onRemoveTable?.(table.id)}
+                      onRemoveTable={() => setPendingRemove(table)}
                     />
                   ))}
                 {(slotGroups.find((group) => group.page === page)?.slots ?? []).map(row)}
@@ -298,6 +316,36 @@ export function SlotsPanel({
             ))}
           </div>
         </ScrollArea>
+
+        <AlertDialog open={pendingRemove !== null} onOpenChange={(open) => { if (!open) setPendingRemove(null) }}>
+          <AlertDialogContent data-testid="confirm-remove-table-dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove this table?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingRemove === null
+                  ? null
+                  : `Its ${pendingRemove.rowCount} row${pendingRemove.rowCount === 1 ? '' : 's'}` +
+                    (filledIn(pendingRemove) === 0
+                      ? ' go, and the table with them.'
+                      : ` go, and the ${filledIn(pendingRemove)} cell${filledIn(pendingRemove) === 1 ? '' : 's'} you have filled in go with them.`) +
+                    ' The page itself is not touched. This cannot be undone.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="cancel-remove-table">Keep it</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                data-testid="confirm-remove-table"
+                onClick={() => {
+                  if (pendingRemove) onRemoveTable?.(pendingRemove.id)
+                  setPendingRemove(null)
+                }}
+              >
+                Remove table
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <button
           type="button"
