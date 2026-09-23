@@ -338,28 +338,6 @@ export function Editor({
                 through to PageCanvas's own onClick instead of being
                 swallowed by an overlay layer that covers the whole page.
               */}
-              {/* The frames of the tables on this page, under the cells
-                  themselves so a cell is always the thing you click. */}
-              <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-                {tables
-                  .filter((table) => table.page === pageIndex)
-                  .map((table) => (
-                    <TableOverlay
-                      key={table.id}
-                      table={table}
-                      viewport={viewport}
-                      screenScale={view.zoom}
-                      selected={selectedTableId === table.id}
-                      locked={locked}
-                      onSelect={() => {
-                        const first = table.columns[0]
-                        if (first) store.select(`${table.id}#0:${first.key}`)
-                      }}
-                      onChange={(patch) => onTableDrag?.(table.id, patch)}
-                      onCommit={() => onTableCommit?.()}
-                    />
-                  ))}
-              </div>
               <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                 {pipeline.fontMetrics &&
                   pageSlots.map((slot) => (
@@ -389,6 +367,29 @@ export function Editor({
                 the library's window mousedown handler (which pans when
                 the target is inside its wrapper) sees this shield.
               */}
+              {/* The frames of the tables, over the cells: their handles
+                  are thin and mostly sit in a gutter beside the table, and
+                  under the cells they could not be grabbed at all. */}
+              <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                {tables
+                  .filter((table) => table.page === pageIndex)
+                  .map((table) => (
+                    <TableOverlay
+                      key={table.id}
+                      table={table}
+                      viewport={viewport}
+                      screenScale={view.zoom}
+                      selected={selectedTableId === table.id}
+                      locked={locked}
+                      onSelect={() => {
+                        const first = table.columns[0]
+                        if (first) store.select(`${table.id}#0:${first.key}`)
+                      }}
+                      onChange={(patch) => onTableDrag?.(table.id, patch)}
+                      onCommit={() => onTableCommit?.()}
+                    />
+                  ))}
+              </div>
               {spaceHeld && <div data-testid="pan-shield" style={{ position: 'absolute', inset: 0 }} />}
               {drawingTable && !locked && (
                 <TableDrawLayer

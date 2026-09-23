@@ -28,6 +28,8 @@ export type TableHandle =
 
 /** Grab strips, in screen px, so they are the same size to the hand at any zoom. */
 const STRIP_PX = 8
+/** The gutter the row handles live in, clear of the cells, in screen px. */
+const GUTTER_PX = 14
 
 export type TableDragPatch = Partial<Pick<TemplateTable, 'x' | 'y' | 'rowHeight' | 'rowPitch'>> & {
   columnWidth?: { key: string; width: number }
@@ -103,33 +105,42 @@ export function TableOverlay({
         )
       })}
 
-      {/* How tall one row is: the bottom edge of the first row. */}
+      {/* The row handles live in a gutter down the left, outside the
+          table: over the cells they would be sitting on top of the very
+          boxes the user is trying to click into. */}
       <div
         data-testid="table-row-height"
         {...handlers({ kind: 'rowHeight' })}
+        title="Row height"
         style={{
           ...strip,
-          left: 0,
-          width: Math.min(width, toScreenLength(table.columns[0]?.width ?? 0, viewport)),
+          left: -px(GUTTER_PX),
+          width: px(GUTTER_PX - 2),
           top: toScreenLength(table.rowHeight, viewport) - px(STRIP_PX) / 2,
           height: px(STRIP_PX),
+          background: 'var(--slot-selection)',
+          borderRadius: px(2),
+          opacity: 0.7,
           cursor: 'ns-resize',
         }}
       />
 
-      {/* The gap to the next printed line: the top edge of the second row.
-          This is how the spacing is set -- place the first row, add a
-          second, drag it onto its line, and every row after follows. */}
+      {/* The gap to the next printed line. This is how the spacing is
+          set: place the first row, add a second, drag it onto its line,
+          and every row after follows. */}
       {table.rowCount > 1 && (
         <div
           data-testid="table-row-pitch"
           {...handlers({ kind: 'rowPitch' })}
+          title="Gap to the next row"
           style={{
             ...strip,
-            left: 0,
-            right: 0,
+            left: -px(GUTTER_PX),
+            width: px(GUTTER_PX - 2),
             top: toScreenLength(table.rowPitch, viewport) - px(STRIP_PX) / 2,
             height: px(STRIP_PX),
+            background: 'var(--slot-selection)',
+            borderRadius: px(2),
             cursor: 'ns-resize',
           }}
         />
