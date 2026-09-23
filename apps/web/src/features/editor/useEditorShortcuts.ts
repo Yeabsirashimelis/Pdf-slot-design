@@ -23,6 +23,7 @@ import { flushSync } from 'react-dom'
  * - Arrow keys: nudge the selected slot 1pt (Shift: 10pt). Screen down is
  *   PDF y down, so ArrowDown passes a negative dy.
  * - Delete / Backspace: remove the selected slot. Escape: deselect.
+ * - ?: the list of every command, with what it does.
  *
  * Arrows, Delete, Backspace and Escape are left alone while typing in a
  * field, where they mean what they always mean.
@@ -80,6 +81,7 @@ export type EditorShortcutHandlers = {
   pasteCopied?(): void
   deleteSelected?(): void
   deselect?(): void
+  showShortcuts?(): void
   zoomIn?(): void
   zoomOut?(): void
   zoomFit?(): void
@@ -115,6 +117,12 @@ export function useEditorShortcuts(handlers: EditorShortcutHandlers): void {
         if (event.key === 'Escape') {
           if (isTyping(event.target)) return
           h.deselect?.()
+          return
+        }
+        if (event.key === '?') {
+          if (isTyping(event.target)) return
+          event.preventDefault()
+          h.showShortcuts?.()
           return
         }
         return

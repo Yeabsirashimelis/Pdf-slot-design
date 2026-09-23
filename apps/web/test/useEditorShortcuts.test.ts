@@ -138,4 +138,19 @@ describe('useEditorShortcuts', () => {
     expect(pasteCopied).not.toHaveBeenCalled()
     panel.remove()
   })
+
+  it('? opens the list of commands, but not while typing one into a field', () => {
+    const showShortcuts = vi.fn()
+    renderHook(() =>
+      useEditorShortcuts({ undo: vi.fn(), redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn(), showShortcuts }),
+    )
+    key({ key: '?' })
+    expect(showShortcuts).toHaveBeenCalledTimes(1)
+
+    const ta = document.createElement('textarea')
+    document.body.append(ta)
+    key({ key: '?' }, ta)
+    expect(showShortcuts).toHaveBeenCalledTimes(1)
+    ta.remove()
+  })
 })

@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, type KeyboardEvent } from 'react'
-import { ArrowLeft, Copy, Lock, LockOpen, Table, Trash2, Type } from 'lucide-react'
+import { ArrowLeft, Copy, Keyboard, Lock, LockOpen, Table, Trash2, Type } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { Kbd, KbdGroup } from '@/components/ui/kbd'
+import { Kbd } from '@/components/ui/kbd'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { Toggle } from '@/components/ui/toggle'
@@ -12,6 +12,7 @@ import { HintButton } from '@/components/hint'
 import { cn } from '@/lib/utils'
 import { groupByPage } from '@/features/template/readingOrder'
 import { TablePanel } from '@/features/editor/table/TablePanel'
+import { SHORTCUTS_KEY } from './ShortcutsDialog'
 import type { TemplateTable } from '@pdf-slot/core'
 
 export type PanelSlot = { id: string; name: string; text: string; page: number; x: number; y: number }
@@ -46,6 +47,7 @@ export function SlotsPanel({
   onDrawTable,
   onAddTableRow,
   onRemoveTableRow,
+  onShowShortcuts,
 }: {
   fileName: string
   slots: PanelSlot[]
@@ -71,6 +73,8 @@ export function SlotsPanel({
   onDrawTable?(): void
   onAddTableRow?(id: string): void
   onRemoveTableRow?(id: string, row: number): void
+  /** Opens the list of commands. The panel only says which key does it. */
+  onShowShortcuts?(): void
 }) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const groups = groupByPage(slots)
@@ -285,39 +289,16 @@ export function SlotsPanel({
           </div>
         </ScrollArea>
 
-        <p className="border-t border-border px-3 py-2 text-[11px] leading-5 text-muted-foreground" data-testid="shortcut-hints">
-          <KbdGroup>
-            <Kbd>Ctrl</Kbd>
-            <Kbd>Z</Kbd>
-          </KbdGroup>{' '}
-          undo ·{' '}
-          <KbdGroup>
-            <Kbd>Ctrl</Kbd>
-            <Kbd>D</Kbd>
-          </KbdGroup>{' '}
-          duplicate ·{' '}
-          <KbdGroup>
-            <Kbd>Ctrl</Kbd>
-            <Kbd>C</Kbd>
-          </KbdGroup>{' '}
-          /{' '}
-          <KbdGroup>
-            <Kbd>Ctrl</Kbd>
-            <Kbd>V</Kbd>
-          </KbdGroup>{' '}
-          /{' '}
-          <KbdGroup>
-            <Kbd>Ctrl</Kbd>
-            <Kbd>X</Kbd>
-          </KbdGroup>{' '}
-          copy / cut, paste under the pointer · drag a slot by its name tag · <Kbd>Alt</Kbd> + drag duplicates ·{' '}
-          <Kbd>Del</Kbd> remove · arrows nudge · two-finger scroll moves the page ·{' '}
-          <KbdGroup>
-            <Kbd>Ctrl</Kbd>
-            <Kbd>scroll</Kbd>
-          </KbdGroup>{' '}
-          zooms
-        </p>
+        <button
+          type="button"
+          data-testid="shortcuts-button"
+          onClick={() => onShowShortcuts?.()}
+          className="flex w-full items-center gap-1.5 border-t border-border px-3 py-2 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Keyboard className="size-3.5 shrink-0" aria-hidden />
+          Shortcuts
+          <Kbd className="ml-auto">{SHORTCUTS_KEY}</Kbd>
+        </button>
       </aside>
     </TooltipProvider>
   )

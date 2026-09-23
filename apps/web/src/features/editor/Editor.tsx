@@ -69,6 +69,7 @@ export function Editor({
   onDrawTableRow,
   onTableDrag,
   onTableCommit,
+  onShowShortcuts,
 }: {
   doc: EditorDocument
   store: EditorStore
@@ -104,6 +105,8 @@ export function Editor({
   onDrawTableRow?(row: DrawnRow): void
   onTableDrag?(id: string, patch: TableDragPatch): void
   onTableCommit?(): void
+  /** The ? key: the list of every command. */
+  onShowShortcuts?(): void
 }) {
   const page = doc.pages[pageIndex]
   const transformRef = useRef<ReactZoomPanPinchRef | null>(null)
@@ -232,6 +235,7 @@ export function Editor({
       onRemoveSlot(store.selectedId)
     },
     deselect: () => store.select(null),
+    showShortcuts: () => onShowShortcuts?.(),
     zoomIn: () => zoomBy(1),
     zoomOut: () => zoomBy(-1),
     zoomFit: fit,

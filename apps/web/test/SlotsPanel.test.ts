@@ -114,15 +114,16 @@ describe('SlotsPanel', () => {
     expect(p.onPageChange).toHaveBeenCalledTimes(2)
   })
 
-  it('the footer lists the shortcuts, including cut, the drag handle and how to pan', () => {
-    renderPanel()
-    const hints = screen.getByTestId('shortcut-hints')
-    expect(hints.textContent).toMatch(/copy \/ cut/)
-    expect(hints.textContent).toMatch(/paste under the pointer/)
-    expect(hints.textContent).toMatch(/drag a slot by its name tag/)
-    expect(hints.textContent).toMatch(/Alt.*drag/)
-    expect(hints.textContent).toMatch(/two-finger scroll/)
-    expect(hints.querySelectorAll('kbd[data-slot="kbd"]').length).toBeGreaterThanOrEqual(10)
+  it('keeps the shortcuts out of the way: one line naming the key that opens them', () => {
+    const onShowShortcuts = vi.fn()
+    renderPanel({ onShowShortcuts })
+    // The paragraph of small print is gone; what is left is a way in.
+    expect(screen.queryByTestId('shortcut-hints')).toBeNull()
+    const button = screen.getByTestId('shortcuts-button')
+    expect(button.textContent).toMatch(/Shortcuts/)
+    expect(button.querySelector('kbd[data-slot="kbd"]')?.textContent).toBe('?')
+    fireEvent.click(button)
+    expect(onShowShortcuts).toHaveBeenCalledTimes(1)
   })
 
   it('with no slots, says how to add one; the back arrow leaves the file', () => {

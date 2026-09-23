@@ -12,6 +12,7 @@ import { isCell, textsOfCells } from '@/features/editor/table/tableSlots'
 import { useTables, type DrawnRow } from '@/features/editor/table/useTables'
 import { InspectorPanel } from '@/features/editor/panels/InspectorPanel'
 import { SlotsPanel } from '@/features/editor/panels/SlotsPanel'
+import { ShortcutsDialog } from '@/features/editor/panels/ShortcutsDialog'
 import { copyName } from './copyName'
 import { useDebouncedWrite } from './useTemplatePersistence'
 import type { OpenedFile } from './openFile'
@@ -42,6 +43,7 @@ export function TemplateEditor({
   )
   /** The table tool: armed by the panel, spent on the next drag over the page. */
   const [drawingTable, setDrawingTable] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   // The store holds the hand-placed slots only. A table's cells are
   // derived from the table (see useTables), so keeping them here as well
   // would leave two copies of the same geometry to drift apart -- and an
@@ -262,6 +264,7 @@ export function TemplateEditor({
         onDrawTable={() => setDrawingTable((armed) => !armed)}
         onAddTableRow={tables.addRow}
         onRemoveTableRow={tables.removeRow}
+        onShowShortcuts={() => setShortcutsOpen(true)}
       />
       <main className="relative min-w-0 flex-1">
         <Editor
@@ -284,6 +287,7 @@ export function TemplateEditor({
           onDrawTableRow={handleDrawTableRow}
           onTableDrag={tables.applyDrag}
           onTableCommit={pipeline.handleCommit}
+          onShowShortcuts={() => setShortcutsOpen(true)}
         />
       </main>
       <InspectorPanel
@@ -310,6 +314,7 @@ export function TemplateEditor({
         emptySlots={allSlots.filter((s) => s.text.trim() === '').length}
         onSave={handleSave}
       />
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   )
 }
