@@ -160,6 +160,67 @@ describe('table row slots', () => {
     expect((moved.querySelector('textarea') as HTMLTextAreaElement).value).toBe('1,200.00')
   })
 
+  it('a selected table offers handles for its whole width and height', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+
+    // Drawing a table selects it, so its handles are there to be grabbed.
+    await waitFor(() => expect(screen.queryByTestId('table-width')).not.toBeNull())
+    expect(screen.queryByTestId('table-height')).not.toBeNull()
+    expect(screen.queryByTestId('table-size')).not.toBeNull()
+
+    // Deselected they go away: handles on every table would cover the page.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByTestId('table-width')).toBeNull())
+    expect(screen.queryByTestId('table-size')).toBeNull()
+    // The column dividers stay put -- they are how a single column is
+    // set, and they are on the frame whether or not it is selected.
+    expect(container.querySelector('[data-testid^="table-column-"]')).not.toBeNull()
+  })
+
+  it('dragging the right edge sizes every column at once, each keeping its share', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    // Drawn 200pt wide, split in two: 100 and 100, the second starting at 140.
+    expect(cellBoxes(container)[1]!.style.left).toBe('140px')
+
+    const edge = await waitFor(() => screen.getByTestId('table-width'))
+    fireEvent.pointerDown(edge, { pointerId: 1, clientX: 240, clientY: 108 })
+    fireEvent.pointerMove(edge, { pointerId: 1, clientX: 340, clientY: 108 })
+    fireEvent.pointerUp(edge, { pointerId: 1 })
+
+    // Half again as wide: both columns grew by half, neither took it all.
+    await waitFor(() => expect(cellBoxes(container)[0]!.style.width).toBe('150px'))
+    expect(cellBoxes(container)[1]!.style.width).toBe('150px')
+    expect(cellBoxes(container)[1]!.style.left).toBe('190px')
+  })
+
+  it('dragging the bottom edge spreads the rows and leaves the row boxes alone', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
+    // Three rows 16pt apart: tops at 100, 116, 132.
+    expect(cellBoxes(container).map((box) => box.style.top)).toEqual(['100px', '116px', '132px'])
+
+    const bottom = await waitFor(() => screen.getByTestId('table-height'))
+    // The table is 48pt tall (2 gaps of 16 plus a 16pt row); make it 68.
+    fireEvent.pointerDown(bottom, { pointerId: 1, clientX: 140, clientY: 148 })
+    fireEvent.pointerMove(bottom, { pointerId: 1, clientX: 140, clientY: 168 })
+    fireEvent.pointerUp(bottom, { pointerId: 1 })
+
+    // The gap took the change; the boxes are still 16pt tall.
+    await waitFor(() => expect(cellBoxes(container).map((box) => box.style.top)).toEqual(['100px', '126px', '152px']))
+    expect(cellBoxes(container)[0]!.style.height).toBe('16px')
+  })
+
   it('removing a row drops a line: the rows below move up and keep their text', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))

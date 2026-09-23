@@ -1,11 +1,17 @@
 'use client'
 
 import { useRef, type PointerEvent } from 'react'
-import { MIN_COLUMN_WIDTH, type TemplateTable, type Viewport } from '@pdf-slot/core'
+import {
+  MIN_COLUMN_WIDTH,
+  MIN_ROW_MEASURE,
+  setTableHeight,
+  setTableWidth,
+  tableHeight,
+  tableWidth,
+  type TemplateTable,
+  type Viewport,
+} from '@pdf-slot/core'
 import type { TableDragPatch, TableHandle } from './TableOverlay'
-
-/** Nothing about a table may collapse to nothing. */
-const MIN_ROW_MEASURE = 4
 
 type Handlers = {
   onPointerDown(event: PointerEvent<HTMLElement>): void
@@ -16,7 +22,8 @@ type Handlers = {
 
 /**
  * The drags on a table's frame: a column boundary, the bottom of the
- * first row, the top of the second, or the whole table.
+ * first row, the top of the second, the edges that size the whole table,
+ * or the table itself.
  *
  * Each reports a measurement in PDF points, recomputed every frame from
  * the table as it was when the gesture began -- never accumulated, the
@@ -87,6 +94,19 @@ export function useTableGestures({
         case 'rowPitch':
           onChange({ rowPitch: Math.max(MIN_ROW_MEASURE, from.rowPitch + dy) })
           return
+        case 'width':
+          onChange({ columns: setTableWidth(from, tableWidth(from) + dx).columns })
+          return
+        case 'height': {
+          const { rowHeight, rowPitch } = setTableHeight(from, tableHeight(from) + dy)
+          onChange({ rowHeight, rowPitch })
+          return
+        }
+        case 'size': {
+          const { rowHeight, rowPitch } = setTableHeight(from, tableHeight(from) + dy)
+          onChange({ columns: setTableWidth(from, tableWidth(from) + dx).columns, rowHeight, rowPitch })
+          return
+        }
         case 'column': {
           const key = current.handle.key
           const column = from.columns.find((candidate) => candidate.key === key)
