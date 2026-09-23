@@ -117,7 +117,7 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
             {job.done + job.failed} / {job.total} {job.status === 'failed' ? `— failed: ${job.error ?? ''}` : ''}
           </p>
           {job.status === 'done' && (
-            <Button render={<a href={zipUrl(apiUrl, job.id)} data-testid="generate-zip" />} variant="outline">
+            <Button render={<a href={zipUrl(apiUrl, job.id)} data-testid="generate-zip" />} nativeButton={false} variant="outline">
               Download zip ({job.done} PDFs)
             </Button>
           )}

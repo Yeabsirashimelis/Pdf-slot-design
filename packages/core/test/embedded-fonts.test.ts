@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
-import { EMBEDDED_FONTS, decodeEmbeddedFonts } from '../src/fonts/embedded.js'
+import { EMBEDDED_FONTS, EMBEDDED_FONT_IDS, decodeEmbeddedFonts } from '../src/fonts/embedded.js'
 import { FONT_FILES, FONT_IDS } from '../src/fonts/registry.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
@@ -14,6 +14,15 @@ const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
  * guard, and it is what fails if a TTF changes without `npm run fonts:embed`.
  */
 describe('embedded fonts', () => {
+  test('inlines the registry\'s ids, so the module imports nothing at runtime', () => {
+    // The API's Workflow steps load this file directly, with no bundler: a value
+    // import of the registry would fail to resolve there (it is a .ts file).
+    expect([...EMBEDDED_FONT_IDS]).toEqual([...FONT_IDS])
+    const source = readFileSync(fileURLToPath(new URL('../src/fonts/embedded.ts', import.meta.url)), 'utf8').slice(0, 2000)
+    expect(source).toContain("import type {")
+    expect(source).not.toMatch(/^import \{/m)
+  })
+
   test('carries exactly the registry\'s font ids', () => {
     expect(Object.keys(EMBEDDED_FONTS).sort()).toEqual([...FONT_IDS].sort())
   })

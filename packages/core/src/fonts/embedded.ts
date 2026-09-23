@@ -4,7 +4,14 @@
 // This module is deliberately NOT re-exported from the package index: it is
 // ~2.3 MB of base64, meant only for a server bundle that has no other way to
 // reach the TTFs. The web app keeps fetching them from /fonts instead.
-import { FONT_IDS, type FontBytes, type FontId } from './registry'
+// Type-only import: Node's type stripping erases it, so this module resolves
+// nothing at runtime -- the Workflow step runtime loads this file directly,
+// with no bundler to map a relative specifier onto a .ts file. The ids are
+// inlined below for the same reason, and the test keeps them honest.
+import type { FontBytes, FontId } from './registry'
+
+/** The registry's ids, inlined at generation time (see the note above). */
+export const EMBEDDED_FONT_IDS: readonly FontId[] = ["sans","sans-bold","serif","serif-bold","mono"]
 
 /** Base64 of each TTF in ./files, keyed the same way as FONT_FILES. */
 export const EMBEDDED_FONTS: Record<FontId, string> = {
@@ -28,7 +35,7 @@ export const EMBEDDED_FONTS: Record<FontId, string> = {
  */
 export function decodeEmbeddedFonts(): FontBytes {
   const out = {} as FontBytes
-  for (const id of FONT_IDS) out[id] = decodeBase64(EMBEDDED_FONTS[id])
+  for (const id of EMBEDDED_FONT_IDS) out[id] = decodeBase64(EMBEDDED_FONTS[id])
   return out
 }
 
