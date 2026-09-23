@@ -37,12 +37,12 @@ const SELECTION_OUTLINE_PX = 2
  * taken for text that will be exported, solid enough to judge the fit.
  */
 const PLACEHOLDER_COLOR = 'color-mix(in srgb, var(--slot-selection) 38%, transparent)'
-/** The name tag's own font size, in stage px. */
-const TAG_FONT_PX = 10
+/** The name tag's own font size, in stage px. A chip, not a label. */
+const TAG_FONT_PX = 9
 /** What that becomes on screen: never smaller than this... */
-const TAG_MIN_SCREEN_PX = 9
+const TAG_MIN_SCREEN_PX = 8
 /** ...and never larger, however far the page is zoomed in. */
-const TAG_MAX_SCREEN_PX = 22
+const TAG_MAX_SCREEN_PX = 12
 
 /** The inline name editor a freshly placed (or renamed) slot shows; see `naming` below. */
 export type SlotNaming = {
@@ -117,6 +117,13 @@ export function SlotOverlay({
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [focused, setFocused] = useState(false)
+  // Pointer enter/leave, not pointermove: this flips twice per visit to a
+  // slot, so revealing the tag costs two renders, not one per mouse
+  // movement. (CSS :hover would cost none, but the tag is an
+  // inline-styled canvas primitive with no class of its own, and hover
+  // state here is only half the story -- selection and naming also show
+  // it -- so one flag reads better than a class plus two overrides.)
+  const [hovered, setHovered] = useState(false)
 
   // Naming a slot ends by handing it the caret, so what the user types
   // next is the slot's text. (Without it they are left looking at the
@@ -174,6 +181,11 @@ export function SlotOverlay({
   // The tag tracks the page between the two bounds, and holds still outside them.
   const tagOnScreen = Math.min(TAG_MAX_SCREEN_PX, Math.max(TAG_MIN_SCREEN_PX, TAG_FONT_PX * screenScale))
   const tagScale = tagOnScreen / (TAG_FONT_PX * screenScale)
+  // The tag is chrome, not content: it stays out of the way until the
+  // pointer is on this slot. Selected or being named, it stays up
+  // regardless -- otherwise the user loses track of which box is which,
+  // and of where the handle is on the box they are working on.
+  const tagShown = hovered || selected || naming !== null
   const typography: CSSProperties = {
     fontFamily: FONT_CSS_FAMILY[slot.fontId],
     fontSize: toScreenLength(slot.size, viewport),
@@ -187,6 +199,12 @@ export function SlotOverlay({
       // No drag handlers here: a press inside the box belongs to the text
       // (selecting it, placing the caret). The name tag above is what
       // moves the slot -- see the tag below.
+      //
+      // Enter/leave (not over/out) so that crossing onto the tag, which is
+      // a child of this box, is not read as leaving the slot: the tag is
+      // what the user is reaching for once it appears.
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
       style={{
         position: 'absolute',
         left: screenOrigin.x,
@@ -234,19 +252,28 @@ export function SlotOverlay({
             // disappears at 10% nor swamps the page at 400%.
             transformOrigin: 'bottom left',
             transform: `scale(${tagScale})`,
-            marginBottom: 2,
-            padding: '0 4px',
+            // 2 screen px clear of the box at every zoom, like the size
+            // badge below it: a gap measured in stage px would open up
+            // into a gulf at 400% while the chip itself held still.
+            marginBottom: px(2),
+            padding: '0 3px',
             fontSize: TAG_FONT_PX,
-            lineHeight: '14px',
+            lineHeight: '11px',
             fontFamily: 'var(--font-sans)',
             color: 'var(--slot-selection)',
             background: 'var(--card)',
             border: '1px solid var(--slot-highlight-edge)',
             borderRadius: 3,
             whiteSpace: 'nowrap',
+            opacity: tagShown ? 1 : 0,
+            transition: 'opacity 120ms ease',
             // The tag is the handle: dragging happens here, which leaves
             // the box itself free for selecting text character by
-            // character without a drag being read into it.
+            // character without a drag being read into it. Hidden, it
+            // still takes the pointer -- its strip above the box is part
+            // of what "hovering this slot" means, so reaching straight for
+            // the handle reveals it rather than passing through a tag that
+            // is there but cannot be felt.
             pointerEvents: locked ? 'none' : 'auto',
             cursor: locked ? 'default' : 'move',
             touchAction: 'none',

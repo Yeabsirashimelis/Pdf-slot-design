@@ -457,8 +457,13 @@ describe('TemplateEditor', () => {
     })
     const before = { left: source.style.left, top: source.style.top }
 
-    // The name tag is the handle (the box itself is for text).
+    // The name tag is the handle (the box itself is for text), and it
+    // only shows while the pointer is on the slot -- so hover it first,
+    // exactly as a user reaching for it does.
     const tag = source.querySelector('[data-testid="slot-label"]') as HTMLElement
+    expect(tag.style.opacity).toBe('0')
+    fireEvent.pointerOver(tag)
+    expect(tag.style.opacity).toBe('1')
     fireEvent.pointerDown(tag, { pointerId: 1, clientX: 0, clientY: 0, altKey: true })
     fireEvent.pointerMove(tag, { pointerId: 1, clientX: 30, clientY: 20, altKey: true })
     fireEvent.pointerUp(tag, { pointerId: 1 })

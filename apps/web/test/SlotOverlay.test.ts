@@ -46,9 +46,30 @@ function makeSlot(): Slot {
   }
 }
 
-/** The name tag: the slot's drag handle (the box itself is for text). */
-function handleOf(box: HTMLElement): HTMLElement {
+/** The name tag, whether or not it is currently showing. */
+function tagOf(box: HTMLElement): HTMLElement {
   return box.querySelector('[data-testid="slot-label"]') as HTMLElement
+}
+
+/**
+ * The name tag as a user gets hold of it: it only shows while the pointer
+ * is on the slot, so every drag starts by hovering it. (React derives
+ * onPointerEnter from the pointer's over/out events, which is what a real
+ * pointer crossing onto the tag sends.)
+ */
+function handleOf(box: HTMLElement): HTMLElement {
+  const tag = tagOf(box)
+  fireEvent.pointerOver(tag)
+  return tag
+}
+
+/**
+ * What the tag actually measures on screen: its stage font size, times
+ * the counter-scale it is drawn at, times the stage's own scale.
+ */
+function tagScreenPx(tag: HTMLElement, screenScale: number): number {
+  const scale = Number(/scale\(([\d.]+)\)/.exec(tag.style.transform)![1])
+  return parseFloat(tag.style.fontSize) * scale * screenScale
 }
 
 function renderOverlay(selected: boolean, extra: Partial<Parameters<typeof SlotOverlay>[0]> = {}) {
@@ -212,21 +233,59 @@ describe('SlotOverlay name and size', () => {
     expect(onFocused).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the slot\'s name on a tag above the box, growing with the page between its bounds', () => {
-    const { box } = renderOverlay(false, { name: 'Date', screenScale: 2 })
+  it('shows the slot\'s name on a small tag above the box, growing with the page between its bounds', () => {
+    const { box } = renderOverlay(false, { name: 'Date', screenScale: 1.2 })
     const tag = handleOf(box)
     expect(tag.textContent).toBe('Date')
     expect(tag.style.bottom).toBe('100%')
-    // 10pt at 2x is 20 screen px, inside the bounds: it tracks the page.
+    // 9px at 1.2x is 10.8 screen px, inside the bounds: it tracks the page.
     expect(tag.style.transform).toBe('scale(1)')
+    expect(tagScreenPx(tag, 1.2)).toBeCloseTo(10.8, 6)
     cleanup()
-    // Far out, it stops shrinking (9px floor on a 10px tag at 0.25x).
+    // Far out it stops shrinking, at the 8px floor, so it never vanishes.
     const small = handleOf(renderOverlay(false, { name: 'Date', screenScale: 0.25 }).box)
-    expect(small.style.transform).toBe('scale(3.6)')
+    expect(tagScreenPx(small, 0.25)).toBeCloseTo(8, 6)
     cleanup()
-    // Far in, it stops growing (22px ceiling at 4x).
+    // Far in it stops growing, at the 12px ceiling: a chip, never a banner.
     const big = handleOf(renderOverlay(false, { name: 'Date', screenScale: 4 }).box)
-    expect(big.style.transform).toBe('scale(0.55)')
+    expect(tagScreenPx(big, 4)).toBeCloseTo(12, 6)
+  })
+
+  it('the tag stays out of the way: hidden until the pointer is on the slot, up while selected or named', () => {
+    const { box } = renderOverlay(false, { name: 'Date' })
+    const tag = tagOf(box)
+    expect(tag.style.opacity).toBe('0')
+    // Reaching straight for the handle counts as being on the slot: the
+    // tag's own strip above the box is part of what it hovers.
+    fireEvent.pointerOver(tag)
+    expect(tag.style.opacity).toBe('1')
+    fireEvent.pointerOut(box)
+    expect(tag.style.opacity).toBe('0')
+    // The box itself shows it too -- that is how the handle is found.
+    fireEvent.pointerOver(box)
+    expect(tag.style.opacity).toBe('1')
+    cleanup()
+
+    // Selected, it stays up with no pointer on it at all: the user has to
+    // be able to tell which box is which, and where to grab this one.
+    expect(tagOf(renderOverlay(true, { name: 'Date' }).box).style.opacity).toBe('1')
+    cleanup()
+    // Being named, likewise -- the box itself is the editor just then.
+    const naming = { value: 'Da', onChange: vi.fn(), onCommit: vi.fn(), onCancel: vi.fn() }
+    const { box: beingNamed } = renderOverlay(false, { slot: { ...makeSlot(), text: '' }, name: 'Date', naming })
+    expect(tagOf(beingNamed).style.opacity).toBe('1')
+  })
+
+  it('a hidden tag is still the handle: hovering it and dragging moves the slot', () => {
+    const onChange = vi.fn()
+    const { box } = renderOverlay(false, { name: 'Date', onChange })
+    const tag = tagOf(box)
+    expect(tag.style.opacity).toBe('0')
+    fireEvent.pointerOver(tag)
+    fireEvent.pointerDown(tag, { pointerId: 1, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(tag, { pointerId: 1, clientX: 40, clientY: 0 })
+    expect(onChange).toHaveBeenLastCalledWith({ x: 50, y: 700 })
+    fireEvent.pointerUp(tag, { pointerId: 1 })
   })
 
   it('the placeholder gives way to text, and a committed slot hides its DOM text but never its placeholder', () => {
