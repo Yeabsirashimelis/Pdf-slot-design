@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type KeyboardEvent } from 'react'
-import { ArrowLeft, Copy, Lock, LockOpen, Trash2, Type } from 'lucide-react'
+import { ArrowLeft, Copy, Lock, LockOpen, Table, Trash2, Type } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -11,6 +11,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { HintButton } from '@/components/hint'
 import { cn } from '@/lib/utils'
 import { groupByPage } from '@/features/template/readingOrder'
+import { TablePanel } from '@/features/editor/table/TablePanel'
+import type { TemplateTable } from '@pdf-slot/core'
 
 export type PanelSlot = { id: string; name: string; text: string; page: number; x: number; y: number }
 
@@ -38,6 +40,12 @@ export function SlotsPanel({
   onDuplicate,
   onChangeText,
   onStartOver,
+  tables = [],
+  tableTexts = {},
+  drawingTable = false,
+  onDrawTable,
+  onAddTableRow,
+  onRemoveTableRow,
 }: {
   fileName: string
   slots: PanelSlot[]
@@ -55,6 +63,14 @@ export function SlotsPanel({
   onChangeText(id: string, text: string): void
   /** Back to the file list. */
   onStartOver(): void
+  /** Table row slots on this file: one group each, rather than a line per cell. */
+  tables?: TemplateTable[]
+  tableTexts?: Record<string, string>
+  /** True while the next drag on the page will draw a table's first row. */
+  drawingTable?: boolean
+  onDrawTable?(): void
+  onAddTableRow?(id: string): void
+  onRemoveTableRow?(id: string, row: number): void
 }) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const groups = groupByPage(slots)
@@ -192,6 +208,25 @@ export function SlotsPanel({
               render={
                 <Toggle
                   size="sm"
+                  aria-label="Add a table"
+                  data-testid="table-tool"
+                  pressed={drawingTable}
+                  disabled={locked}
+                  onPressedChange={() => onDrawTable?.()}
+                >
+                  <Table />
+                </Toggle>
+              }
+            />
+            <TooltipContent>
+              {drawingTable ? 'Drag over the first row of the table' : 'Draw a table: mark its first row, then add rows'}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  size="sm"
                   aria-label={locked ? 'Unlock the layout' : 'Lock the layout'}
                   data-testid="lock-toggle"
                   pressed={locked}
@@ -209,7 +244,22 @@ export function SlotsPanel({
 
         <ScrollArea className="min-h-0 flex-1 px-2">
           <div className="flex flex-col gap-0.5 pb-2">
-            {slots.length === 0 && (
+            {tables.map((table) => (
+              <TablePanel
+                key={table.id}
+                table={table}
+                texts={tableTexts}
+                selectedId={selectedId}
+                locked={locked}
+                onSelectCell={(id) => {
+                  onSelect(id)
+                  if (table.page !== pageIndex) onPageChange(table.page)
+                }}
+                onAddRow={() => onAddTableRow?.(table.id)}
+                onRemoveRow={(row) => onRemoveTableRow?.(table.id, row)}
+              />
+            ))}
+            {slots.length === 0 && tables.length === 0 && (
               <p className="px-2 py-6 text-center text-xs text-muted-foreground" data-testid="empty-hint">
                 Click anywhere on the page to add a slot.
               </p>

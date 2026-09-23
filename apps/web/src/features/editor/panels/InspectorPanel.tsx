@@ -2,7 +2,7 @@
 
 import { useState, type KeyboardEvent } from 'react'
 import { AlignCenter, AlignLeft, AlignRight, Save } from 'lucide-react'
-import type { Align, Slot } from '@pdf-slot/core'
+import type { Align, Slot, TemplateTable } from '@pdf-slot/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,6 +15,7 @@ import { DownloadButton } from '../toolbar/DownloadButton'
 import { ColorField } from './ColorField'
 import { FONT_FAMILIES, FONT_WEIGHTS, hasBold, toFontChoice, toFontId, type FontFamily, type FontWeight } from './fontChoice'
 import { NumberField } from './NumberField'
+import { TableInspector } from '@/features/editor/table/TableInspector'
 
 /**
  * The right column: Download and Save on top, then the selected slot's
@@ -27,6 +28,7 @@ import { NumberField } from './NumberField'
 export function InspectorPanel({
   selected,
   name,
+  nameReadOnly = false,
   onRename,
   applyPatch,
   locked = false,
@@ -36,10 +38,18 @@ export function InspectorPanel({
   fileName,
   emptySlots,
   onSave,
+  table = null,
+  onRenameColumn,
+  onResizeColumn,
+  onAddColumn,
+  onRemoveColumn,
+  onChangeTableRows,
 }: {
   selected: Slot | null
   /** The selected slot's name (the parent owns names). */
   name: string
+  /** A table cell is named by its column and row, so its name is shown but not edited here. */
+  nameReadOnly?: boolean
   onRename(name: string): void
   applyPatch(patch: Partial<Slot>): void
   /** The layout is frozen: typography is read-only too, since it moves text. */
@@ -51,6 +61,13 @@ export function InspectorPanel({
   /** Slots with no text, for the download's own warning. */
   emptySlots?: number
   onSave(): void
+  /** Set when the selection is a table cell: the table's own settings show below. */
+  table?: TemplateTable | null
+  onRenameColumn?(key: string, name: string): void
+  onResizeColumn?(key: string, width: number): void
+  onAddColumn?(): void
+  onRemoveColumn?(key: string): void
+  onChangeTableRows?(patch: { rowHeight?: number; rowPitch?: number }): void
 }) {
   const disabled = !selected || locked
   const choice = selected ? toFontChoice(selected.fontId) : null
@@ -85,7 +102,12 @@ export function InspectorPanel({
 
         <section className="flex flex-col gap-2">
           <h2 className="text-xs font-medium text-muted-foreground">Slot</h2>
-          <NameField key={selected?.id ?? 'none'} name={name} disabled={!selected} onRename={onRename} />
+          <NameField
+            key={selected?.id ?? 'none'}
+            name={name}
+            disabled={!selected || nameReadOnly}
+            onRename={onRename}
+          />
         </section>
 
         <Separator />
@@ -203,6 +225,18 @@ export function InspectorPanel({
             disabled={disabled}
           />
         </section>
+
+        {table && (
+          <TableInspector
+            table={table}
+            locked={locked}
+            onRenameColumn={(key, columnName) => onRenameColumn?.(key, columnName)}
+            onResizeColumn={(key, width) => onResizeColumn?.(key, width)}
+            onAddColumn={() => onAddColumn?.()}
+            onRemoveColumn={(key) => onRemoveColumn?.(key)}
+            onChangeRows={(patch) => onChangeTableRows?.(patch)}
+          />
+        )}
       </aside>
     </TooltipProvider>
   )

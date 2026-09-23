@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react'
 import { TransformComponent, TransformWrapper, type ReactZoomPanPinchRef } from 'react-zoom-pan-pinch'
-import { toPdfPoint, type EditorDocument, type Point, type Slot, type Viewport } from '@pdf-slot/core'
+import { toPdfPoint, type EditorDocument, type Point, type Slot, type TemplateTable, type Viewport } from '@pdf-slot/core'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { PageCanvas } from './canvas/PageCanvas'
 import { toStagePoint, type StagePoint } from './canvas/coordinates'
@@ -23,6 +23,9 @@ import { SlotOverlay, type SlotNaming } from './overlay/SlotOverlay'
 import { layoutSlot } from './overlay/slotBox'
 import { PageControls } from './toolbar/PageControls'
 import { ZoomControls } from './toolbar/ZoomControls'
+import { TableDrawLayer } from './table/TableDrawLayer'
+import { TableOverlay, type TableDragPatch } from './table/TableOverlay'
+import type { DrawnRow } from './table/useTables'
 import type { EditorPipeline } from './useEditorPipeline'
 import { useEditorShortcuts } from './useEditorShortcuts'
 import { useSlotClipboard, type PasteTarget } from './useSlotClipboard'
@@ -61,6 +64,11 @@ export function Editor({
   onDuplicateSlot,
   onRemoveSlot,
   onPasteSlot,
+  tables = [],
+  drawingTable = false,
+  onDrawTableRow,
+  onTableDrag,
+  onTableCommit,
 }: {
   doc: EditorDocument
   store: EditorStore
@@ -89,6 +97,13 @@ export function Editor({
    * at the time it was copied) and returns the copy's id.
    */
   onPasteSlot(snapshot: Slot, label: string | undefined, target: PasteTarget): string
+  /** The table row slots on this file; their cells arrive in `store.slots` like any other. */
+  tables?: TemplateTable[]
+  /** The table tool is armed: the next drag on the page draws a table's first row. */
+  drawingTable?: boolean
+  onDrawTableRow?(row: DrawnRow): void
+  onTableDrag?(id: string, patch: TableDragPatch): void
+  onTableCommit?(): void
 }) {
   const page = doc.pages[pageIndex]
   const transformRef = useRef<ReactZoomPanPinchRef | null>(null)
@@ -223,6 +238,8 @@ export function Editor({
   })
 
   const pageSlots = useMemo(() => store.slots.filter((slot) => slot.page === pageIndex), [store.slots, pageIndex])
+  // A table counts as selected while any of its cells is.
+  const selectedTableId = store.selectedId?.includes('#') ? store.selectedId.split('#')[0] : null
   const selected = pageSlots.find((slot) => slot.id === store.selectedId) ?? null
 
   // The selected box's extent for the rulers, in points from the page's
@@ -321,6 +338,28 @@ export function Editor({
                 through to PageCanvas's own onClick instead of being
                 swallowed by an overlay layer that covers the whole page.
               */}
+              {/* The frames of the tables on this page, under the cells
+                  themselves so a cell is always the thing you click. */}
+              <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                {tables
+                  .filter((table) => table.page === pageIndex)
+                  .map((table) => (
+                    <TableOverlay
+                      key={table.id}
+                      table={table}
+                      viewport={viewport}
+                      screenScale={view.zoom}
+                      selected={selectedTableId === table.id}
+                      locked={locked}
+                      onSelect={() => {
+                        const first = table.columns[0]
+                        if (first) store.select(`${table.id}#0:${first.key}`)
+                      }}
+                      onChange={(patch) => onTableDrag?.(table.id, patch)}
+                      onCommit={() => onTableCommit?.()}
+                    />
+                  ))}
+              </div>
               <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                 {pipeline.fontMetrics &&
                   pageSlots.map((slot) => (
@@ -351,6 +390,14 @@ export function Editor({
                 the target is inside its wrapper) sees this shield.
               */}
               {spaceHeld && <div data-testid="pan-shield" style={{ position: 'absolute', inset: 0 }} />}
+              {drawingTable && !locked && (
+                <TableDrawLayer
+                  page={pageIndex}
+                  viewport={viewport}
+                  onDraw={(row) => onDrawTableRow?.(row)}
+                  onCancel={() => onDrawTableRow?.({ page: pageIndex, x: 0, y: 0, width: 0, height: 0 })}
+                />
+              )}
             </div>
           </TransformComponent>
         </TransformWrapper>

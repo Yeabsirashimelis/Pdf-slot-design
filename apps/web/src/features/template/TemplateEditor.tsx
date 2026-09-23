@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { toLayout, toSlots, toValues, type Point, type Slot } from '@pdf-slot/core'
+import { cellName, toLayout, toSlots, toValues, type Point, type Slot, type TableStyle } from '@pdf-slot/core'
 import type { SessionStore, TemplateStore } from '@/lib/persistence/templateStore'
 import { Editor, type NamingState } from '@/features/editor/Editor'
 import { useEditorPipeline } from '@/features/editor/useEditorPipeline'
 import { useEditorStore } from '@/features/editor/state/useEditorStore'
 import type { PasteTarget } from '@/features/editor/useSlotClipboard'
+import { isCell, textsOfCells } from '@/features/editor/table/tableSlots'
+import { useTables, type DrawnRow } from '@/features/editor/table/useTables'
 import { InspectorPanel } from '@/features/editor/panels/InspectorPanel'
 import { SlotsPanel } from '@/features/editor/panels/SlotsPanel'
 import { copyName } from './copyName'
@@ -38,8 +40,50 @@ export function TemplateEditor({
   const [names, setNames] = useState<Record<string, string>>(() =>
     Object.fromEntries((layout?.slots ?? []).map((s) => [s.id, s.name])),
   )
-  const editor = useEditorStore(layout ? toSlots(layout, values) : [])
-  const pipeline = useEditorPipeline(doc, editor)
+  /** The table tool: armed by the panel, spent on the next drag over the page. */
+  const [drawingTable, setDrawingTable] = useState(false)
+  // The store holds the hand-placed slots only. A table's cells are
+  // derived from the table (see useTables), so keeping them here as well
+  // would leave two copies of the same geometry to drift apart -- and an
+  // undo could put a cell back where its table no longer says it is.
+  const editor = useEditorStore(layout ? toSlots({ ...layout, tables: [] }, values) : [])
+  const tables = useTables(
+    layout?.tables ?? [],
+    layout ? textsOfCells(toSlots(layout, values)) : {},
+  )
+  // What the rest of the editor sees: both kinds of slot, and a store
+  // that knows which is which. A cell's text belongs to its table, and a
+  // cell cannot be moved, duplicated or deleted on its own -- the table
+  // lays it out.
+  const allSlots = useMemo(() => [...editor.slots, ...tables.cells], [editor.slots, tables.cells])
+  const slotStore = useMemo(
+    () => ({
+      ...editor,
+      slots: allSlots,
+      updateSlot(id: string, patch: Partial<Slot>) {
+        if (!isCell(id)) {
+          editor.updateSlot(id, patch)
+          return
+        }
+        if (patch.text !== undefined) tables.setCellText(id, patch.text)
+        // Anything else is typography, which a table shares across every cell.
+        const style = Object.fromEntries(Object.entries(patch).filter(([key]) => key !== 'text'))
+        const table = tables.tableOf(id)
+        if (table && Object.keys(style).length > 0) tables.setStyle(table.id, style as Partial<TableStyle>)
+      },
+      removeSlot(id: string) {
+        if (!isCell(id)) editor.removeSlot(id)
+      },
+      duplicateSlot(id: string) {
+        return isCell(id) ? null : editor.duplicateSlot(id)
+      },
+      nudgeSlot(id: string, dx: number, dy: number) {
+        if (!isCell(id)) editor.nudgeSlot(id, dx, dy)
+      },
+    }),
+    [editor, allSlots, tables],
+  )
+  const pipeline = useEditorPipeline(doc, slotStore)
   const [pageIndex, setPageIndex] = useState(0)
   const [locked, setLocked] = useState(false)
   const [naming, setNaming] = useState<Naming | null>(null)
@@ -67,10 +111,10 @@ export function TemplateEditor({
 
   // Debounced safety-net writes of both records; Save writes at once.
   const currentLayout = useMemo(
-    () => toLayout(fileId, editor.slots, names, new Date().toISOString()),
-    [fileId, editor.slots, names],
+    () => toLayout(fileId, editor.slots, names, new Date().toISOString(), tables.tables),
+    [fileId, editor.slots, names, tables.tables],
   )
-  const currentValues = useMemo(() => toValues(fileId, editor.slots, new Date().toISOString()), [fileId, editor.slots])
+  const currentValues = useMemo(() => toValues(fileId, allSlots, new Date().toISOString()), [fileId, allSlots])
   useDebouncedWrite(currentLayout, (l) => store.putLayout(l))
   useDebouncedWrite(currentValues, (v) => store.putValues(v))
 
@@ -160,7 +204,10 @@ export function TemplateEditor({
       .finally(onStartOver)
   }
 
-  const selected = editor.slots.find((s) => s.id === editor.selectedId) ?? null
+  const selected = allSlots.find((s) => s.id === editor.selectedId) ?? null
+  const selectedTable = editor.selectedId ? tables.tableOf(editor.selectedId) : null
+  // The panel lists the hand-placed slots; a table is one group of its
+  // own (see TablePanel), not forty entries in this list.
   const panelSlots = editor.slots.map((s) => ({
     id: s.id,
     name: names[s.id] ?? 'Slot',
@@ -169,6 +216,28 @@ export function TemplateEditor({
     x: s.x,
     y: s.y,
   }))
+  /** A cell is named by its column and row; a hand-placed slot by its own name. */
+  const nameOf = (slot: Slot | null): string => {
+    if (!slot) return ''
+    const table = tables.tableOf(slot.id)
+    if (!table) return names[slot.id] ?? ''
+    const [, rest] = slot.id.split('#')
+    const [row, key] = (rest ?? '').split(':')
+    const column = table.columns.find((c) => c.key === key)
+    return column ? cellName(column, Number(row)) : ''
+  }
+
+  const handleDrawTableRow = (row: DrawnRow) => {
+    setDrawingTable(false)
+    if (row.width <= 0 || row.height <= 0) return
+    const style: TableStyle = selected
+      ? { fontId: selected.fontId, size: selected.size, color: selected.color, align: selected.align, lineHeight: selected.lineHeight }
+      : { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 }
+    const table = tables.create(row, style)
+    const first = tables.firstCellOfRow(table, 0)
+    if (first) editor.select(first)
+    toast.success('Table added', { description: 'Split it into columns, then add rows.' })
+  }
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-background" data-testid="template-editor">
@@ -185,13 +254,19 @@ export function TemplateEditor({
         onRename={handleRename}
         onRemove={handleRemove}
         onDuplicate={handleDuplicate}
-        onChangeText={(id, text) => editor.updateSlot(id, { text })}
+        onChangeText={(id, text) => slotStore.updateSlot(id, { text })}
         onStartOver={handleStartOver}
+        tables={tables.tables}
+        tableTexts={Object.fromEntries(tables.cells.map((cell) => [cell.id, cell.text]))}
+        drawingTable={drawingTable}
+        onDrawTable={() => setDrawingTable((armed) => !armed)}
+        onAddTableRow={tables.addRow}
+        onRemoveTableRow={tables.removeRow}
       />
       <main className="relative min-w-0 flex-1">
         <Editor
           doc={doc}
-          store={editor}
+          store={slotStore}
           pipeline={pipeline}
           pageIndex={pageIndex}
           onPageChange={setPageIndex}
@@ -204,23 +279,35 @@ export function TemplateEditor({
           onDuplicateSlot={handleDuplicate}
           onRemoveSlot={handleRemove}
           onPasteSlot={handlePaste}
+          tables={tables.tables}
+          drawingTable={drawingTable}
+          onDrawTableRow={handleDrawTableRow}
+          onTableDrag={tables.applyDrag}
+          onTableCommit={pipeline.handleCommit}
         />
       </main>
       <InspectorPanel
         selected={selected}
-        name={selected ? (names[selected.id] ?? '') : ''}
+        name={nameOf(selected)}
+        nameReadOnly={selectedTable !== null}
         onRename={(name) => {
           if (selected) handleRename(selected.id, name)
         }}
         applyPatch={(patch) => {
           if (selected) pipeline.updateSlotAndCommit(selected.id, patch)
         }}
+        table={selectedTable}
+        onRenameColumn={(key, name) => selectedTable && tables.renameColumn(selectedTable.id, key, name)}
+        onResizeColumn={(key, width) => selectedTable && tables.setColumnWidth(selectedTable.id, key, width)}
+        onAddColumn={() => selectedTable && tables.addColumn(selectedTable.id)}
+        onRemoveColumn={(key) => selectedTable && tables.removeColumn(selectedTable.id, key)}
+        onChangeTableRows={(patch) => selectedTable && tables.applyDrag(selectedTable.id, patch)}
         locked={locked}
         isRendering={pipeline.isRendering}
         render={pipeline.render}
         downloadBlockedReason={pipeline.downloadBlockedReason}
         fileName={fileName}
-        emptySlots={editor.slots.filter((s) => s.text.trim() === '').length}
+        emptySlots={allSlots.filter((s) => s.text.trim() === '').length}
         onSave={handleSave}
       />
     </div>
