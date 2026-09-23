@@ -29,7 +29,14 @@ export type TableHandle =
 /** Grab strips, in screen px, so they are the same size to the hand at any zoom. */
 const STRIP_PX = 8
 /** The gutter the row handles live in, clear of the cells, in screen px. */
-const GUTTER_PX = 14
+const GUTTER_PX = 20
+/**
+ * The two row handles get a lane each, side by side in the gutter.
+ * A new table's rows sit directly under one another -- rowPitch starts
+ * equal to rowHeight -- so sharing a lane would stack them on the same
+ * pixel and the one underneath could never be grabbed.
+ */
+const LANE_PX = 8
 
 export type TableDragPatch = Partial<Pick<TemplateTable, 'x' | 'y' | 'rowHeight' | 'rowPitch'>> & {
   columnWidth?: { key: string; width: number }
@@ -107,15 +114,17 @@ export function TableOverlay({
 
       {/* The row handles live in a gutter down the left, outside the
           table: over the cells they would be sitting on top of the very
-          boxes the user is trying to click into. */}
+          boxes the user is trying to click into. The height handle takes
+          the inner lane, the gap handle the outer one, so the two are
+          always apart even when they measure the same. */}
       <div
         data-testid="table-row-height"
         {...handlers({ kind: 'rowHeight' })}
         title="Row height"
         style={{
           ...strip,
-          left: -px(GUTTER_PX),
-          width: px(GUTTER_PX - 2),
+          left: -px(LANE_PX + 2),
+          width: px(LANE_PX),
           top: toScreenLength(table.rowHeight, viewport) - px(STRIP_PX) / 2,
           height: px(STRIP_PX),
           background: 'var(--slot-selection)',
@@ -136,7 +145,7 @@ export function TableOverlay({
           style={{
             ...strip,
             left: -px(GUTTER_PX),
-            width: px(GUTTER_PX - 2),
+            width: px(LANE_PX),
             top: toScreenLength(table.rowPitch, viewport) - px(STRIP_PX) / 2,
             height: px(STRIP_PX),
             background: 'var(--slot-selection)',

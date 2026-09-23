@@ -118,6 +118,23 @@ describe('table row slots', () => {
     expect(tops).toEqual(['100px', '100px', '116px', '116px', '132px', '132px'])
   })
 
+  it('the row-height and row-gap handles stay separately grabbable when they measure the same', async () => {
+    // A new table's rows sit directly under one another, so rowPitch
+    // starts equal to rowHeight and the two handles land on the same
+    // line. Sharing a lane would bury one of them under the other.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(screen.queryByTestId('table-row-pitch')).not.toBeNull())
+
+    const height = screen.getByTestId('table-row-height')
+    const pitch = screen.getByTestId('table-row-pitch')
+    expect(height.style.top).toBe(pitch.style.top)
+    expect(height.style.left).not.toBe(pitch.style.left)
+  })
+
   it('a column resize moves every cell under it, and the text stays where it was typed', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
