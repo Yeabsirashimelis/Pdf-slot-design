@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import { toLayout, toSlots, toValues, type TemplateLayout } from '../src/document/template.js'
 import type { Slot } from '../src/document/types.js'
+import type { TemplateTable } from '../src/document/table.js'
 
 const slot = (over: Partial<Slot>): Slot => ({
   id: 'a', page: 0, x: 10, y: 700, width: 200, text: '', fontId: 'sans', size: 14,
@@ -43,4 +44,38 @@ test('layout -> slots -> layout round-trips', () => {
   const original = toLayout('f', [slot({ id: 'x', x: 1, y: 2 }), slot({ id: 'y', size: 20 })], { x: 'A', y: 'B' }, 't')
   const again = toLayout('f', toSlots(original), { x: 'A', y: 'B' }, 't')
   expect(again).toEqual(original)
+})
+
+const table: TemplateTable = {
+  id: 't1', page: 0, x: 40, y: 500,
+  columns: [{ key: 'c1', name: 'No.', width: 30 }, { key: 'c2', name: 'Date', width: 60 }],
+  rowHeight: 14, rowPitch: 20, rowCount: 2,
+  style: { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 },
+}
+
+test('a table\'s cells come back as ordinary slots, carrying what was typed into them', () => {
+  const layout = { fileId: 'f', slots: [], tables: [table], updatedAt: 't' }
+  const slots = toSlots(layout, { fileId: 'f', values: { 't1#1:c2': '04/11' }, updatedAt: 't' })
+  expect(slots).toHaveLength(4)
+  expect(slots.map((s) => s.id)).toEqual(['t1#0:c1', 't1#0:c2', 't1#1:c1', 't1#1:c2'])
+  expect(slots[3]!.text).toBe('04/11')
+  expect(slots[3]).toMatchObject({ x: 70, y: 480, width: 60 })
+})
+
+test('toLayout keeps the table but never writes its cells down as slots', () => {
+  const slots = toSlots({ fileId: 'f', slots: [], tables: [table], updatedAt: 't' })
+  const layout = toLayout('f', [...slots, slot({ id: 'free' })], { free: 'Signature' }, 't', [table])
+  expect(layout.slots.map((s) => s.id)).toEqual(['free'])
+  expect(layout.tables).toEqual([table])
+})
+
+test('layout -> slots -> layout round-trips with a table in it', () => {
+  const original = toLayout('f', toSlots({ fileId: 'f', slots: [], tables: [table], updatedAt: 't' }), {}, 't', [table])
+  const again = toLayout('f', toSlots(original), {}, 't', original.tables)
+  expect(again).toEqual(original)
+})
+
+test('a layout saved before tables existed still opens', () => {
+  const slots = toSlots({ fileId: 'f', slots: [{ ...slot({ id: 'x' }), name: 'A', order: 0, text: undefined as never }], updatedAt: 't' } as never)
+  expect(slots).toHaveLength(1)
 })
