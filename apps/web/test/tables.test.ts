@@ -184,6 +184,39 @@ describe('table row slots', () => {
     ])
   })
 
+  it('removing the last row removes the table: one row is all a table is', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(4))
+
+    // Two rows: the bin on a row takes just that row.
+    fireEvent.click(screen.getByTestId(`table-remove-row-${tableId}-1`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    expect(screen.queryByTestId(`table-panel-${tableId}`)).not.toBeNull()
+
+    // One row left: the same bin takes the table, rather than doing nothing.
+    fireEvent.click(screen.getByTestId(`table-remove-row-${tableId}-0`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(0))
+    expect(screen.queryByTestId(`table-panel-${tableId}`)).toBeNull()
+  })
+
+  it('the table can be thrown away from its own header', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+
+    fireEvent.click(screen.getByTestId(`table-remove-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(0))
+    expect(screen.queryByTestId(`table-panel-${tableId}`)).toBeNull()
+  })
+
   it('saves the table rather than its cells, and opens again with both', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const store = memoryStore()

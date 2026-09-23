@@ -47,6 +47,7 @@ export function SlotsPanel({
   onDrawTable,
   onAddTableRow,
   onRemoveTableRow,
+  onRemoveTable,
   onShowShortcuts,
 }: {
   fileName: string
@@ -73,6 +74,7 @@ export function SlotsPanel({
   onDrawTable?(): void
   onAddTableRow?(id: string): void
   onRemoveTableRow?(id: string, row: number): void
+  onRemoveTable?(id: string): void
   /** Opens the list of commands. The panel only says which key does it. */
   onShowShortcuts?(): void
 }) {
@@ -261,6 +263,7 @@ export function SlotsPanel({
                 }}
                 onAddRow={() => onAddTableRow?.(table.id)}
                 onRemoveRow={(row) => onRemoveTableRow?.(table.id, row)}
+                onRemoveTable={() => onRemoveTable?.(table.id)}
               />
             ))}
             {slots.length === 0 && tables.length === 0 && (

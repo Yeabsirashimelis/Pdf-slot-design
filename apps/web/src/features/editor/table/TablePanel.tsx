@@ -2,7 +2,6 @@
 
 import { Plus, Rows3, Trash2 } from 'lucide-react'
 import { cellId, type TemplateTable } from '@pdf-slot/core'
-import { Button } from '@/components/ui/button'
 import { HintButton } from '@/components/hint'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +19,7 @@ export function TablePanel({
   onSelectCell,
   onAddRow,
   onRemoveRow,
+  onRemoveTable,
 }: {
   table: TemplateTable
   /** What is currently written in each cell, by slot id. */
@@ -30,6 +30,8 @@ export function TablePanel({
   onSelectCell(id: string): void
   onAddRow(): void
   onRemoveRow(row: number): void
+  /** The whole table goes: its rows, its columns, and everything typed into them. */
+  onRemoveTable(): void
 }) {
   const rows = Array.from({ length: table.rowCount }, (_, row) => row)
   const idsOf = (row: number) => table.columns.map((column) => cellId(table.id, row, column.key))
@@ -52,11 +54,24 @@ export function TablePanel({
         >
           <Plus />
         </HintButton>
+        <HintButton
+          hint="Remove the table, its rows and everything typed into them"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Remove table"
+          data-testid={`table-remove-${table.id}`}
+          disabled={locked}
+          onClick={onRemoveTable}
+        >
+          <Trash2 />
+        </HintButton>
       </div>
 
       {rows.map((row) => {
         const ids = idsOf(row)
         const isSelected = selectedId !== null && ids.includes(selectedId)
+        // A table is its rows: take the last one away and there is no table left.
+        const last = table.rowCount <= 1
         const preview = ids.map((id) => texts[id] ?? '').filter((text) => text !== '').join(' · ')
         return (
           <div
@@ -85,20 +100,26 @@ export function TablePanel({
             >
               {preview === '' ? 'empty' : preview}
             </span>
-            <Button
+            <HintButton
+              hint={
+                last
+                  ? 'Remove the table -- this is its last row'
+                  : 'Remove this row; everything below it moves up a line'
+              }
               variant="ghost"
               size="icon-xs"
-              aria-label={`Remove row ${row + 1}`}
+              aria-label={last ? 'Remove table' : `Remove row ${row + 1}`}
               data-testid={`table-remove-row-${table.id}-${row}`}
-              disabled={locked || table.rowCount <= 1}
+              disabled={locked}
               className={cn('shrink-0 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100', isSelected && 'opacity-100')}
               onClick={(event) => {
                 event.stopPropagation()
-                onRemoveRow(row)
+                if (last) onRemoveTable()
+                else onRemoveRow(row)
               }}
             >
               <Trash2 />
-            </Button>
+            </HintButton>
           </div>
         )
       })}

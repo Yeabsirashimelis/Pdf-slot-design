@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { cellName, toLayout, toSlots, toValues, type Point, type Slot, type TableStyle } from '@pdf-slot/core'
+import { cellName, tableIdOfCell, toLayout, toSlots, toValues, type Point, type Slot, type TableStyle } from '@pdf-slot/core'
 import type { SessionStore, TemplateStore } from '@/lib/persistence/templateStore'
 import { Editor, type NamingState } from '@/features/editor/Editor'
 import { useEditorPipeline } from '@/features/editor/useEditorPipeline'
@@ -264,6 +264,11 @@ export function TemplateEditor({
         onDrawTable={() => setDrawingTable((armed) => !armed)}
         onAddTableRow={tables.addRow}
         onRemoveTableRow={tables.removeRow}
+        onRemoveTable={(id) => {
+          // Nothing may stay selected in a table that no longer exists.
+          if (tableIdOfCell(editor.selectedId ?? '') === id) editor.select(null)
+          tables.remove(id)
+        }}
         onShowShortcuts={() => setShortcutsOpen(true)}
       />
       <main className="relative min-w-0 flex-1">
