@@ -131,6 +131,37 @@ export function resizeColumn(table: TemplateTable, key: string, width: number): 
   }
 }
 
+/**
+ * A column boundary dragged: the column takes the space it gains from
+ * the column on its right, so the table's overall width never moves.
+ *
+ * This is what lining a table up with a printed one needs. Widening a
+ * column by pushing everything after it along drags every boundary you
+ * have already placed off its ruled line, so each one has to be set
+ * again, in order. Trading with the neighbour leaves every other
+ * boundary exactly where it is.
+ *
+ * The last column has nothing to its right to trade with, so it has no
+ * boundary of its own: the table's right edge sizes the whole table
+ * instead (see `setTableWidth`).
+ */
+export function resizeColumnBoundary(table: TemplateTable, key: string, width: number): TemplateTable {
+  const index = table.columns.findIndex((column) => column.key === key)
+  const column = table.columns[index]
+  const neighbour = table.columns[index + 1]
+  if (!column || !neighbour) return table
+
+  // The two share a fixed amount of room; neither may vanish out of it.
+  const between = column.width + neighbour.width
+  const taken = Math.min(Math.max(width, MIN_COLUMN_WIDTH), between - MIN_COLUMN_WIDTH)
+  return {
+    ...table,
+    columns: table.columns.map((candidate, i) =>
+      i === index ? { ...candidate, width: taken } : i === index + 1 ? { ...candidate, width: between - taken } : candidate,
+    ),
+  }
+}
+
 /** One more row, directly below the last one, at the same pitch. */
 export function addTableRow(table: TemplateTable): TemplateTable {
   return { ...table, rowCount: table.rowCount + 1 }

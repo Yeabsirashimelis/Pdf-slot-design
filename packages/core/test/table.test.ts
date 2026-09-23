@@ -10,6 +10,7 @@ import {
   tableCells,
   tableHeight,
   tableWidth,
+  resizeColumnBoundary,
   setTableWidth,
   setTableHeight,
   MIN_COLUMN_WIDTH,
@@ -174,5 +175,51 @@ describe('sizing a whole table', () => {
   it('rows never close up to nothing', () => {
     expect(setTableHeight(makeTable(), 0).rowPitch).toBe(MIN_ROW_MEASURE)
     expect(setTableHeight(makeTable({ rowCount: 1 }), 0).rowHeight).toBe(MIN_ROW_MEASURE)
+  })
+})
+
+describe('dragging a column boundary', () => {
+  // makeTable: No. 30 | Date 60 | Description 260 | Amount 80 -- 430 across.
+  it('takes the space from the column on the right, so the table never changes width', () => {
+    const before = makeTable()
+    const after = resizeColumnBoundary(before, 'c2', 100) // Date 60 -> 100
+    expect(after.columns.map((column) => column.width)).toEqual([30, 100, 220, 80])
+    expect(tableWidth(after)).toBe(tableWidth(before))
+  })
+
+  it('leaves every other boundary exactly where it was', () => {
+    // The point of the whole thing: a boundary already lined up with a
+    // printed rule must not move because an earlier one was set.
+    const table = resizeColumnBoundary(makeTable(), 'c1', 50) // No. 30 -> 50
+    // Boundaries are cumulative left edges: 40 | 90 | 130 | 390 | 470.
+    const edges = table.columns.map((_, i) => columnLeft(table, i))
+    expect(edges).toEqual([40, 90, 130, 390])
+    // Only the first boundary moved; Description and Amount start where they did.
+    expect(columnLeft(makeTable(), 2)).toBe(130)
+    expect(columnLeft(makeTable(), 3)).toBe(390)
+  })
+
+  it('stops when the neighbour has no more to give', () => {
+    const table = resizeColumnBoundary(makeTable(), 'c2', 1000)
+    // Date and Description share 320pt; Description keeps the minimum.
+    expect(table.columns[1]!.width).toBe(320 - MIN_COLUMN_WIDTH)
+    expect(table.columns[2]!.width).toBe(MIN_COLUMN_WIDTH)
+    expect(tableWidth(table)).toBe(430)
+  })
+
+  it('will not let the dragged column vanish either', () => {
+    const table = resizeColumnBoundary(makeTable(), 'c2', -50)
+    expect(table.columns[1]!.width).toBe(MIN_COLUMN_WIDTH)
+    expect(table.columns[2]!.width).toBe(320 - MIN_COLUMN_WIDTH)
+  })
+
+  it('the last column has no boundary of its own -- the right edge sizes the table', () => {
+    const before = makeTable()
+    expect(resizeColumnBoundary(before, 'c4', 200)).toEqual(before)
+  })
+
+  it('an unknown column changes nothing', () => {
+    const before = makeTable()
+    expect(resizeColumnBoundary(before, 'nope', 100)).toEqual(before)
   })
 })
