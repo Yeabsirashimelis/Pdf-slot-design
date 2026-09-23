@@ -54,6 +54,10 @@ export function TemplateEditor({
     void store.put({ fileId, step })
   }, [fileId, step, store])
 
+  // The slot names the generate panel checks a data file's columns against. Memoised because it
+  // is the panel's memo key: a fresh array every render would re-parse the pasted rows each time.
+  const slotNames = useMemo(() => Object.values(names), [names])
+
   // Debounced safety-net writes; Next/Save/Back write immediately below.
   const currentLayout = useMemo(
     () => toLayout(fileId, editor.slots, names, new Date().toISOString()),
@@ -155,7 +159,7 @@ export function TemplateEditor({
         onBack={handleBack}
         onChangeText={(id, text) => editor.updateSlot(id, { text })}
         onSave={handleSave}
-        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} /> : undefined}
+        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} slotNames={slotNames} /> : undefined}
       />
       <Editor
         doc={doc}

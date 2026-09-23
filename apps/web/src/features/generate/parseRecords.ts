@@ -29,17 +29,35 @@ function parseJson(text: string): ParsedRecords {
   let data: unknown
   try { data = JSON.parse(text) } catch { return { error: 'Not valid JSON' } }
   if (!Array.isArray(data)) return { error: 'Expected a JSON array of objects' }
+  if (data.length === 0) return { error: 'The list is empty' }
   const records: Record<string, string>[] = []
   for (const [i, row] of data.entries()) {
     if (typeof row !== 'object' || row === null || Array.isArray(row)) return { error: `Row ${i + 1} is not an object` }
+    const record: Record<string, string> = {}
     for (const [key, value] of Object.entries(row)) {
-      if (typeof value !== 'string') return { error: `Every value must be text (row ${i + 1}, "${key}")` }
+      const printable = asText(value)
+      if (printable === null) return { error: `Row ${i + 1}, "${key}": expected text, got ${aKindOf(value)}` }
+      record[key] = printable
     }
-    records.push(row as Record<string, string>)
+    records.push(record)
   }
-  if (records.length === 0) return { error: 'The array is empty' }
-  return { records }
+  return withinLimit(records)
 }
+
+/**
+ * A slot prints text, but an export with numeric amounts or boolean flags is ordinary JSON;
+ * refusing it would send the user back to quote every number by hand. A missing value prints
+ * nothing. Anything with an inside -- a list, a nested object -- has no one obvious rendering,
+ * so it is a mistake worth naming rather than a guess worth making.
+ */
+function asText(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value === null || value === undefined) return ''
+  return null
+}
+
+const aKindOf = (value: unknown) => (Array.isArray(value) ? 'a list' : 'an object')
 
 const FIELD_COUNT_TROUBLE: Partial<Record<ParseError['code'], string>> = {
   TooFewFields: 'too few fields',

@@ -6,6 +6,28 @@ describe('parseRecords', () => {
   it('accepts a JSON array of string objects', () => {
     expect(parseRecords('[{"Name":"Abel"},{"Name":"Sara"}]')).toEqual({ records: [{ Name: 'Abel' }, { Name: 'Sara' }] })
     expect(parseRecords('{"Name":"Abel"}')).toEqual({ error: 'Expected a JSON array of objects' })
+    expect(parseRecords('[]')).toEqual({ error: 'The list is empty' })
+    expect(parseRecords('["Abel"]')).toEqual({ error: 'Row 1 is not an object' })
+    expect(parseRecords('[{')).toEqual({ error: 'Not valid JSON' })
+  })
+  it('prints JSON numbers, booleans and nulls as the text they stand for', () => {
+    // An export with numeric amounts or boolean flags is ordinary; refusing it would send the
+    // user back to their spreadsheet to quote every number by hand.
+    expect(parseRecords('[{"Name":"Abel","Amount":1200,"Paid":true,"Note":null}]')).toEqual({
+      records: [{ Name: 'Abel', Amount: '1200', Paid: 'true', Note: '' }],
+    })
+  })
+  it('names the row and the key of a value that is not a single piece of text', () => {
+    expect(parseRecords('[{"Name":"Abel"},{"items":["a","b"]}]')).toEqual({
+      error: 'Row 2, "items": expected text, got a list',
+    })
+    expect(parseRecords('[{"who":{"first":"Abel"}}]')).toEqual({
+      error: 'Row 1, "who": expected text, got an object',
+    })
+  })
+  it('refuses a JSON array of more rows than a job can hold', () => {
+    const rows = JSON.stringify(Array.from({ length: MAX_JOB_RECORDS + 3 }, (_, i) => ({ Name: `row ${i}` })))
+    expect(parseRecords(rows)).toEqual({ error: `${MAX_JOB_RECORDS + 3} rows is more than the limit of ${MAX_JOB_RECORDS}` })
   })
   it('accepts CSV with a header row, quotes, commas and CRLF', () => {
     expect(parseRecords('Name,Date\r\n"Tesfaye, Abel",18 Sep\r\nSara,"say ""hi"""\r\n')).toEqual({
