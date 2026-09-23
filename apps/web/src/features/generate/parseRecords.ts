@@ -72,10 +72,14 @@ function parseCsv(text: string): ParsedRecords {
     transformHeader: (h) => h.trim(),
   })
   const fields = meta.fields ?? []
-  const duplicate = duplicateHeader(fields, meta.renamedHeaders)
-  if (duplicate !== undefined) return { error: `Two columns are named "${duplicate}"` }
+  // Checked before duplicates: papaparse renames the *second* of several empty header cells (e.g.
+  // "Name,,,Date" becomes fields ["Name", "", "_1", "Date"] with "_1" recorded as a rename of ""),
+  // which would otherwise look like a genuine duplicate name ("") rather than what it is -- an
+  // empty header cell, or two of them.
   const unnamed = fields.indexOf('')
   if (unnamed !== -1) return { error: `Column ${unnamed + 1} has no name` }
+  const duplicate = duplicateHeader(fields, meta.renamedHeaders)
+  if (duplicate !== undefined) return { error: `Two columns are named "${duplicate}"` }
   // A one-column CSV has no delimiter to detect, so papaparse says so and falls back to a comma --
   // which is what we want. Reporting that as a problem with the data would be a lie.
   const rowTrouble = errors.filter((e) => e.type !== 'Delimiter')

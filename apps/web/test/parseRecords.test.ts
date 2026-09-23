@@ -65,6 +65,12 @@ describe('parseRecords', () => {
   it('refuses a header cell with no name', () => {
     expect(parseRecords('Name,,Date\nAbel,x,18 Sep\n')).toEqual({ error: 'Column 2 has no name' })
   })
+  it('reports the empty header before the duplicate it gets renamed into', () => {
+    // papaparse renames the second of two empty header cells to "_1" before we ever see it, which
+    // makes them look like a genuine duplicate ("Two columns are named \"\"") unless the empty-header
+    // check runs first.
+    expect(parseRecords('Name,,,Date\nAbel,x,y,18 Sep\n')).toEqual({ error: 'Column 2 has no name' })
+  })
   it('refuses more rows than a job can hold', () => {
     const csv = `Name\n${Array.from({ length: MAX_JOB_RECORDS + 1 }, (_, i) => `row ${i}`).join('\n')}\n`
     expect(parseRecords(csv)).toEqual({ error: `${MAX_JOB_RECORDS + 1} rows is more than the limit of ${MAX_JOB_RECORDS}` })

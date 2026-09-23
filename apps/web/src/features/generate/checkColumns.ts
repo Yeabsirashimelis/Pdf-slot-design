@@ -39,6 +39,21 @@ export function checkColumns(records: readonly Record<string, string>[], slotNam
   return { columns, unknown, missing, suggestions }
 }
 
+/**
+ * True when the data shares not one column with the file's slots -- never a legitimate accident
+ * (unlike an extra column, or a slot left deliberately blank), so this is the one case that must
+ * block generation outright. Shared by the panel's live summary and by `submit()` itself, so the
+ * two can never fall out of sync on what counts as "nothing matches".
+ */
+export function noColumnsMatch(check: ColumnCheck, slotNames: readonly string[]): boolean {
+  return slotNames.length > 0 && check.columns.length > 0 && check.unknown.length === check.columns.length
+}
+
+/** The one message shown for `noColumnsMatch`, wherever it needs to be shown. */
+export function noColumnsMatchMessage(slotNames: readonly string[]): string {
+  return `None of these columns match your slots (${slotNames.join(', ')})`
+}
+
 function nearestSlot(column: string, slotNames: readonly string[]): string | undefined {
   // Compared without case or surrounding space, so "name" and " Name " are zero edits from
   // "Name" and are suggested outright, while "Nmae" is the two edits the threshold allows.

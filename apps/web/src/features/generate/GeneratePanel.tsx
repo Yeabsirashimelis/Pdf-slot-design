@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
-import { checkColumns, type ColumnCheck } from './checkColumns'
+import { checkColumns, noColumnsMatch, noColumnsMatchMessage, type ColumnCheck } from './checkColumns'
 import { createJob, zipUrl } from './jobsClient'
 import { parseRecords } from './parseRecords'
 import { useJobPolling } from './useJobPolling'
@@ -43,7 +43,7 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
     const check = checkColumns(parsed.records, slotNames)
     // An extra column or a deliberately blank slot is legitimate, so neither blocks. Nothing
     // matching at all never is: it is the wrong file, or a header row that was never these slots.
-    const nothingMatches = slotNames.length > 0 && check.columns.length > 0 && check.unknown.length === check.columns.length
+    const nothingMatches = noColumnsMatch(check, slotNames)
     return { kind: 'data', rows: parsed.records.length, nothingMatches, ...check }
   }, [text, slotNames])
   const blocked = summary === null || summary.kind === 'error' || summary.nothingMatches
@@ -69,6 +69,12 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
     setError(null)
     const parsed = parseRecords(text)
     if ('error' in parsed) { setError(parsed.error); return }
+    // The `disabled` prop on the button is a convenience, not the guard: this is the function that
+    // actually calls the API, so it refuses on its own rather than trusting the button was disabled.
+    if (noColumnsMatch(checkColumns(parsed.records, slotNames), slotNames)) {
+      setError(noColumnsMatchMessage(slotNames))
+      return
+    }
     if (apiKey.trim() === '') { setError('Enter your API key'); return }
     saveKey(apiKey)
     const result = await createJob(apiUrl, fileId, parsed.records, apiKey)
@@ -141,7 +147,7 @@ function DataSummary({ summary, slotNames }: { summary: Summary; slotNames: read
     <div className="grid gap-0.5 text-xs" data-testid="generate-summary">
       <p className="text-muted-foreground">{`${rows} ${rows === 1 ? 'row' : 'rows'} · columns: ${columns.join(', ')}`}</p>
       {nothingMatches ? (
-        <p className="text-destructive">{`None of these columns match your slots (${slotNames.join(', ')})`}</p>
+        <p className="text-destructive">{noColumnsMatchMessage(slotNames)}</p>
       ) : (
         <>
           {unknown.map((column) => (

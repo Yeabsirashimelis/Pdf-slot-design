@@ -1,9 +1,26 @@
 import { createElement } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Button } from '@/components/ui/button'
 import { GeneratePanel } from '@/features/generate/GeneratePanel'
 
 const fileId = 'a'.repeat(64)
+/**
+ * The shadcn/Base UI Button bakes its `disabled` prop into the onClick handler it attaches to the
+ * DOM node, so neither removing the `disabled` attribute nor `fireEvent.click` gets past it (the
+ * check runs on the closed-over prop, not the DOM). To prove `submit()` refuses on its own -- not
+ * just because the button happens to be disabled -- this walks up the fiber tree from the DOM node
+ * to the `<Button>` element we wrote and calls the `onClick` we gave it directly, unmerged.
+ */
+const clickDirectly = (element: HTMLElement) => {
+  const fiberKey = Object.keys(element).find((k) => k.startsWith('__reactFiber$'))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let fiber = fiberKey ? (element as any)[fiberKey] : undefined
+  while (fiber && fiber.type !== Button) fiber = fiber.return
+  const onClick = fiber?.memoizedProps?.onClick as (() => void) | undefined
+  if (!onClick) throw new Error('could not find the onClick handler on <Button>')
+  onClick()
+}
 const okJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 const status = (over: Partial<Record<string, unknown>>) => ({
   id: 'j1', fileId, status: 'running', total: 2, done: 1, failed: 0, error: null, createdAt: '2026-09-19T00:00:00.000Z', finishedAt: null,
@@ -120,5 +137,27 @@ describe('GeneratePanel', () => {
     type('Full name,Day\nAbel,18 Sep\n')
     expect(screen.getByTestId('generate-summary').textContent).toContain('None of these columns match your slots (Name, Date)')
     expect(submit().disabled).toBe(true)
+  })
+
+  it('refuses to call the API when submit runs directly, even if the button were somehow enabled', () => {
+    // The disabled prop is a convenience, not the guard: submit() must enforce the all-unknown-
+    // columns rule itself, since it is the function that would otherwise send the request.
+    panel(['Name', 'Date'])
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('Full name,Day\nAbel,18 Sep\n')
+    act(() => clickDirectly(submit()))
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('generate-error').textContent).toBe('None of these columns match your slots (Name, Date)')
+  })
+
+  it('shows an error when the file cannot be read, and leaves the pasted text alone', async () => {
+    panel()
+    type('[{"Name":"A"}]')
+    const file = new File(['x'], 'rows.csv', { type: 'text/csv' })
+    Object.defineProperty(file, 'text', { value: () => Promise.reject(new Error('boom')) })
+    pick(file)
+    await waitFor(() => expect(screen.getByTestId('generate-error').textContent).toBe('Could not read that file'))
+    expect(records()).toBe('[{"Name":"A"}]')
+    expect(screen.queryByTestId('generate-file-name')).toBeNull()
   })
 })
