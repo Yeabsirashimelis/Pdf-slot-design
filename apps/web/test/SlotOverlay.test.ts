@@ -68,8 +68,7 @@ function handleOf(box: HTMLElement): HTMLElement {
  * the counter-scale it is drawn at, times the stage's own scale.
  */
 function tagScreenPx(tag: HTMLElement, screenScale: number): number {
-  const scale = Number(/scale\(([\d.]+)\)/.exec(tag.style.transform)![1])
-  return parseFloat(tag.style.fontSize) * scale * screenScale
+  return parseFloat(tag.style.fontSize) * screenScale
 }
 
 function renderOverlay(selected: boolean, extra: Partial<Parameters<typeof SlotOverlay>[0]> = {}) {
@@ -233,22 +232,25 @@ describe('SlotOverlay name and size', () => {
     expect(onFocused).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the slot\'s name on a small tag above the box, growing with the page between its bounds', () => {
+  it('shows the slot\'s name on a chip above the box, sized to land between its bounds on screen', () => {
     const { box } = renderOverlay(false, { name: 'Date', screenScale: 1.2 })
     const tag = handleOf(box)
     expect(tag.textContent).toBe('Date')
     expect(tag.style.bottom).toBe('100%')
-    // 9px at 1.2x is 10.8 screen px, inside the bounds: it tracks the page.
-    expect(tag.style.transform).toBe('scale(1)')
-    expect(tagScreenPx(tag, 1.2)).toBeCloseTo(10.8, 6)
+    // Sized, never scaled: a `transform: scale()` rasterises the glyphs at
+    // one size and stretches them, which is what left the chip looking
+    // pixelated once the page was zoomed in.
+    expect(tag.style.transform).toBe('')
+    // 11px at 1.2x is 13.2 on screen, inside the bounds: it tracks the page...
+    expect(tagScreenPx(tag, 1.2)).toBeCloseTo(13.2, 6)
     cleanup()
-    // Far out it stops shrinking, at the 8px floor, so it never vanishes.
+    // ...and holds still outside them: readable far out...
     const small = handleOf(renderOverlay(false, { name: 'Date', screenScale: 0.25 }).box)
-    expect(tagScreenPx(small, 0.25)).toBeCloseTo(8, 6)
+    expect(tagScreenPx(small, 0.25)).toBeCloseTo(11, 6)
     cleanup()
-    // Far in it stops growing, at the 12px ceiling: a chip, never a banner.
+    // ...and a chip, never a banner, far in.
     const big = handleOf(renderOverlay(false, { name: 'Date', screenScale: 4 }).box)
-    expect(tagScreenPx(big, 4)).toBeCloseTo(12, 6)
+    expect(tagScreenPx(big, 4)).toBeCloseTo(15, 6)
   })
 
   it('the tag stays out of the way: hidden until the pointer is on the slot, up while selected or named', () => {

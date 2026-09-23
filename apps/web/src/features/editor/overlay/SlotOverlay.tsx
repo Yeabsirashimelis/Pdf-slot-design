@@ -38,11 +38,15 @@ const SELECTION_OUTLINE_PX = 2
  */
 const PLACEHOLDER_COLOR = 'color-mix(in srgb, var(--slot-selection) 38%, transparent)'
 /** The name tag's own font size, in stage px. A chip, not a label. */
-const TAG_FONT_PX = 9
-/** What that becomes on screen: never smaller than this... */
-const TAG_MIN_SCREEN_PX = 8
-/** ...and never larger, however far the page is zoomed in. */
-const TAG_MAX_SCREEN_PX = 12
+/**
+ * How big the name chip is ON SCREEN: it tracks the page between these
+ * two, so it reads as this slot's tag rather than a pip beside a box
+ * that has outgrown it, and holds still outside them.
+ */
+const TAG_MIN_SCREEN_PX = 11
+const TAG_MAX_SCREEN_PX = 15
+/** What the chip would be at 100%, before the bounds bite. */
+const TAG_FONT_PX = 11
 
 /** The inline name editor a freshly placed (or renamed) slot shows; see `naming` below. */
 export type SlotNaming = {
@@ -179,8 +183,13 @@ export function SlotOverlay({
   // sized in stage px against the screen scale.
   const px = (screen: number) => screen / screenScale
   // The tag tracks the page between the two bounds, and holds still outside them.
+  // Sized rather than scaled. A `transform: scale()` rasterises the text
+  // at one size and stretches it to another, which is what left the chip
+  // looking pixelated at high zoom; setting the font size in stage px so
+  // that it *lands* on the wanted screen size lets the browser lay the
+  // glyphs out at their real size, sharp at any zoom.
   const tagOnScreen = Math.min(TAG_MAX_SCREEN_PX, Math.max(TAG_MIN_SCREEN_PX, TAG_FONT_PX * screenScale))
-  const tagScale = tagOnScreen / (TAG_FONT_PX * screenScale)
+  const tag = (screenPx: number) => (screenPx * (tagOnScreen / TAG_FONT_PX)) / screenScale
   // The tag is chrome, not content: it stays out of the way until the
   // pointer is on this slot. Selected or being named, it stays up
   // regardless -- otherwise the user loses track of which box is which,
@@ -246,24 +255,18 @@ export function SlotOverlay({
             position: 'absolute',
             left: 0,
             bottom: '100%',
-            // The tag grows with the page, so it always reads as this
-            // slot's tag rather than a fixed pip beside a box that has
-            // outgrown it -- but with a floor and a ceiling, so it neither
-            // disappears at 10% nor swamps the page at 400%.
-            transformOrigin: 'bottom left',
-            transform: `scale(${tagScale})`,
             // 2 screen px clear of the box at every zoom, like the size
             // badge below it: a gap measured in stage px would open up
             // into a gulf at 400% while the chip itself held still.
             marginBottom: px(2),
-            padding: '0 3px',
-            fontSize: TAG_FONT_PX,
-            lineHeight: '11px',
+            padding: `0 ${tag(4)}px`,
+            fontSize: px(tagOnScreen),
+            lineHeight: `${tag(14)}px`,
             fontFamily: 'var(--font-sans)',
             color: 'var(--slot-selection)',
             background: 'var(--card)',
-            border: '1px solid var(--slot-highlight-edge)',
-            borderRadius: 3,
+            border: `${px(1)}px solid var(--slot-highlight-edge)`,
+            borderRadius: tag(3),
             whiteSpace: 'nowrap',
             opacity: tagShown ? 1 : 0,
             transition: 'opacity 120ms ease',
