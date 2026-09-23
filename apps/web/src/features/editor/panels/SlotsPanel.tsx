@@ -79,7 +79,12 @@ export function SlotsPanel({
   onShowShortcuts?(): void
 }) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
-  const groups = groupByPage(slots)
+  const slotGroups = groupByPage(slots)
+  // A page is listed when it holds a table or a slot. A table belongs to
+  // a page like anything else, so it is listed under that page's heading
+  // rather than floating above the lot with nothing saying where it is.
+  const pages = [...new Set([...slotGroups.map((group) => group.page), ...tables.map((table) => table.page)])]
+    .sort((a, b) => a - b)
 
   const goTo = (slot: PanelSlot) => {
     onSelect(slot.id)
@@ -250,43 +255,45 @@ export function SlotsPanel({
 
         <ScrollArea className="min-h-0 flex-1 px-2">
           <div className="flex flex-col gap-0.5 pb-2">
-            {tables.map((table) => (
-              <TablePanel
-                key={table.id}
-                table={table}
-                texts={tableTexts}
-                selectedId={selectedId}
-                locked={locked}
-                onSelectCell={(id) => {
-                  onSelect(id)
-                  if (table.page !== pageIndex) onPageChange(table.page)
-                }}
-                onAddRow={() => onAddTableRow?.(table.id)}
-                onRemoveRow={(row) => onRemoveTableRow?.(table.id, row)}
-                onRemoveTable={() => onRemoveTable?.(table.id)}
-              />
-            ))}
             {slots.length === 0 && tables.length === 0 && (
               <p className="px-2 py-6 text-center text-xs text-muted-foreground" data-testid="empty-hint">
                 Click anywhere on the page to add a slot.
               </p>
             )}
-            {groups.map((group) => (
-              <div key={group.page} className="flex flex-col gap-0.5" data-testid={`page-group-${group.page}`}>
+            {pages.map((page) => (
+              <div key={page} className="flex flex-col gap-0.5" data-testid={`page-group-${page}`}>
                 {pageCount > 1 && (
                   <button
                     type="button"
                     className={cn(
                       'mt-2 px-2 py-1 text-left text-xs font-medium text-muted-foreground hover:text-foreground',
-                      group.page === pageIndex && 'text-foreground',
+                      page === pageIndex && 'text-foreground',
                     )}
-                    onClick={() => onPageChange(group.page)}
-                    data-testid={`page-group-trigger-${group.page}`}
+                    onClick={() => onPageChange(page)}
+                    data-testid={`page-group-trigger-${page}`}
                   >
-                    Page {group.page + 1}
+                    Page {page + 1}
                   </button>
                 )}
-                {group.slots.map(row)}
+                {tables
+                  .filter((table) => table.page === page)
+                  .map((table) => (
+                    <TablePanel
+                      key={table.id}
+                      table={table}
+                      texts={tableTexts}
+                      selectedId={selectedId}
+                      locked={locked}
+                      onSelectCell={(id) => {
+                        onSelect(id)
+                        if (table.page !== pageIndex) onPageChange(table.page)
+                      }}
+                      onAddRow={() => onAddTableRow?.(table.id)}
+                      onRemoveRow={(row) => onRemoveTableRow?.(table.id, row)}
+                      onRemoveTable={() => onRemoveTable?.(table.id)}
+                    />
+                  ))}
+                {(slotGroups.find((group) => group.page === page)?.slots ?? []).map(row)}
               </div>
             ))}
           </div>

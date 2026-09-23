@@ -217,6 +217,18 @@ describe('table row slots', () => {
     expect(screen.queryByTestId(`table-panel-${tableId}`)).toBeNull()
   })
 
+  it('the panel lists a table under the page it sits on', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+
+    // Not floating above the list with nothing saying where it is: a
+    // table belongs to a page, so it is listed inside that page's group.
+    const group = screen.getByTestId('page-group-0')
+    expect(group.querySelector(`[data-testid="table-panel-${tableId}"]`)).not.toBeNull()
+  })
+
   it('saves the table rather than its cells, and opens again with both', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const store = memoryStore()
