@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkColumns } from '@/features/generate/checkColumns'
+import { checkColumns, validateBeforeSubmit } from '@/features/generate/checkColumns'
 
 const rows = (...columns: string[]) => [Object.fromEntries(columns.map((c) => [c, 'x']))]
 
@@ -34,5 +34,28 @@ describe('checkColumns', () => {
   })
   it('says nothing at all when there are no records to compare', () => {
     expect(checkColumns([], ['Name'])).toEqual({ columns: [], unknown: [], missing: [], suggestions: {} })
+  })
+})
+
+describe('validateBeforeSubmit', () => {
+  it('refuses when every column is unknown, even with a key', () => {
+    expect(validateBeforeSubmit({ text: 'Full name,Day\nAbel,18 Sep\n', slotNames: ['Name', 'Date'], apiKey: 'k' })).toEqual({
+      error: 'None of these columns match your slots (Name, Date)',
+    })
+  })
+  it('refuses a blank API key once the columns are fine', () => {
+    expect(validateBeforeSubmit({ text: '[{"Name":"A"}]', slotNames: ['Name'], apiKey: '  ' })).toEqual({
+      error: 'Enter your API key',
+    })
+  })
+  it('reports a parse error before either check runs', () => {
+    expect(validateBeforeSubmit({ text: 'Name,Name\nAbel,Sara\n', slotNames: ['Name'], apiKey: '' })).toEqual({
+      error: 'Two columns are named "Name"',
+    })
+  })
+  it('returns the records to send when the data and key both check out', () => {
+    expect(validateBeforeSubmit({ text: '[{"Name":"A"},{"Name":"B"}]', slotNames: ['Name'], apiKey: 'k' })).toEqual({
+      records: [{ Name: 'A' }, { Name: 'B' }],
+    })
   })
 })

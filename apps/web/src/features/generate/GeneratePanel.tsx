@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
-import { checkColumns, noColumnsMatch, noColumnsMatchMessage, type ColumnCheck } from './checkColumns'
+import { checkColumns, noColumnsMatch, noColumnsMatchMessage, validateBeforeSubmit, type ColumnCheck } from './checkColumns'
 import { createJob, zipUrl } from './jobsClient'
 import { parseRecords } from './parseRecords'
 import { useJobPolling } from './useJobPolling'
@@ -67,17 +67,12 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
 
   const submit = async () => {
     setError(null)
-    const parsed = parseRecords(text)
-    if ('error' in parsed) { setError(parsed.error); return }
     // The `disabled` prop on the button is a convenience, not the guard: this is the function that
     // actually calls the API, so it refuses on its own rather than trusting the button was disabled.
-    if (noColumnsMatch(checkColumns(parsed.records, slotNames), slotNames)) {
-      setError(noColumnsMatchMessage(slotNames))
-      return
-    }
-    if (apiKey.trim() === '') { setError('Enter your API key'); return }
+    const validated = validateBeforeSubmit({ text, slotNames, apiKey })
+    if ('error' in validated) { setError(validated.error); return }
     saveKey(apiKey)
-    const result = await createJob(apiUrl, fileId, parsed.records, apiKey)
+    const result = await createJob(apiUrl, fileId, validated.records, apiKey)
     if ('error' in result) { setError(result.error); return }
     setJobId(result.jobId)
   }

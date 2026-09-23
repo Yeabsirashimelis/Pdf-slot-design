@@ -1,3 +1,5 @@
+import { parseRecords } from './parseRecords'
+
 export type ColumnCheck = {
   /** The keys of the first record, in order. */
   columns: string[]
@@ -52,6 +54,23 @@ export function noColumnsMatch(check: ColumnCheck, slotNames: readonly string[])
 /** The one message shown for `noColumnsMatch`, wherever it needs to be shown. */
 export function noColumnsMatchMessage(slotNames: readonly string[]): string {
   return `None of these columns match your slots (${slotNames.join(', ')})`
+}
+
+/** What `submit()` needs to decide: the records to send, or the one reason it must not send them. */
+export type SubmitValidation = { records: Record<string, string>[] } | { error: string }
+
+/**
+ * The guard `submit()` runs before it ever calls the API, pulled out so it can be tested directly
+ * rather than through a button click. Runs `parseRecords`, then the same two checks in the same
+ * order `submit()` has always run them in: a column mismatch is caught before an empty key is,
+ * because a mistyped file is the more useful thing to tell the user about first.
+ */
+export function validateBeforeSubmit({ text, slotNames, apiKey }: { text: string; slotNames: readonly string[]; apiKey: string }): SubmitValidation {
+  const parsed = parseRecords(text)
+  if ('error' in parsed) return { error: parsed.error }
+  if (noColumnsMatch(checkColumns(parsed.records, slotNames), slotNames)) return { error: noColumnsMatchMessage(slotNames) }
+  if (apiKey.trim() === '') return { error: 'Enter your API key' }
+  return { records: parsed.records }
 }
 
 function nearestSlot(column: string, slotNames: readonly string[]): string | undefined {
