@@ -52,6 +52,23 @@ export type TemplateTable = {
   style: TableStyle
 }
 
+/**
+ * Everything a table's shared style is, and nothing else.
+ *
+ * A cell is a slot, so an update meant for a cell carries slot fields --
+ * where it is, how wide it is. None of that belongs to the table's
+ * typography, and a table that has swallowed an `x` or a `width` lays
+ * every one of its cells out on top of the first (see `tableCells`).
+ */
+export const TABLE_STYLE_KEYS = ['fontId', 'size', 'color', 'align', 'lineHeight'] as const
+
+/** Just the typography out of whatever was handed over. */
+export function tableStyle(patch: Record<string, unknown>): Partial<TableStyle> {
+  const style: Record<string, unknown> = {}
+  for (const key of TABLE_STYLE_KEYS) if (patch[key] !== undefined) style[key] = patch[key]
+  return style as Partial<TableStyle>
+}
+
 /** Below this a column is no longer something you can read or click. */
 export const MIN_COLUMN_WIDTH = 8
 
@@ -114,6 +131,9 @@ export function tableCells(table: TemplateTable): Slot[] {
     const y = rowTop(table, row)
     for (const column of table.columns) {
       cells.push({
+        // The typography first: where a cell is and how big it is comes
+        // from the table, and nothing in the style may talk over it.
+        ...table.style,
         id: cellId(table.id, row, column.key),
         page: table.page,
         x,
@@ -121,7 +141,6 @@ export function tableCells(table: TemplateTable): Slot[] {
         width: column.width,
         height,
         text: '',
-        ...table.style,
       })
       x += column.width
     }
@@ -291,12 +310,15 @@ type LegacyTable = Omit<TemplateTable, 'rowHeights'> &
   }
 
 export function tableFromStored(stored: LegacyTable): TemplateTable {
+  const { rowHeight, rowPitch, rowCount, ...rest } = stored
+  // A style that swallowed a slot's geometry is cleaned out here, so a
+  // table saved while that was possible lays itself out properly again.
+  const table = { ...rest, style: { ...tableStyle(stored.style), ...stored.style } as TableStyle }
+  table.style = tableStyle(table.style) as TableStyle
   if (stored.rowHeights && stored.rowHeights.length > 0) {
-    const { rowHeight: _h, rowPitch: _p, rowCount: _c, ...table } = stored
     return { ...table, rowHeights: stored.rowHeights }
   }
-  const count = Math.max(1, Math.round(stored.rowCount ?? 1))
-  const height = Math.max(MIN_ROW_MEASURE, stored.rowPitch ?? stored.rowHeight ?? MIN_ROW_MEASURE)
-  const { rowHeight: _h, rowPitch: _p, rowCount: _c, ...table } = stored
+  const count = Math.max(1, Math.round(rowCount ?? 1))
+  const height = Math.max(MIN_ROW_MEASURE, rowPitch ?? rowHeight ?? MIN_ROW_MEASURE)
   return { ...table, rowHeights: Array.from({ length: count }, () => height) }
 }

@@ -10,6 +10,7 @@ import {
   tableCells,
   tableHeight,
   tableWidth,
+  tableStyle,
   resizeColumnBoundary,
   resizeRow,
   rowCount,
@@ -260,5 +261,35 @@ describe('dragging a column boundary', () => {
   it('an unknown column changes nothing', () => {
     const before = makeTable()
     expect(resizeColumnBoundary(before, 'nope', 100)).toEqual(before)
+  })
+})
+
+describe('a table\'s style is typography and nothing else', () => {
+  it('keeps only the typography out of whatever it is handed', () => {
+    expect(tableStyle({ size: 12, align: 'right', x: 40, width: 200, text: 'no', id: 'no' }))
+      .toEqual({ size: 12, align: 'right' })
+  })
+
+  it('a cell\'s place and size come from the table, whatever the style says', () => {
+    // A cell is a slot, so an update meant for one carries slot fields.
+    // If those reach the style, every cell lands on top of the first.
+    const poisoned = makeTable()
+    ;(poisoned.style as Record<string, unknown>).x = 49
+    ;(poisoned.style as Record<string, unknown>).width = 50
+
+    const cells = tableCells(poisoned)
+    const row0 = cells.slice(0, 4)
+    expect(row0.map((c) => c.x)).toEqual([40, 70, 130, 390])
+    expect(row0.map((c) => c.width)).toEqual([30, 60, 260, 80])
+  })
+
+  it('a table saved with geometry in its style is cleaned when it is opened', () => {
+    const poisoned = makeTable()
+    ;(poisoned.style as Record<string, unknown>).x = 49
+    ;(poisoned.style as Record<string, unknown>).width = 50
+
+    const table = tableFromStored(poisoned)
+    expect(Object.keys(table.style).sort()).toEqual(['align', 'color', 'fontId', 'lineHeight', 'size'])
+    expect(tableCells(table).slice(0, 4).map((c) => c.width)).toEqual([30, 60, 260, 80])
   })
 })
