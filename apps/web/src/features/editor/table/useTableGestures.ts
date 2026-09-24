@@ -11,7 +11,7 @@ import {
   type TemplateTable,
   type Viewport,
 } from '@pdf-slot/core'
-import type { TableDragPatch, TableHandle } from './TableOverlay'
+import { DRAG_SLOP_PX, type TableDragPatch, type TableHandle } from './TableOverlay'
 
 type Handlers = {
   onPointerDown(event: PointerEvent<HTMLElement>): void
@@ -52,6 +52,8 @@ export function useTableGestures({
     handle: TableHandle
     startScreen: { x: number; y: number }
     origin: TemplateTable
+    /** Set once the pointer has travelled far enough to mean a drag. */
+    moved: boolean
   } | null>(null)
 
   const end = (event: PointerEvent<HTMLElement>) => {
@@ -72,15 +74,25 @@ export function useTableGestures({
         handle,
         startScreen: { x: event.clientX, y: event.clientY },
         origin: table,
+        moved: false,
       }
     },
     onPointerMove(event) {
       const current = drag.current
       if (!current || current.pointerId !== event.pointerId) return
       event.stopPropagation()
+      // A handle lies over the cells it sits between, so a press that has
+      // barely moved is someone aiming at what is underneath it, not a
+      // drag. Nothing changes until the pointer has actually travelled.
+      const travelX = event.clientX - current.startScreen.x
+      const travelY = event.clientY - current.startScreen.y
+      if (!current.moved) {
+        if (Math.abs(travelX) <= DRAG_SLOP_PX && Math.abs(travelY) <= DRAG_SLOP_PX) return
+        current.moved = true
+      }
       const scale = viewport.zoom * screenScale
-      const dx = (event.clientX - current.startScreen.x) / scale
-      const dy = (event.clientY - current.startScreen.y) / scale
+      const dx = travelX / scale
+      const dy = travelY / scale
       const from = current.origin
       switch (current.handle.kind) {
         case 'move':

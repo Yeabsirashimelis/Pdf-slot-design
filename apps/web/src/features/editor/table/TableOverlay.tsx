@@ -3,7 +3,7 @@
 // and shadcn has no equivalent. See CLAUDE.md.
 'use client'
 
-import type { CSSProperties } from 'react'
+import { useRef, type CSSProperties, type PointerEvent } from 'react'
 import {
   columnLeft,
   tableHeight,
@@ -45,11 +45,21 @@ export type TableDragPatch = Partial<Pick<TemplateTable, 'x' | 'y'>> & {
   rowHeights?: number[]
 }
 
+/** Past this, the pointer was dragged rather than clicked. */
+export const DRAG_SLOP_PX = 3
+
 /**
  * A handle: a generous area to grab, something to see once the table is
  * selected, and a word for what it does when the pointer is on it. A bar
  * five pixels wide cannot explain itself by looking like anything, and
  * these adjust different things from one another.
+ *
+ * A handle has to be wide enough to hit, which means it lies over the
+ * cells around it -- a row's handle runs the width of the table, right
+ * across the boxes people are trying to type into. So a press that never
+ * moved is not a drag at all: the handle steps out of the way and hands
+ * the click to whatever was underneath it, which is how clicking near
+ * the bottom of a cell still puts the caret in that cell.
  */
 function Handle({
   testId,
@@ -75,10 +85,42 @@ function Handle({
   visible: CSSProperties
   labelAt: CSSProperties
 }) {
+  const self = useRef<HTMLDivElement>(null)
+  const pressedAt = useRef<{ x: number; y: number } | null>(null)
+
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    pressedAt.current = { x: event.clientX, y: event.clientY }
+    bind.onPointerDown?.(event)
+  }
+
+  const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    bind.onPointerUp?.(event)
+    const from = pressedAt.current
+    pressedAt.current = null
+    const el = self.current
+    if (!from || !el) return
+    const moved = Math.abs(event.clientX - from.x) > DRAG_SLOP_PX || Math.abs(event.clientY - from.y) > DRAG_SLOP_PX
+    if (moved) return
+
+    // Nothing was dragged, so this was a click on whatever the handle is
+    // covering. Look straight through it and give the click away.
+    const taking = el.style.pointerEvents
+    el.style.pointerEvents = 'none'
+    const under = document.elementFromPoint(event.clientX, event.clientY)
+    el.style.pointerEvents = taking
+    const field = under instanceof HTMLElement
+      ? (under instanceof HTMLTextAreaElement ? under : under.querySelector('textarea'))
+      : null
+    if (field instanceof HTMLTextAreaElement) field.focus()
+  }
+
   return (
     <div
+      ref={self}
       data-testid={testId}
       {...bind}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
       className="group/handle"
       style={{
         position: 'absolute',

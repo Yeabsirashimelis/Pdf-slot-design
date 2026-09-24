@@ -246,6 +246,31 @@ describe('table row slots', () => {
     expect(cellBoxes(container)[1]!.style.left).toBe('190px')
   })
 
+  it('a press on a row\'s line that never moved is a click, not a resize', async () => {
+    // A row's handle runs the width of the table, straight over the
+    // boxes people type into. If it kept every click, the bottom of
+    // every cell would be dead to the pointer.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    const heights = () => cellBoxes(container).map((box) => box.style.height)
+    expect(heights()).toEqual(['16px', '16px'])
+
+    const edge = screen.getByTestId(`table-row-${tableId}-0-edge`)
+    fireEvent.pointerDown(edge, { pointerId: 1, clientX: 140, clientY: 116 })
+    fireEvent.pointerUp(edge, { pointerId: 1, clientX: 140, clientY: 116 })
+    await waitFor(() => expect(heights()).toEqual(['16px', '16px']))
+
+    // A pointer that barely trembled is still a click, not a drag.
+    fireEvent.pointerDown(edge, { pointerId: 2, clientX: 140, clientY: 116 })
+    fireEvent.pointerMove(edge, { pointerId: 2, clientX: 141, clientY: 118 })
+    fireEvent.pointerUp(edge, { pointerId: 2, clientX: 141, clientY: 118 })
+    await waitFor(() => expect(heights()).toEqual(['16px', '16px']))
+  })
+
   it('dragging the line under a row resizes that row and pushes the rest down', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
