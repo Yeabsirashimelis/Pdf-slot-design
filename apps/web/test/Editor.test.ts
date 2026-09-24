@@ -341,14 +341,15 @@ describe('Editor workspace: placing, locking, panning, keys', () => {
     expect(onPlaceSlot).not.toHaveBeenCalled()
   })
 
-  it('shows the name as the placeholder of an empty box, and the size badge on the selected one', async () => {
+  it('shows the name as the placeholder of an empty box, and nothing else over the page', async () => {
     const Harness = await makeHarness()
     const { container } = render(createElement(Harness, { doc: makeDoc(), initialSlots: [seeded] }))
     const box = await mountedSlot(container)
     expect(box.querySelector('[data-slot-line][data-placeholder]')?.textContent).toBe('Field')
-    expect(box.querySelector('[data-testid="slot-size-badge"]')).toBeNull()
+    // Selecting it adds no badge over the page: the size is in the panel.
     fireEvent.focus(box.querySelector('textarea') as HTMLTextAreaElement)
-    await waitFor(() => expect(box.querySelector('[data-testid="slot-size-badge"]')?.textContent).toMatch(/^200 × \d+$/))
+    await waitFor(() => expect(box.querySelector('[data-resize-edge]')).not.toBeNull())
+    expect(box.querySelector('[data-testid="slot-size-badge"]')).toBeNull()
   })
 
   it('space held: a shield covers the slots so a drag pans, and a click places nothing', async () => {

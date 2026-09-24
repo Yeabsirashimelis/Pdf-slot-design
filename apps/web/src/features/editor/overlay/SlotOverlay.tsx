@@ -16,7 +16,6 @@ import {
   type Slot,
   type Viewport,
 } from '@pdf-slot/core'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { SlotLines } from './SlotLines'
 import { layoutSlot } from './slotBox'
@@ -412,21 +411,6 @@ export function SlotOverlay({
             style={{ position: 'absolute', pointerEvents: 'auto', cursor, ...place(px(RESIZE_STRIP_PX)) }}
           />
         ))}
-      {/* The box's size in points, under it, as Figma prints a selection's. */}
-      {selected && (
-        <Badge
-          data-testid="slot-size-badge"
-          className="pointer-events-none absolute left-1/2 top-full select-none tabular-nums"
-          style={{
-            // Counter-scaled so the badge reads the same at every zoom;
-            // the offset is 4 screen px below the box.
-            transform: `translate(-50%, ${px(4)}px) scale(${1 / screenScale})`,
-            transformOrigin: 'top center',
-          }}
-        >
-          {Math.round(slot.width)} × {Math.round(boxHeight)}
-        </Badge>
-      )}
     </div>
   )
 }

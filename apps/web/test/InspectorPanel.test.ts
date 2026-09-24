@@ -29,6 +29,21 @@ function renderPanel(extra: Partial<Parameters<typeof InspectorPanel>[0]> = {}) 
 describe('InspectorPanel', () => {
   afterEach(() => cleanup())
 
+  it('gives the selection\'s size, which used to ride along under it on the page', () => {
+    renderPanel({ selected: { ...slot, width: 250, height: 22 } })
+    expect(screen.getByTestId('slot-size').textContent).toContain('250 × 22 pt')
+  })
+
+  it('a slot that grows to its text has a width but no height to show', () => {
+    renderPanel({ selected: { ...slot, width: 200, height: undefined } })
+    expect(screen.getByTestId('slot-size').textContent).toContain('200 pt wide')
+  })
+
+  it('with nothing selected there is no size to give', () => {
+    renderPanel({ selected: null, name: '' })
+    expect(screen.queryByTestId('slot-size')).toBeNull()
+  })
+
   it('disables every control with nothing selected, and when the layout is locked', () => {
     renderPanel({ selected: null, name: '' })
     expect((screen.getByTestId('inspector-name') as HTMLInputElement).disabled).toBe(true)

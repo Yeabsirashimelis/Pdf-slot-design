@@ -300,13 +300,12 @@ describe('SlotOverlay name and size', () => {
     expect(empty.textContent).toContain('Date')
   })
 
-  it('selected: prints the box size in points under it, counter-scaled', () => {
+  it('selected: nothing is printed over the page but the box itself', () => {
+    // The size used to ride along under the selection, over whatever it
+    // was measuring. It belongs in the panel, with the rest of the
+    // selection's details.
     const { box } = renderOverlay(true, { slot: { ...makeSlot(), height: 40 }, screenScale: 2 })
-    const badge = box.querySelector('[data-testid="slot-size-badge"]') as HTMLElement
-    expect(badge.textContent).toBe('200 × 40')
-    expect(badge.style.transform).toContain('scale(0.5)')
-    cleanup()
-    expect(renderOverlay(false).box.querySelector('[data-testid="slot-size-badge"]')).toBeNull()
+    expect(box.querySelector('[data-testid="slot-size-badge"]')).toBeNull()
   })
 
   it('naming: an inline input in place of the textarea; Enter commits, Escape cancels, typing reports', () => {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type KeyboardEvent } from 'react'
-import { AlignCenter, AlignLeft, AlignRight, Save } from 'lucide-react'
+import { AlignCenter, AlignLeft, AlignRight, Ruler, Save } from 'lucide-react'
 import type { Align, Slot, TemplateTable } from '@pdf-slot/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -98,7 +98,7 @@ export function InspectorPanel({
 
         <Separator />
 
-        <section className="flex flex-col gap-2">
+        <section className="flex flex-col gap-2" data-testid="slot-section">
           <h2 className="text-xs font-medium text-muted-foreground">Slot</h2>
           <NameField
             key={selected?.id ?? 'none'}
@@ -106,6 +106,21 @@ export function InspectorPanel({
             disabled={!selected || nameReadOnly}
             onRename={onRename}
           />
+          {selected && (
+            <div
+              className="flex items-center gap-1.5 px-0.5 text-[11px] text-muted-foreground tabular-nums"
+              data-testid="slot-size"
+            >
+              <Ruler className="size-3 shrink-0 opacity-70" aria-hidden />
+              {/* A hand-placed slot grows to its text, so it has no
+                  height of its own until one is set. */}
+              <span>
+                {selected.height === undefined
+                  ? `${Math.round(selected.width)} pt wide`
+                  : `${Math.round(selected.width)} × ${Math.round(selected.height)} pt`}
+              </span>
+            </div>
+          )}
         </section>
 
         <Separator />
