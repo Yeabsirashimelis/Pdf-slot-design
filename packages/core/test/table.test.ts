@@ -11,6 +11,9 @@ import {
   tableHeight,
   tableWidth,
   resizeColumnBoundary,
+  resizeRow,
+  rowCount,
+  tableFromStored,
   setTableWidth,
   setTableHeight,
   MIN_COLUMN_WIDTH,
@@ -18,7 +21,10 @@ import {
   type TemplateTable,
 } from '../src/document/table.js'
 
-/** A change-order log: four columns, ten rows, 22pt apart. */
+/** n rows, all the height of a printed line. */
+const rows = (n: number, height = 22) => Array.from({ length: n }, () => height)
+
+/** A change-order log: four columns, ten rows stacked 22pt each. */
 function makeTable(overrides: Partial<TemplateTable> = {}): TemplateTable {
   return {
     id: 't1',
@@ -31,16 +37,14 @@ function makeTable(overrides: Partial<TemplateTable> = {}): TemplateTable {
       { key: 'c3', name: 'Description', width: 260 },
       { key: 'c4', name: 'Amount', width: 80 },
     ],
-    rowHeight: 16,
-    rowPitch: 22,
-    rowCount: 10,
+    rowHeights: rows(10),
     style: { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 },
     ...overrides,
   }
 }
 
 describe('a table is a row multiplied downward', () => {
-  it('lays every cell out from the columns and the pitch -- nothing is stored per cell', () => {
+  it('lays every cell out from the columns and the row heights -- nothing is stored per cell', () => {
     const cells = tableCells(makeTable())
     expect(cells).toHaveLength(40)
 
@@ -50,7 +54,7 @@ describe('a table is a row multiplied downward', () => {
     expect([no!.width, date!.width, description!.width, amount!.width]).toEqual([30, 60, 260, 80])
     expect(cells.slice(0, 4).every((c) => c.y === 500)).toBe(true)
 
-    // Each row after sits one pitch lower (PDF y grows upward).
+    // Each row sits directly under the one above (PDF y grows upward).
     expect(cells[4]!.y).toBe(478)
     expect(cells[8]!.y).toBe(456)
     expect(cells.at(-1)!.y).toBe(500 - 9 * 22)
@@ -58,7 +62,7 @@ describe('a table is a row multiplied downward', () => {
 
   it('gives every cell the table\'s typography and its own height', () => {
     const cells = tableCells(makeTable())
-    expect(cells[0]).toMatchObject({ page: 0, fontId: 'sans', size: 10, align: 'left', lineHeight: 1.2, height: 16, text: '' })
+    expect(cells[0]).toMatchObject({ page: 0, fontId: 'sans', size: 10, align: 'left', lineHeight: 1.2, height: 22, text: '' })
   })
 
   it('names cells by column and row number, for the panel and the form', () => {
@@ -83,18 +87,19 @@ describe('a table is a row multiplied downward', () => {
     expect(narrowed.columns[0]!.width).toBeGreaterThanOrEqual(8)
   })
 
-  it('adding a row puts it directly below the last, at the same pitch', () => {
-    const grown = addTableRow(makeTable({ rowCount: 2 }))
-    expect(grown.rowCount).toBe(3)
+  it('adding a row puts it directly below the last, the same height as it', () => {
+    const grown = addTableRow(makeTable({ rowHeights: rows(2) }))
+    expect(rowCount(grown)).toBe(3)
+    expect(grown.rowHeights).toEqual([22, 22, 22])
     const cells = tableCells(grown)
     expect(cells).toHaveLength(12)
     expect(cells.at(-1)!.y).toBe(500 - 2 * 22)
   })
 
   it('removing a row drops a line: the table loses a row and what was below moves up', () => {
-    const table = makeTable({ rowCount: 3 })
+    const table = makeTable({ rowHeights: rows(3) })
     const removal = removeTableRow(table, 1)
-    expect(removal.table.rowCount).toBe(2)
+    expect(rowCount(removal.table)).toBe(2)
     expect(removal.removedIds).toEqual(['t1#1:c1', 't1#1:c2', 't1#1:c3', 't1#1:c4'])
 
     // The printed rows stay on their ruled lines; there is one fewer.
@@ -111,24 +116,25 @@ describe('a table is a row multiplied downward', () => {
   })
 
   it('a row removed from the middle leaves no text stranded on a row that no longer exists', () => {
-    const removal = removeTableRow(makeTable({ rowCount: 3 }), 0)
+    const removal = removeTableRow(makeTable({ rowHeights: rows(3) }), 0)
     const after = applyRowRemoval({ 't1#0:c2': 'a', 't1#2:c2': 'c' }, removal)
     // 'a' is gone with row 1; row 2 was empty, so row 1 ends up empty too.
     expect(after).toEqual({ 't1#1:c2': 'c' })
   })
 
   it('the last row cannot be removed away: a table always has one', () => {
-    const { table, removedIds, moves } = removeTableRow(makeTable({ rowCount: 1 }), 0)
-    expect(table.rowCount).toBe(1)
+    const { table, removedIds, moves } = removeTableRow(makeTable({ rowHeights: rows(1) }), 0)
+    expect(rowCount(table)).toBe(1)
     expect(removedIds).toEqual([])
     expect(moves).toEqual([])
   })
 
   it('measures itself, for the outline the editor draws around it', () => {
-    const table = makeTable({ rowCount: 3 })
+    const table = makeTable({ rowHeights: rows(3) })
     expect(tableWidth(table)).toBe(430)
-    // Two pitches down, plus the last row's own height.
-    expect(tableHeight(table)).toBe(2 * 22 + 16)
+    // Rows stack, so the table is simply its rows added up.
+    expect(tableHeight(table)).toBe(3 * 22)
+    expect(tableHeight(makeTable({ rowHeights: [30, 20, 10] }))).toBe(60)
     expect(columnLeft(table, 2)).toBe(130)
   })
 })
@@ -158,23 +164,56 @@ describe('sizing a whole table', () => {
     })
   })
 
-  it('a new height spreads the rows and leaves the row boxes alone', () => {
-    // Ten rows: nine gaps down, plus the last row's own height.
-    const taller = setTableHeight(makeTable(), 9 * 30 + 16)
-    expect(taller.rowPitch).toBeCloseTo(30)
-    expect(taller.rowHeight).toBe(16)
-    expect(tableHeight(taller)).toBeCloseTo(9 * 30 + 16)
+  it('a new height is shared out, every row keeping its proportion', () => {
+    const taller = setTableHeight(makeTable(), 440) // twice 220
+    expect(tableHeight(taller)).toBeCloseTo(440)
+    expect(taller.rowHeights).toEqual(rows(10, 44))
   })
 
-  it('a one-row table has no gap to spread, so the row itself takes the change', () => {
-    const single = setTableHeight(makeTable({ rowCount: 1 }), 40)
-    expect(single.rowHeight).toBe(40)
-    expect(single.rowPitch).toBe(22)
+  it('rows of different heights stay in proportion to one another', () => {
+    const uneven = makeTable({ rowHeights: [40, 20, 20] })
+    const shorter = setTableHeight(uneven, 40)
+    expect(tableHeight(shorter)).toBeCloseTo(40)
+    expect(shorter.rowHeights).toEqual([20, 10, 10])
   })
 
   it('rows never close up to nothing', () => {
-    expect(setTableHeight(makeTable(), 0).rowPitch).toBe(MIN_ROW_MEASURE)
-    expect(setTableHeight(makeTable({ rowCount: 1 }), 0).rowHeight).toBe(MIN_ROW_MEASURE)
+    const squeezed = setTableHeight(makeTable({ rowHeights: [40, 20] }), 1)
+    expect(Math.min(...squeezed.rowHeights)).toBeCloseTo(MIN_ROW_MEASURE)
+    expect(squeezed.rowHeights[0]! / squeezed.rowHeights[1]!).toBeCloseTo(2)
+  })
+
+  it('one row resized pushes the rows below it down, as a spreadsheet does', () => {
+    const table = resizeRow(makeTable({ rowHeights: rows(3) }), 0, 40)
+    expect(table.rowHeights).toEqual([40, 22, 22])
+    // The first row's top has not moved; the ones below start lower.
+    const cells = tableCells(table)
+    expect(cells[0]!.y).toBe(500)
+    expect(cells[4]!.y).toBe(460)
+    expect(cells[8]!.y).toBe(438)
+    expect(tableHeight(table)).toBe(84)
+  })
+
+  it('a resized row still cannot vanish, and an unknown row changes nothing', () => {
+    expect(resizeRow(makeTable({ rowHeights: rows(2) }), 1, -10).rowHeights).toEqual([22, MIN_ROW_MEASURE])
+    const before = makeTable({ rowHeights: rows(2) })
+    expect(resizeRow(before, 5, 30)).toEqual(before)
+  })
+
+  it('a table saved before rows had their own heights reads back with them', () => {
+    // The old shape: one height, a pitch to the next row, and a count.
+    const stored = { ...makeTable(), rowHeights: undefined, rowHeight: 16, rowPitch: 22, rowCount: 4 }
+    const table = tableFromStored(stored as never)
+    expect(table.rowHeights).toEqual(rows(4))
+    expect('rowPitch' in table).toBe(false)
+    expect('rowCount' in table).toBe(false)
+    // Every row's top is where the old pitch put it, so nothing printed moves.
+    expect(tableCells(table).filter((_, i) => i % 4 === 0).map((c) => c.y)).toEqual([500, 478, 456, 434])
+  })
+
+  it('a table already in the new shape is left as it is', () => {
+    const table = makeTable({ rowHeights: [30, 20] })
+    expect(tableFromStored(table).rowHeights).toEqual([30, 20])
   })
 })
 

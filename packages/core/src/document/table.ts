@@ -42,11 +42,13 @@ export type TemplateTable = {
   /** Top edge of the first row, PDF points (y grows upward). */
   y: number
   columns: TableColumn[]
-  /** How tall one row's text box is. */
-  rowHeight: number
-  /** Top of one row to the top of the next -- the printed line spacing. */
-  rowPitch: number
-  rowCount: number
+  /**
+   * Each row's own height, top to bottom. Rows stack directly against
+   * one another -- a table has no air between its rows -- so a row's
+   * height is also the distance to the row below it, and the number of
+   * rows is simply how many heights there are.
+   */
+  rowHeights: number[]
   style: TableStyle
 }
 
@@ -85,14 +87,19 @@ export function tableWidth(table: TemplateTable): number {
   return table.columns.reduce((total, column) => total + column.width, 0)
 }
 
-/** Top of the first row to the bottom of the last. */
-export function tableHeight(table: TemplateTable): number {
-  return (table.rowCount - 1) * table.rowPitch + table.rowHeight
+/** How many rows the table has. */
+export function rowCount(table: TemplateTable): number {
+  return table.rowHeights.length
 }
 
-/** The top edge of a row, in PDF points. */
+/** Top of the first row to the bottom of the last. */
+export function tableHeight(table: TemplateTable): number {
+  return table.rowHeights.reduce((total, height) => total + height, 0)
+}
+
+/** The top edge of a row, in PDF points: every row above it, stacked. */
 export function rowTop(table: TemplateTable, row: number): number {
-  return table.y - row * table.rowPitch
+  return table.y - table.rowHeights.slice(0, row).reduce((total, height) => total + height, 0)
 }
 
 /**
@@ -102,22 +109,23 @@ export function rowTop(table: TemplateTable, row: number): number {
  */
 export function tableCells(table: TemplateTable): Slot[] {
   const cells: Slot[] = []
-  for (let row = 0; row < table.rowCount; row++) {
+  table.rowHeights.forEach((height, row) => {
     let x = table.x
+    const y = rowTop(table, row)
     for (const column of table.columns) {
       cells.push({
         id: cellId(table.id, row, column.key),
         page: table.page,
         x,
-        y: rowTop(table, row),
+        y,
         width: column.width,
-        height: table.rowHeight,
+        height,
         text: '',
         ...table.style,
       })
       x += column.width
     }
-  }
+  })
   return cells
 }
 
@@ -162,9 +170,23 @@ export function resizeColumnBoundary(table: TemplateTable, key: string, width: n
   }
 }
 
-/** One more row, directly below the last one, at the same pitch. */
+/** One more row below the last, the same height as the one above it. */
 export function addTableRow(table: TemplateTable): TemplateTable {
-  return { ...table, rowCount: table.rowCount + 1 }
+  const last = table.rowHeights[table.rowHeights.length - 1] ?? MIN_ROW_MEASURE
+  return { ...table, rowHeights: [...table.rowHeights, last] }
+}
+
+/**
+ * One row made taller or shorter, the rows beneath it moving down to
+ * make room -- the way a spreadsheet resizes a row. The table's own
+ * height follows; nothing else about it changes.
+ */
+export function resizeRow(table: TemplateTable, row: number, height: number): TemplateTable {
+  if (row < 0 || row >= table.rowHeights.length) return table
+  return {
+    ...table,
+    rowHeights: table.rowHeights.map((current, i) => (i === row ? Math.max(MIN_ROW_MEASURE, height) : current)),
+  }
 }
 
 /**
@@ -183,17 +205,18 @@ export function removeTableRow(
   table: TemplateTable,
   row: number,
 ): { table: TemplateTable; removedIds: string[]; moves: { from: string; to: string }[] } {
-  if (table.rowCount <= 1 || row < 0 || row >= table.rowCount) {
+  if (table.rowHeights.length <= 1 || row < 0 || row >= table.rowHeights.length) {
     return { table, removedIds: [], moves: [] }
   }
   const removedIds = table.columns.map((column) => cellId(table.id, row, column.key))
   const moves: { from: string; to: string }[] = []
-  for (let r = row + 1; r < table.rowCount; r++) {
+  for (let r = row + 1; r < table.rowHeights.length; r++) {
     for (const column of table.columns) {
       moves.push({ from: cellId(table.id, r, column.key), to: cellId(table.id, r - 1, column.key) })
     }
   }
-  return { table: { ...table, rowCount: table.rowCount - 1 }, removedIds, moves }
+  const rowHeights = table.rowHeights.filter((_, i) => i !== row)
+  return { table: { ...table, rowHeights }, removedIds, moves }
 }
 
 /**
@@ -236,16 +259,44 @@ export function setTableWidth(table: TemplateTable, width: number): TemplateTabl
 }
 
 /**
- * The same table at a new overall height, by spreading its rows.
+ * The same table at a new overall height, every row keeping its share.
  *
- * The row boxes keep the height they were given; the gap between them
- * absorbs the change, which is what lines a table up with a printed one
- * -- drag the bottom edge onto the last ruled line and every row in
- * between lands on its own. A table of one row has no gap to spread, so
- * there it is the row itself that grows.
+ * What lines a table up with a printed one: drag the corner down to the
+ * last ruled line and every row in between lands on its own.
  */
 export function setTableHeight(table: TemplateTable, height: number): TemplateTable {
-  if (table.rowCount <= 1) return { ...table, rowHeight: Math.max(MIN_ROW_MEASURE, height) }
-  const spread = (height - table.rowHeight) / (table.rowCount - 1)
-  return { ...table, rowPitch: Math.max(MIN_ROW_MEASURE, spread) }
+  const current = tableHeight(table)
+  const shortest = Math.min(...table.rowHeights)
+  if (current <= 0 || shortest <= 0) return table
+  // As with the width: the limit is on the scale, so every row keeps the
+  // same share of the table it had.
+  const factor = Math.max(MIN_ROW_MEASURE / shortest, height / current)
+  return { ...table, rowHeights: table.rowHeights.map((row) => row * factor) }
+}
+
+/**
+ * A table as it was saved before rows had their own heights.
+ *
+ * Tables used to be described by one row height, a pitch from one row to
+ * the next, and a count. Rows now stack directly and carry their own
+ * heights, so a saved table is read back with each row taking the old
+ * pitch: the rows close up, but every row's top stays where it was and
+ * text sits at the top of its box, so nothing printed moves.
+ */
+type LegacyTable = Omit<TemplateTable, 'rowHeights'> &
+  Partial<Pick<TemplateTable, 'rowHeights'>> & {
+    rowHeight?: number
+    rowPitch?: number
+    rowCount?: number
+  }
+
+export function tableFromStored(stored: LegacyTable): TemplateTable {
+  if (stored.rowHeights && stored.rowHeights.length > 0) {
+    const { rowHeight: _h, rowPitch: _p, rowCount: _c, ...table } = stored
+    return { ...table, rowHeights: stored.rowHeights }
+  }
+  const count = Math.max(1, Math.round(stored.rowCount ?? 1))
+  const height = Math.max(MIN_ROW_MEASURE, stored.rowPitch ?? stored.rowHeight ?? MIN_ROW_MEASURE)
+  const { rowHeight: _h, rowPitch: _p, rowCount: _c, ...table } = stored
+  return { ...table, rowHeights: Array.from({ length: count }, () => height) }
 }
