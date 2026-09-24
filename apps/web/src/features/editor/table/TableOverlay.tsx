@@ -20,14 +20,10 @@ import { useTableGestures } from './useTableGestures'
 export type TableHandle =
   /** A boundary between two columns: sets the width of the column to its left. */
   | { kind: 'column'; key: string }
-  /** The bottom edge of the first row: how tall every row's text box is. */
-  | { kind: 'rowHeight' }
-  /** The top edge of the second row: the gap from one printed line to the next. */
-  | { kind: 'rowPitch' }
+  /** A row's bottom edge: that row's height, the rows below moving down. */
+  | { kind: 'row'; index: number }
   /** The right edge: the whole table's width, columns keeping their shares. */
   | { kind: 'width' }
-  /** The bottom edge: the whole table's height, the rows spreading to fill it. */
-  | { kind: 'height' }
   /** The corner: both at once. */
   | { kind: 'size' }
   /** The whole table. */
@@ -35,25 +31,18 @@ export type TableHandle =
 
 /** Grab strips, in screen px, so they are the same size to the hand at any zoom. */
 const STRIP_PX = 8
-/** The gutter the row handles live in, clear of the cells, in screen px. */
-const GUTTER_PX = 20
-/**
- * The two row handles get a lane each, side by side in the gutter.
- * A new table's rows sit directly under one another -- rowPitch starts
- * equal to rowHeight -- so sharing a lane would stack them on the same
- * pixel and the one underneath could never be grabbed.
- */
-const LANE_PX = 8
 /** How long an edge's grab bar is, and how thick the visible part is. */
 const GRIP_LEN_PX = 26
 const GRIP_THICK_PX = 5
 /** The label that says what a handle does, in screen px. */
 const LABEL_FONT_PX = 11
 
-export type TableDragPatch = Partial<Pick<TemplateTable, 'x' | 'y' | 'rowHeight' | 'rowPitch'>> & {
+export type TableDragPatch = Partial<Pick<TemplateTable, 'x' | 'y'>> & {
   columnWidth?: { key: string; width: number }
   /** Every column at once: the whole table was resized. */
   columns?: TableColumn[]
+  /** A row's height, or every row's: the same field either way. */
+  rowHeights?: number[]
 }
 
 /**
@@ -135,10 +124,9 @@ function Handle({
 }
 
 /**
- * The chrome around a table: an outline, a divider on every column
- * boundary, two handles down the left for how tall a row is and the gap
- * to the next, and -- once the table is selected -- a right edge, a
- * bottom edge and a corner that size the whole thing at once.
+ * The chrome around a table: an outline, a divider between each pair of
+ * columns, a handle on every row's bottom edge, and -- once the table is
+ * selected -- a right edge and a corner that size the whole thing.
  *
  * Every handle says what it does when the pointer is on it, because a
  * bar four pixels wide cannot say it by looking like anything. Dragging
@@ -175,6 +163,10 @@ export function TableOverlay({
   const width = toScreenLength(tableWidth(table), viewport)
   const height = toScreenLength(tableHeight(table), viewport)
   const px = (screen: number) => screen / screenScale
+  // How far each row's bottom edge sits from the top of the table.
+  const rowBottoms = table.rowHeights.map((_, row) =>
+    table.rowHeights.slice(0, row + 1).reduce((total, each) => total + each, 0),
+  )
 
   return (
     <div
@@ -219,49 +211,35 @@ export function TableOverlay({
         )
       })}
 
-      {/* The row handles live in a gutter down the left, outside the
-          table: over the cells they would be sitting on top of the very
-          boxes the user is trying to click into. The height handle takes
-          the inner lane, the gap handle the outer one, so the two are
-          always apart even when they measure the same. */}
-      <Handle
-        testId="table-row-height"
-        bind={handlers({ kind: 'rowHeight' })}
-        locked={locked}
-        px={px}
-        label="Row height"
-        cursor="ns-resize"
-        area={{
-          left: -px(LANE_PX + 2),
-          width: px(LANE_PX),
-          top: toScreenLength(table.rowHeight, viewport) - px(STRIP_PX) / 2,
-          height: px(STRIP_PX),
-        }}
-        visible={{ inset: `${px(1.5)}px 0`, left: 0, right: 0, opacity: 0.85 }}
-        labelAt={{ right: px(LANE_PX + 4), top: -px(2) }}
-      />
-
-      {/* The gap to the next printed line. This is how the spacing is
-          set: place the first row, add a second, drag it onto its line,
-          and every row after follows. */}
-      {table.rowCount > 1 && (
+      {/* Every row's bottom edge, the way a spreadsheet resizes a row:
+          point at the line under a row and drag it. That row grows or
+          shrinks and the rows below move down; the table's own height
+          follows. The last row's line is the table's bottom edge, so
+          every row can be set from the line beneath it. */}
+      {rowBottoms.map((bottom, row) => (
         <Handle
-          testId="table-row-pitch"
-          bind={handlers({ kind: 'rowPitch' })}
-        locked={locked}
-        px={px}
-          label="Gap to the next row"
+          key={row}
+          testId={`table-row-${table.id}-${row}-edge`}
+          bind={handlers({ kind: 'row', index: row })}
+          locked={locked}
+          px={px}
+          label={`Row ${row + 1} height`}
           cursor="ns-resize"
-          area={{
-            left: -px(GUTTER_PX),
-            width: px(LANE_PX),
-            top: toScreenLength(table.rowPitch, viewport) - px(STRIP_PX) / 2,
-            height: px(STRIP_PX),
-          }}
-          visible={{ inset: `${px(1.5)}px 0`, left: 0, right: 0 }}
-          labelAt={{ right: px(LANE_PX + 4), top: -px(2) }}
+          area={{ left: 0, right: 0, top: toScreenLength(bottom, viewport) - px(STRIP_PX) / 2, height: px(STRIP_PX) }}
+          visible={
+            selected
+              ? {
+                  left: '50%',
+                  marginLeft: -px(GRIP_LEN_PX) / 2,
+                  top: (px(STRIP_PX) - px(GRIP_THICK_PX)) / 2,
+                  width: px(GRIP_LEN_PX),
+                  height: px(GRIP_THICK_PX),
+                }
+              : { display: 'none' }
+          }
+          labelAt={{ left: '50%', marginLeft: px(GRIP_LEN_PX), top: -px(2) }}
         />
-      )}
+      ))}
 
       {/* The whole table at once, on the edges you would reach for: the
           right edge for its width, the bottom for its height, the corner
@@ -279,17 +257,6 @@ export function TableOverlay({
             area={{ left: width - px(STRIP_PX) / 2, top: '50%', marginTop: -px(GRIP_LEN_PX) / 2, width: px(STRIP_PX), height: px(GRIP_LEN_PX) }}
             visible={{ inset: 0, left: (px(STRIP_PX) - px(GRIP_THICK_PX)) / 2, width: px(GRIP_THICK_PX) }}
             labelAt={{ left: px(STRIP_PX + 4), top: '50%', marginTop: -px(LABEL_FONT_PX) }}
-          />
-          <Handle
-            testId="table-height"
-            bind={handlers({ kind: 'height' })}
-        locked={locked}
-        px={px}
-            label="Height — spreads the rows"
-            cursor="ns-resize"
-            area={{ left: '50%', marginLeft: -px(GRIP_LEN_PX) / 2, top: height - px(STRIP_PX) / 2, width: px(GRIP_LEN_PX), height: px(STRIP_PX) }}
-            visible={{ inset: 0, top: (px(STRIP_PX) - px(GRIP_THICK_PX)) / 2, height: px(GRIP_THICK_PX) }}
-            labelAt={{ left: px(GRIP_LEN_PX + 4), top: -px(2) }}
           />
           <Handle
             testId="table-size"
@@ -331,7 +298,7 @@ export function TableOverlay({
           touchAction: 'none',
         }}
       >
-        Table · {table.rowCount} row{table.rowCount === 1 ? '' : 's'}
+        Table · {table.rowHeights.length} row{table.rowHeights.length === 1 ? '' : 's'}
       </span>
     </div>
   )

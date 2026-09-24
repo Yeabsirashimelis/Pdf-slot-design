@@ -43,7 +43,6 @@ export function InspectorPanel({
   onResizeColumn,
   onAddColumn,
   onRemoveColumn,
-  onChangeTableRows,
 }: {
   selected: Slot | null
   /** The selected slot's name (the parent owns names). */
@@ -67,7 +66,6 @@ export function InspectorPanel({
   onResizeColumn?(key: string, width: number): void
   onAddColumn?(): void
   onRemoveColumn?(key: string): void
-  onChangeTableRows?(patch: { rowHeight?: number; rowPitch?: number }): void
 }) {
   const disabled = !selected || locked
   const choice = selected ? toFontChoice(selected.fontId) : null
@@ -234,7 +232,6 @@ export function InspectorPanel({
             onResizeColumn={(key, width) => onResizeColumn?.(key, width)}
             onAddColumn={() => onAddColumn?.()}
             onRemoveColumn={(key) => onRemoveColumn?.(key)}
-            onChangeRows={(patch) => onChangeTableRows?.(patch)}
           />
         )}
       </aside>

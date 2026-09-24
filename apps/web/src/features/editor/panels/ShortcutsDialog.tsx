@@ -40,8 +40,8 @@ const SECTIONS: Section[] = [
     shortcuts: [
       { keys: [], what: 'The table button draws one row; split it into columns and add rows' },
       { keys: [], what: 'Drag a column divider for that column\u2019s width' },
-      { keys: [], what: 'Drag the right edge, the bottom edge or the corner to size the whole table' },
-      { keys: [], what: 'The two handles down the left set the row height and the gap to the next row' },
+      { keys: [], what: 'Drag the line under a row for that row\u2019s height; the rows below move down' },
+      { keys: [], what: 'Drag the right edge for the whole table\u2019s width, the corner for both' },
       { keys: [], what: 'Every handle says what it does when you point at it' },
       { keys: [], what: 'Rows you leave empty print nothing' },
     ],

@@ -21,7 +21,6 @@ export function TableInspector({
   onResizeColumn,
   onAddColumn,
   onRemoveColumn,
-  onChangeRows,
 }: {
   table: TemplateTable
   locked?: boolean
@@ -30,7 +29,6 @@ export function TableInspector({
   /** Splits the last column in two, so the columns already set keep their widths. */
   onAddColumn(): void
   onRemoveColumn(key: string): void
-  onChangeRows(patch: { rowHeight?: number; rowPitch?: number }): void
 }) {
   return (
     <>
@@ -84,34 +82,6 @@ export function TableInspector({
           </div>
         ))}
 
-        <div className="grid grid-cols-2 gap-2 pt-1">
-          <label className="grid gap-1 text-[11px] text-muted-foreground">
-            Row height
-            <NumberField
-              aria-label="Row height"
-              data-testid="table-row-height-input"
-              className="h-7 text-[0.8rem] tabular-nums"
-              value={Math.round(table.rowHeight)}
-              min={4}
-              max={400}
-              onCommit={(rowHeight) => onChangeRows({ rowHeight })}
-              disabled={locked}
-            />
-          </label>
-          <label className="grid gap-1 text-[11px] text-muted-foreground">
-            Row gap
-            <NumberField
-              aria-label="Row gap"
-              data-testid="table-row-pitch-input"
-              className="h-7 text-[0.8rem] tabular-nums"
-              value={Math.round(table.rowPitch)}
-              min={4}
-              max={400}
-              onCommit={(rowPitch) => onChangeRows({ rowPitch })}
-              disabled={locked}
-            />
-          </label>
-        </div>
       </section>
     </>
   )

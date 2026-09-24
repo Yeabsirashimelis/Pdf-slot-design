@@ -310,7 +310,6 @@ export function TemplateEditor({
         onResizeColumn={(key, width) => selectedTable && tables.setColumnWidth(selectedTable.id, key, width)}
         onAddColumn={() => selectedTable && tables.addColumn(selectedTable.id)}
         onRemoveColumn={(key) => selectedTable && tables.removeColumn(selectedTable.id, key)}
-        onChangeTableRows={(patch) => selectedTable && tables.applyDrag(selectedTable.id, patch)}
         locked={locked}
         isRendering={pipeline.isRendering}
         render={pipeline.render}

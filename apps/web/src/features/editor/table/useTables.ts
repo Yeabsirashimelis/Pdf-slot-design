@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import {
   MIN_COLUMN_WIDTH,
+  MIN_ROW_MEASURE,
   addTableRow,
   resizeColumnBoundary,
   applyRowRemoval,
@@ -57,11 +58,10 @@ export function useTables(initialTables: TemplateTable[], initialTexts: Record<s
         x: row.x,
         y: row.y,
         columns: [{ key: `col${randomId()}`, name: 'Column 1', width: Math.max(MIN_COLUMN_WIDTH, row.width) }],
-        rowHeight: Math.max(4, row.height),
-        // Rows sit directly under one another until the second one is
-        // dragged onto its printed line, which is what sets the spacing.
-        rowPitch: Math.max(4, row.height),
-        rowCount: 1,
+        // One row, its own height; every row added after copies the one
+        // above it, so a table of ten rows drawn against a ruled form is
+        // ten rows of the same height.
+        rowHeights: [Math.max(MIN_ROW_MEASURE, row.height)],
         style,
       }
       setTables((current) => [...current, table])

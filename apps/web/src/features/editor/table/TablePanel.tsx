@@ -33,7 +33,7 @@ export function TablePanel({
   /** The whole table goes: its rows, its columns, and everything typed into them. */
   onRemoveTable(): void
 }) {
-  const rows = Array.from({ length: table.rowCount }, (_, row) => row)
+  const rows = table.rowHeights.map((_, row) => row)
   const idsOf = (row: number) => table.columns.map((column) => cellId(table.id, row, column.key))
 
   return (
@@ -71,7 +71,7 @@ export function TablePanel({
         const ids = idsOf(row)
         const isSelected = selectedId !== null && ids.includes(selectedId)
         // A table is its rows: take the last one away and there is no table left.
-        const last = table.rowCount <= 1
+        const last = table.rowHeights.length <= 1
         const preview = ids.map((id) => texts[id] ?? '').filter((text) => text !== '').join(' · ')
         return (
           <div

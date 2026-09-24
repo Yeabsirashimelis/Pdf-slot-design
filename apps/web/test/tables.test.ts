@@ -124,21 +124,21 @@ describe('table row slots', () => {
     expect(tops).toEqual(['100px', '100px', '116px', '116px', '132px', '132px'])
   })
 
-  it('the row-height and row-gap handles stay separately grabbable when they measure the same', async () => {
-    // A new table's rows sit directly under one another, so rowPitch
-    // starts equal to rowHeight and the two handles land on the same
-    // line. Sharing a lane would bury one of them under the other.
+  it('every row has a handle on the line beneath it, the last one on the table\'s own edge', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
     await drawTable(container)
     const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
-    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
-    await waitFor(() => expect(screen.queryByTestId('table-row-pitch')).not.toBeNull())
+    const edges = () => container.querySelectorAll(`[data-testid$="-edge"]`).length
 
-    const height = screen.getByTestId('table-row-height')
-    const pitch = screen.getByTestId('table-row-pitch')
-    expect(height.style.top).toBe(pitch.style.top)
-    expect(height.style.left).not.toBe(pitch.style.left)
+    expect(edges()).toBe(1)
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
+    // One per row, not one per boundary between rows: the last row is
+    // sized from the table's bottom edge like any other.
+    expect(edges()).toBe(3)
+    expect(screen.queryByTestId(`table-row-${tableId}-2-edge`)).not.toBeNull()
   })
 
   it('a column resize moves every cell under it, and the text stays where it was typed', async () => {
@@ -173,7 +173,6 @@ describe('table row slots', () => {
 
     // Drawing a table selects it, so its handles are there to be grabbed.
     await waitFor(() => expect(screen.queryByTestId('table-width')).not.toBeNull())
-    expect(screen.queryByTestId('table-height')).not.toBeNull()
     expect(screen.queryByTestId('table-size')).not.toBeNull()
 
     // Deselected they go away: handles on every table would cover the page.
@@ -247,7 +246,7 @@ describe('table row slots', () => {
     expect(cellBoxes(container)[1]!.style.left).toBe('190px')
   })
 
-  it('dragging the bottom edge spreads the rows and leaves the row boxes alone', async () => {
+  it('dragging the line under a row resizes that row and pushes the rest down', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
     await drawTable(container)
@@ -255,18 +254,19 @@ describe('table row slots', () => {
     fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
     fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
     await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
-    // Three rows 16pt apart: tops at 100, 116, 132.
+    // Three rows of 16pt, stacked: tops at 100, 116, 132.
     expect(cellBoxes(container).map((box) => box.style.top)).toEqual(['100px', '116px', '132px'])
 
-    const bottom = await waitFor(() => screen.getByTestId('table-height'))
-    // The table is 48pt tall (2 gaps of 16 plus a 16pt row); make it 68.
-    fireEvent.pointerDown(bottom, { pointerId: 1, clientX: 140, clientY: 148 })
-    fireEvent.pointerMove(bottom, { pointerId: 1, clientX: 140, clientY: 168 })
-    fireEvent.pointerUp(bottom, { pointerId: 1 })
+    // Drag the line under the FIRST row down by 20pt.
+    const edge = screen.getByTestId(`table-row-${tableId}-0-edge`)
+    fireEvent.pointerDown(edge, { pointerId: 1, clientX: 140, clientY: 116 })
+    fireEvent.pointerMove(edge, { pointerId: 1, clientX: 140, clientY: 136 })
+    fireEvent.pointerUp(edge, { pointerId: 1 })
 
-    // The gap took the change; the boxes are still 16pt tall.
-    await waitFor(() => expect(cellBoxes(container).map((box) => box.style.top)).toEqual(['100px', '126px', '152px']))
-    expect(cellBoxes(container)[0]!.style.height).toBe('16px')
+    // Row 1 is 36pt tall; the rows below moved down and kept their own height.
+    await waitFor(() => expect(cellBoxes(container)[0]!.style.height).toBe('36px'))
+    expect(cellBoxes(container).map((box) => box.style.top)).toEqual(['100px', '136px', '152px'])
+    expect(cellBoxes(container)[1]!.style.height).toBe('16px')
   })
 
   it('removing a row drops a line: the rows below move up and keep their text', async () => {
@@ -378,7 +378,7 @@ describe('table row slots', () => {
     const saved = store.layouts.get('file-1')!
     // The cells are derived, so they are not written down as slots.
     expect(saved.slots).toEqual([])
-    expect(saved.tables![0]).toMatchObject({ rowCount: 2, x: 40 })
+    expect(saved.tables![0]).toMatchObject({ rowHeights: [16, 16], x: 40 })
     expect(Object.values(store.values.get('file-1')!.values)).toEqual(['kept'])
 
     unmount()

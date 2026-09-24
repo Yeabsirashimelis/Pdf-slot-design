@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils'
 import { groupByPage } from '@/features/template/readingOrder'
 import { TablePanel } from '@/features/editor/table/TablePanel'
 import { SHORTCUTS_KEY } from './ShortcutsDialog'
-import type { TemplateTable } from '@pdf-slot/core'
+import { rowCount, type TemplateTable } from '@pdf-slot/core'
 
 export type PanelSlot = { id: string; name: string; text: string; page: number; x: number; y: number }
 
@@ -324,7 +324,7 @@ export function SlotsPanel({
               <AlertDialogDescription>
                 {pendingRemove === null
                   ? null
-                  : `Its ${pendingRemove.rowCount} row${pendingRemove.rowCount === 1 ? '' : 's'}` +
+                  : `Its ${rowCount(pendingRemove)} row${rowCount(pendingRemove) === 1 ? '' : 's'}` +
                     (filledIn(pendingRemove) === 0
                       ? ' go, and the table with them.'
                       : ` go, and the ${filledIn(pendingRemove)} cell${filledIn(pendingRemove) === 1 ? '' : 's'} you have filled in go with them.`) +

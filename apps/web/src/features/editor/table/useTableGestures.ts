@@ -3,7 +3,7 @@
 import { useRef, type PointerEvent } from 'react'
 import {
   MIN_COLUMN_WIDTH,
-  MIN_ROW_MEASURE,
+  resizeRow,
   setTableHeight,
   setTableWidth,
   tableHeight,
@@ -21,9 +21,8 @@ type Handlers = {
 }
 
 /**
- * The drags on a table's frame: a column boundary, the bottom of the
- * first row, the top of the second, the edges that size the whole table,
- * or the table itself.
+ * The drags on a table's frame: a boundary between two columns, the line
+ * under a row, the edges that size the whole table, or the table itself.
  *
  * Each reports a measurement in PDF points, recomputed every frame from
  * the table as it was when the gesture began -- never accumulated, the
@@ -88,25 +87,22 @@ export function useTableGestures({
           // Screen y grows downward, PDF y upward.
           onChange({ x: from.x + dx, y: from.y - dy })
           return
-        case 'rowHeight':
-          onChange({ rowHeight: Math.max(MIN_ROW_MEASURE, from.rowHeight + dy) })
+        case 'row': {
+          const index = current.handle.index
+          const was = from.rowHeights[index]
+          if (was === undefined) return
+          onChange({ rowHeights: resizeRow(from, index, was + dy).rowHeights })
           return
-        case 'rowPitch':
-          onChange({ rowPitch: Math.max(MIN_ROW_MEASURE, from.rowPitch + dy) })
-          return
+        }
         case 'width':
           onChange({ columns: setTableWidth(from, tableWidth(from) + dx).columns })
           return
-        case 'height': {
-          const { rowHeight, rowPitch } = setTableHeight(from, tableHeight(from) + dy)
-          onChange({ rowHeight, rowPitch })
+        case 'size':
+          onChange({
+            columns: setTableWidth(from, tableWidth(from) + dx).columns,
+            rowHeights: setTableHeight(from, tableHeight(from) + dy).rowHeights,
+          })
           return
-        }
-        case 'size': {
-          const { rowHeight, rowPitch } = setTableHeight(from, tableHeight(from) + dy)
-          onChange({ columns: setTableWidth(from, tableWidth(from) + dx).columns, rowHeight, rowPitch })
-          return
-        }
         case 'column': {
           const key = current.handle.key
           const column = from.columns.find((candidate) => candidate.key === key)

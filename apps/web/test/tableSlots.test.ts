@@ -11,9 +11,7 @@ const table: TemplateTable = {
     { key: 'c1', name: 'No.', width: 30 },
     { key: 'c2', name: 'Date', width: 60 },
   ],
-  rowHeight: 14,
-  rowPitch: 20,
-  rowCount: 2,
+  rowHeights: [20, 20],
   style: { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 },
 }
 
@@ -28,7 +26,7 @@ describe('cellsWithText', () => {
       ['t1#1:c1', ''],
       ['t1#1:c2', '04/19'],
     ])
-    expect(cells[1]).toMatchObject({ x: 70, y: 500, width: 60, height: 14 })
+    expect(cells[1]).toMatchObject({ x: 70, y: 500, width: 60, height: 20 })
   })
 
   it('a column resize moves the cells and keeps their text', () => {
@@ -45,7 +43,7 @@ describe('cellsWithText', () => {
   })
 
   it('removing a row drops its text and pulls the rows below up', () => {
-    const three = { ...table, rowCount: 3 }
+    const three = { ...table, rowHeights: [20, 20, 20] }
     const full = { 't1#0:c1': 'a', 't1#1:c1': 'b', 't1#2:c1': 'c' }
     const removal = removeTableRow(three, 1)
     const cells = cellsWithText([removal.table], applyRowRemoval(full, removal))

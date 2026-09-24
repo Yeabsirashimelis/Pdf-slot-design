@@ -1,5 +1,5 @@
 import {
-  normalizePdf, readSourceStamp,
+  normalizePdf, readSourceStamp, tableFromStored,
   type EditorDocument, type FileId, type TemplateLayout, type TemplateValues,
 } from '@pdf-slot/core'
 import { hashBytes, isFileId, randomId } from '@/lib/files/fileHash'
@@ -37,9 +37,13 @@ export async function openFile(pdfBytes: Uint8Array, name: string, store: Templa
   // hash is taken as one, the rest falls through to hashing the bytes.
   const stamp = await readSourceStamp(pdfBytes).then((s) => (s !== null && isFileId(s) ? s : null), () => null)
   const fileId = stamp ?? (await hashBytes(pdfBytes)) ?? randomId()
-  const [layout, values, existing] = await Promise.all([
+  const [stored, values, existing] = await Promise.all([
     store.getLayout(fileId), store.getValues(fileId), store.getFile(fileId),
   ])
+  // A layout saved before rows carried their own heights is read into the
+  // shape the editor works in, once, here at the boundary -- so nothing
+  // downstream has to know there ever was another shape.
+  const layout = stored && { ...stored, tables: stored.tables?.map(tableFromStored) }
   const source = stamp && existing ? existing.source : pdfBytes
   const doc = await normalizePdf(source, fileId)
   if (!existing) {

@@ -130,3 +130,30 @@ it('carries the file name -- the stored one when the file is already known', asy
   const again = await openFile(bytes.slice(), 'renamed.pdf', store)
   expect(again.name).toBe('original.pdf')
 })
+
+it('reads a table saved before rows had their own heights', async () => {
+  // What is sitting in people's browsers: one row height, a pitch to the
+  // next row, and a count of them.
+  const store = memoryStore()
+  const bytes = await blankPdf()
+  const opened = await openFile(bytes, 'log.pdf', store)
+  await store.putLayout({
+    fileId: opened.fileId,
+    updatedAt: 't',
+    slots: [],
+    tables: [{
+      id: 'tbl1', page: 0, x: 50, y: 658,
+      columns: [{ key: 'c1', name: 'No.', width: 50 }],
+      rowHeight: 16, rowPitch: 22, rowCount: 4,
+      style: { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 },
+    }] as never,
+  })
+
+  const again = await openFile(bytes.slice(), 'log.pdf', store)
+  const table = again.layout!.tables![0]!
+  // Each row takes the old pitch, so the rows close up but every row's
+  // top -- and so everything typed into it -- stays where it was.
+  expect(table.rowHeights).toEqual([22, 22, 22, 22])
+  expect('rowPitch' in table).toBe(false)
+  expect('rowCount' in table).toBe(false)
+})
