@@ -3,6 +3,7 @@
 import { Plus, Rows3, Trash2 } from 'lucide-react'
 import { cellId, type TemplateTable } from '@pdf-slot/core'
 import { HintButton } from '@/components/hint'
+import { ScrollFade } from '@/components/scroll-fade'
 import { cn } from '@/lib/utils'
 
 /**
@@ -11,6 +12,13 @@ import { cn } from '@/lib/utils'
  * half-filled log can be read at a glance; the cells themselves are typed
  * into on the page, where they sit on the printed lines they belong to.
  */
+/**
+ * Rows shown before the group scrolls on its own. Past this, a long
+ * table would push the file's own slots off the bottom of the panel.
+ * Six is enough to see a table is a table without taking the panel over.
+ */
+const ROWS_BEFORE_SCROLL = 6
+
 export function TablePanel({
   table,
   texts,
@@ -34,6 +42,7 @@ export function TablePanel({
   onRemoveTable(): void
 }) {
   const rows = table.rowHeights.map((_, row) => row)
+  const scrolls = rows.length > ROWS_BEFORE_SCROLL
   const idsOf = (row: number) => table.columns.map((column) => cellId(table.id, row, column.key))
 
   return (
@@ -67,6 +76,11 @@ export function TablePanel({
         </HintButton>
       </div>
 
+      <ScrollFade
+        className={scrolls ? 'max-h-[10.5rem]' : undefined}
+        data-testid={`table-rows-${table.id}`}
+      >
+        <div className="flex flex-col gap-0.5">
       {rows.map((row) => {
         const ids = idsOf(row)
         const isSelected = selectedId !== null && ids.includes(selectedId)
@@ -123,6 +137,8 @@ export function TablePanel({
           </div>
         )
       })}
+        </div>
+      </ScrollFade>
     </div>
   )
 }

@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { Kbd } from '@/components/ui/kbd'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ScrollFade } from '@/components/scroll-fade'
 import { Textarea } from '@/components/ui/textarea'
 import { Toggle } from '@/components/ui/toggle'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -271,7 +271,7 @@ export function SlotsPanel({
           </Tooltip>
         </div>
 
-        <ScrollArea className="min-h-0 flex-1 px-2">
+        <ScrollFade className="min-h-0 flex-1 px-2" data-testid="slot-list">
           <div className="flex flex-col gap-0.5 pb-2">
             {slots.length === 0 && tables.length === 0 && (
               <p className="px-2 py-6 text-center text-xs text-muted-foreground" data-testid="empty-hint">
@@ -315,7 +315,7 @@ export function SlotsPanel({
               </div>
             ))}
           </div>
-        </ScrollArea>
+        </ScrollFade>
 
         <AlertDialog open={pendingRemove !== null} onOpenChange={(open) => { if (!open) setPendingRemove(null) }}>
           <AlertDialogContent data-testid="confirm-remove-table-dialog">
