@@ -242,8 +242,12 @@ export function Editor({
   })
 
   const pageSlots = useMemo(() => store.slots.filter((slot) => slot.page === pageIndex), [store.slots, pageIndex])
-  // A table counts as selected while any of its cells is.
+  // A table counts as selected while any of its cells is, and the row
+  // that cell is in is the row the panel is pointing at.
   const selectedTableId = store.selectedId?.includes('#') ? store.selectedId.split('#')[0] : null
+  const selectedRow = store.selectedId?.includes('#')
+    ? Number(store.selectedId.split('#')[1]?.split(':')[0])
+    : null
   const selected = pageSlots.find((slot) => slot.id === store.selectedId) ?? null
 
   // The selected box's extent for the rulers, in points from the page's
@@ -384,6 +388,7 @@ export function Editor({
                       viewport={viewport}
                       screenScale={view.zoom}
                       selected={selectedTableId === table.id}
+                      selectedRow={selectedTableId === table.id ? selectedRow : null}
                       locked={locked}
                       onSelect={() => {
                         const first = table.columns[0]

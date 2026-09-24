@@ -141,6 +141,47 @@ describe('table row slots', () => {
     expect(screen.queryByTestId(`table-row-${tableId}-2-edge`)).not.toBeNull()
   })
 
+  it('the row holding the selection is picked out across the whole table', async () => {
+    // Choosing a row in the panel selects one cell of it. One highlighted
+    // cell among forty is not something a person can find.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(6))
+
+    fireEvent.click(screen.getByTestId(`table-row-${tableId}-2`))
+    const band = await waitFor(() => screen.getByTestId(`table-selected-row-${tableId}`))
+    // Row three of three 16pt rows: 32pt down, 16pt tall, right across.
+    expect(band.style.top).toBe('32px')
+    expect(band.style.height).toBe('16px')
+    expect(band.style.left).toBe('0px')
+    expect(band.style.right).toBe('0px')
+  })
+
+  it('a table of many rows stops growing the panel and scrolls instead', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    const rows = () => screen.getByTestId(`table-rows-${tableId}`).querySelector('[data-slot="scroll-area"]')
+
+    // Six rows still fit, so nothing is capped.
+    for (let i = 0; i < 5; i++) fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(6))
+    expect(rows()!.className).not.toContain('max-h')
+
+    // The seventh is where it starts to take the panel over.
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(7))
+    expect(rows()!.className).toContain('max-h')
+    // Every row is still listed -- capped, not cut.
+    expect(screen.getByTestId(`table-row-${tableId}-6`)).not.toBeNull()
+  })
+
   it('a column resize moves every cell under it, and the text stays where it was typed', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))

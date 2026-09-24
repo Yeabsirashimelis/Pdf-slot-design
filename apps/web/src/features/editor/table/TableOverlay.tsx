@@ -183,6 +183,7 @@ export function TableOverlay({
   viewport,
   screenScale = 1,
   selected,
+  selectedRow = null,
   locked = false,
   onSelect,
   onChange,
@@ -192,6 +193,8 @@ export function TableOverlay({
   viewport: Viewport
   screenScale?: number
   selected: boolean
+  /** Which row the selected cell is in, so the row can be shown as picked. */
+  selectedRow?: number | null
   locked?: boolean
   onSelect(): void
   /** Live during a drag; every call carries the measurement from the gesture's fixed origin. */
@@ -226,6 +229,28 @@ export function TableOverlay({
         outlineOffset: -px(1),
       }}
     >
+      {/* The row the selection is in, painted right across the table.
+          Picking a row in the panel selects one cell of it, and a single
+          highlighted cell in a grid of forty is not something you can
+          find -- the band is what makes the choice visible. */}
+      {selectedRow !== null && selectedRow >= 0 && selectedRow < table.rowHeights.length && (
+        <div
+          data-testid={`table-selected-row-${table.id}`}
+          aria-hidden
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: toScreenLength(rowBottoms[selectedRow]! - table.rowHeights[selectedRow]!, viewport),
+            height: toScreenLength(table.rowHeights[selectedRow]!, viewport),
+            background: 'color-mix(in srgb, var(--slot-selection) 16%, transparent)',
+            outline: `${px(1)}px solid var(--slot-selection)`,
+            outlineOffset: -px(1),
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+
       {/* The boundaries between columns: drag one and the column on its
           left takes the space from the column on its right, so the
           table's own width never moves and no other boundary shifts.
