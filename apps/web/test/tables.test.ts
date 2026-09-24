@@ -387,6 +387,34 @@ describe('table row slots', () => {
     expect(group.querySelector(`[data-testid="table-panel-${tableId}"]`)).not.toBeNull()
   })
 
+  it('a cell\'s geometry never leaks into the style every cell shares', async () => {
+    // A cell is a slot, so an update aimed at one can carry where it is
+    // and how wide it is. Those must not reach the table's typography:
+    // the style is spread over every cell, so an `x` in there would put
+    // all four columns on top of the first.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = memoryStore()
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store, onStartOver: vi.fn() }))
+    await drawTable(container)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    const lefts = () => cellBoxes(container).map((box) => box.style.left)
+    expect(lefts()).toEqual(['40px', '140px'])
+
+    // Restyle through the inspector: typography goes through, and only it.
+    const size = screen.getByTestId('size-input') as HTMLInputElement
+    fireEvent.change(size, { target: { value: '14' } })
+    fireEvent.keyDown(size, { key: 'Enter' })
+    await waitFor(() => expect(cellBoxes(container)[0]!.querySelector('textarea')!.style.fontSize).toBe('14px'))
+
+    // The columns are still where they were, and the saved style is clean.
+    expect(lefts()).toEqual(['40px', '140px'])
+    fireEvent.click(screen.getByTestId('panel-save'))
+    await waitFor(() => expect(store.layouts.get('file-1')?.tables).toHaveLength(1))
+    const style = store.layouts.get('file-1')!.tables![0]!.style as Record<string, unknown>
+    expect(Object.keys(style).sort()).toEqual(['align', 'color', 'fontId', 'lineHeight', 'size'])
+  })
+
   it('saves the table rather than its cells, and opens again with both', async () => {
     const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
     const store = memoryStore()

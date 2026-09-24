@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { cellName, tableIdOfCell, toLayout, toSlots, toValues, type Point, type Slot, type TableStyle } from '@pdf-slot/core'
+import { cellName, tableIdOfCell, tableStyle, toLayout, toSlots, toValues, type Point, type Slot, type TableStyle } from '@pdf-slot/core'
 import type { SessionStore, TemplateStore } from '@/lib/persistence/templateStore'
 import { Editor, type NamingState } from '@/features/editor/Editor'
 import { useEditorPipeline } from '@/features/editor/useEditorPipeline'
@@ -68,10 +68,14 @@ export function TemplateEditor({
           return
         }
         if (patch.text !== undefined) tables.setCellText(id, patch.text)
-        // Anything else is typography, which a table shares across every cell.
-        const style = Object.fromEntries(Object.entries(patch).filter(([key]) => key !== 'text'))
+        // Only the typography reaches the table, which shares it across
+        // every cell. A cell is a slot, so a patch meant for one can also
+        // carry where it is and how wide it is -- and a table's style is
+        // no place for that: it would lay every cell out on top of the
+        // first. The table owns a cell's geometry; nothing else may set it.
+        const style = tableStyle(patch as Record<string, unknown>)
         const table = tables.tableOf(id)
-        if (table && Object.keys(style).length > 0) tables.setStyle(table.id, style as Partial<TableStyle>)
+        if (table && Object.keys(style).length > 0) tables.setStyle(table.id, style)
       },
       removeSlot(id: string) {
         if (!isCell(id)) editor.removeSlot(id)
