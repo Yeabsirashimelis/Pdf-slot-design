@@ -365,6 +365,13 @@ export function SlotOverlay({
             margin: 0,
             background: 'transparent',
             color: 'transparent',
+            // Said twice on purpose. `color` alone leaves the glyphs to
+            // `-webkit-text-fill-color`, which defaults to currentColor
+            // but is a separate property a browser or an extension can
+            // set on a form control -- and if anything does, this
+            // textarea paints its own text over the rendered lines and
+            // the same words appear twice, a pixel apart.
+            WebkitTextFillColor: 'transparent',
             caretColor: rgbToCss(slot.color),
             ...typography,
             overflow: 'hidden',

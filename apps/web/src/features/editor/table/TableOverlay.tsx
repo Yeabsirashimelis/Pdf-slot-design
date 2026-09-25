@@ -243,9 +243,10 @@ export function TableOverlay({
             right: 0,
             top: toScreenLength(rowBottoms[selectedRow]! - table.rowHeights[selectedRow]!, viewport),
             height: toScreenLength(table.rowHeights[selectedRow]!, viewport),
-            background: 'color-mix(in srgb, var(--slot-selection) 16%, transparent)',
-            outline: `${px(1)}px solid var(--slot-selection)`,
-            outlineOffset: -px(1),
+            // Tint only, no border of its own. The cells already draw
+            // the row's edges; an outline here lands a pixel inside them
+            // and reads as a second line beside the first.
+            background: 'color-mix(in srgb, var(--slot-selection) 22%, transparent)',
             pointerEvents: 'none',
           }}
         />
