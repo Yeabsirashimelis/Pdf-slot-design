@@ -68,6 +68,9 @@ export function InspectorPanel({
   onRemoveColumn?(key: string): void
 }) {
   const disabled = !selected || locked
+  // A cell's style belongs to its table, so anything set here lands on
+  // every cell of it -- worth saying on the control itself.
+  const isCell = selected?.id.includes('#') ?? false
   const choice = selected ? toFontChoice(selected.fontId) : null
 
   return (
@@ -181,6 +184,24 @@ export function InspectorPanel({
                 min={4}
                 max={200}
                 onCommit={(size) => applyPatch({ size })}
+                disabled={disabled}
+              />
+            </Hint>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {/* On a table cell this reaches the table's shared style, so
+                one number pads every cell at once -- which is the only
+                bearable way to pad forty of them. */}
+            <Hint label={isCell ? 'Padding, every cell (points)' : 'Padding (points)'}>
+              <NumberField
+                aria-label="Padding"
+                data-testid="padding-input"
+                className="h-7 text-[0.8rem] tabular-nums"
+                value={selected?.padding ?? 0}
+                min={0}
+                max={72}
+                onCommit={(padding) => applyPatch({ padding })}
                 disabled={disabled}
               />
             </Hint>

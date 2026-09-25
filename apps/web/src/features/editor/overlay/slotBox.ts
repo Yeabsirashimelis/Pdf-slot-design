@@ -1,4 +1,12 @@
-import { layoutHeight, layoutText, type FontMetrics, type PositionedLine, type Slot } from '@pdf-slot/core'
+import {
+  layoutHeight,
+  layoutText,
+  slotInset,
+  slotLayout,
+  type FontMetrics,
+  type PositionedLine,
+  type Slot,
+} from '@pdf-slot/core'
 
 /**
  * A slot's box as shown: the lines in it and its height, in PDF points --
@@ -16,18 +24,7 @@ export function layoutSlot(
   name = '',
 ): { lines: PositionedLine[]; boxHeight: number; placeholder: boolean } {
   const placeholder = slot.text === '' && name !== ''
-  const lines = layoutText(
-    {
-      text: placeholder ? name : slot.text,
-      size: slot.size,
-      width: slot.width,
-      align: slot.align,
-      lineHeight: slot.lineHeight,
-      originX: slot.x,
-      originY: slot.y,
-    },
-    metrics,
-  )
+  const lines = layoutText(slotLayout(slot, placeholder ? name : slot.text), metrics)
   // An empty, unnamed slot still needs a visible, clickable box --
   // layoutText('') returns zero lines, which would otherwise collapse the
   // box to zero height.
@@ -35,6 +32,8 @@ export function layoutSlot(
   // The box is as tall as its content (see layoutHeight: never shorter
   // than the glyphs, whatever the line height), or as tall as the user
   // dragged it (slot.height, a minimum) -- whichever is more.
-  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight, metrics)
+  // The box has to hold the padding as well as the glyphs, or text
+  // inset from the top would push out through the bottom.
+  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight, metrics) + slotInset(slot) * 2
   return { lines, boxHeight: Math.max(textHeight, slot.height ?? 0), placeholder }
 }
