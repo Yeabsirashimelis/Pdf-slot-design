@@ -318,6 +318,12 @@ export function TemplateEditor({
         applyPatch={(patch) => {
           if (selected) pipeline.updateSlotAndCommit(selected.id, patch)
         }}
+        // Each step of a held arrow: change what is on the page, but do
+        // not close an undo step or re-render the PDF for it. The whole
+        // hold is one change, settled by applyPatch when the key is let go.
+        previewPatch={(patch) => {
+          if (selected) slotStore.updateSlot(selected.id, patch)
+        }}
         table={selectedTable}
         onRenameColumn={(key, name) => selectedTable && tables.renameColumn(selectedTable.id, key, name)}
         onResizeColumn={(key, width) => selectedTable && tables.setColumnWidth(selectedTable.id, key, width)}

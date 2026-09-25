@@ -160,7 +160,10 @@ export function useTables(store: {
 
     /** Restyles the whole table: every cell shares one typography. */
     setStyle(id: string, patch: Partial<TableStyle>) {
-      update(id, (table) => ({ ...table, style: { ...table.style, ...patch } }))
+      // Live: restyling comes from the panel's fields, and a held arrow
+      // there is one change. The editor closes the boundary when the key
+      // is let go, so the whole hold is a single undo step.
+      update(id, (table) => ({ ...table, style: { ...table.style, ...patch } }), false)
     },
 
     setCellText(cell: string, text: string) {

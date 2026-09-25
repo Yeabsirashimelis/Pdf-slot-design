@@ -31,6 +31,7 @@ export function InspectorPanel({
   nameReadOnly = false,
   onRename,
   applyPatch,
+  previewPatch,
   locked = false,
   isRendering,
   render,
@@ -51,6 +52,8 @@ export function InspectorPanel({
   nameReadOnly?: boolean
   onRename(name: string): void
   applyPatch(patch: Partial<Slot>): void
+  /** The same change, without closing an undo step or re-rendering the PDF. */
+  previewPatch?(patch: Partial<Slot>): void
   /** The layout is frozen: typography is read-only too, since it moves text. */
   locked?: boolean
   isRendering: boolean
@@ -184,6 +187,7 @@ export function InspectorPanel({
                 min={4}
                 max={200}
                 onCommit={(size) => applyPatch({ size })}
+                onPreview={previewPatch && ((size) => previewPatch({ size }))}
                 disabled={disabled}
               />
             </Hint>
@@ -202,6 +206,7 @@ export function InspectorPanel({
                 min={0}
                 max={72}
                 onCommit={(padding) => applyPatch({ padding })}
+                onPreview={previewPatch && ((padding) => previewPatch({ padding }))}
                 disabled={disabled}
               />
             </Hint>
@@ -218,6 +223,9 @@ export function InspectorPanel({
                 max={4}
                 step={0.1}
                 onCommit={(lineHeight) => applyPatch({ lineHeight: Math.round(lineHeight * 100) / 100 })}
+                onPreview={
+                  previewPatch && ((lineHeight) => previewPatch({ lineHeight: Math.round(lineHeight * 100) / 100 }))
+                }
                 disabled={disabled}
               />
             </Hint>

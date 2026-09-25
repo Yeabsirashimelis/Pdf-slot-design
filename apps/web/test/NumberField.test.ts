@@ -32,6 +32,24 @@ describe('NumberField', () => {
     expect(input.value).toBe('5')
   })
 
+  it('a held arrow settles once, when the key comes up -- not on every repeat', () => {
+    // Committing per repeat forced a synchronous render per keystroke,
+    // and a held key never let React come up for air: it ran past its
+    // nested-update limit and threw.
+    const onCommit = vi.fn()
+    const onPreview = vi.fn()
+    const { input } = field({ value: 0, onCommit, onPreview })
+
+    for (let i = 0; i < 20; i++) fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(onPreview).toHaveBeenCalledTimes(20)
+    expect(onPreview).toHaveBeenLastCalledWith(20)
+    expect(onCommit).not.toHaveBeenCalled()
+
+    fireEvent.keyUp(input, { key: 'ArrowUp' })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenCalledWith(20)
+  })
+
   it('steps down the same way, and never past its limits', () => {
     const { onCommit, input } = field({ value: 2 })
     for (let i = 0; i < 5; i++) fireEvent.keyDown(input, { key: 'ArrowDown' })
