@@ -47,8 +47,14 @@ export function NumberField({
       event.preventDefault()
       const direction = event.key === 'ArrowUp' ? 1 : -1
       const size = event.shiftKey ? step * 10 : step
-      setDraft(null)
-      onCommit(Math.min(max, Math.max(min, value + direction * size)))
+      // Step from what the field is showing, not from the value that came
+      // down as a prop. A held key repeats faster than the prop comes
+      // back, so stepping from the prop makes every repeat land on the
+      // same number and the field appears to stick.
+      const shown = draft !== null && Number.isFinite(Number(draft)) ? Number(draft) : value
+      const next = Math.min(max, Math.max(min, shown + direction * size))
+      setDraft(String(next))
+      onCommit(next)
     }
   }
 

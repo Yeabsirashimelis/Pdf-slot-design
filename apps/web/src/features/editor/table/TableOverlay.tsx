@@ -3,7 +3,7 @@
 // and shadcn has no equivalent. See CLAUDE.md.
 'use client'
 
-import { useRef, type CSSProperties, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import {
   columnLeft,
   tableHeight,
@@ -205,6 +205,30 @@ export function TableOverlay({
   onCommit(): void
 }) {
   const handlers = useTableGestures({ table, viewport, screenScale, locked, onSelect, onChange, onCommit })
+  const [hovered, setHovered] = useState(false)
+  const frameRef = useRef<HTMLDivElement>(null)
+
+  // The frame takes no pointer events -- a press inside it belongs to the
+  // cell underneath -- so it never receives enter or leave. Hovering is
+  // worked out from where the pointer is instead, and only written when
+  // the answer changes, so an idle mouse costs nothing.
+  useEffect(() => {
+    const onMove = (event: globalThis.PointerEvent) => {
+      const box = frameRef.current?.getBoundingClientRect()
+      if (!box) return
+      const inside =
+        event.clientX >= box.left && event.clientX <= box.right &&
+        event.clientY >= box.top && event.clientY <= box.bottom
+      setHovered((was) => (was === inside ? was : inside))
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    return () => window.removeEventListener('pointermove', onMove)
+  }, [])
+
+  // The tag is chrome, not content: it sits over the page's own heading
+  // row, so it stays out of the way until the pointer is on the table or
+  // the table is selected -- the two moments its handle is wanted.
+  const tagShown = hovered || selected
 
   const origin = toScreenPoint({ x: table.x, y: table.y }, viewport)
   const width = toScreenLength(tableWidth(table), viewport)
@@ -217,6 +241,7 @@ export function TableOverlay({
 
   return (
     <div
+      ref={frameRef}
       data-testid={`table-${table.id}`}
       style={{
         position: 'absolute',
@@ -364,6 +389,8 @@ export function TableOverlay({
         data-testid={`table-handle-${table.id}`}
         {...handlers({ kind: 'move' })}
         style={{
+          opacity: tagShown ? 1 : 0,
+          transition: 'opacity 120ms',
           position: 'absolute',
           left: 0,
           bottom: '100%',
