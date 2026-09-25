@@ -109,6 +109,14 @@ export function useTableGestures({
         case 'width':
           onChange({ columns: setTableWidth(from, tableWidth(from) + dx).columns })
           return
+        case 'widthLeft': {
+          // Pulling the left edge left makes the table wider. The right
+          // edge is the fixed point, so x follows the new width.
+          const right = from.x + tableWidth(from)
+          const next = setTableWidth(from, tableWidth(from) - dx)
+          onChange({ columns: next.columns, x: right - tableWidth(next) })
+          return
+        }
         case 'size':
           onChange({
             columns: setTableWidth(from, tableWidth(from) + dx).columns,

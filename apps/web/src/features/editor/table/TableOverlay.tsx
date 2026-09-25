@@ -24,6 +24,8 @@ export type TableHandle =
   | { kind: 'row'; index: number }
   /** The right edge: the whole table's width, columns keeping their shares. */
   | { kind: 'width' }
+  /** The left edge: the same, from the other side -- the right edge stays put. */
+  | { kind: 'widthLeft' }
   /** The corner: both at once. */
   | { kind: 'size' }
   /** The whole table. */
@@ -315,6 +317,21 @@ export function TableOverlay({
           every table would cover the page. */}
       {selected && !locked && (
         <>
+          {/* Both side edges resize the table. The left one is not a
+              column boundary -- there is no column to its left to trade
+              with -- so it moves the table's left edge and leaves its
+              right where it is. */}
+          <Handle
+            testId="table-width-left"
+            bind={handlers({ kind: 'widthLeft' })}
+            locked={locked}
+            px={px}
+            label="Width — from this side"
+            cursor="ew-resize"
+            area={{ left: -px(STRIP_PX) / 2, top: '50%', marginTop: -px(GRIP_LEN_PX) / 2, width: px(STRIP_PX), height: px(GRIP_LEN_PX) }}
+            visible={{ inset: 0, left: (px(STRIP_PX) - px(GRIP_THICK_PX)) / 2, width: px(GRIP_THICK_PX) }}
+            labelAt={{ right: px(STRIP_PX + 4), top: '50%', marginTop: -px(LABEL_FONT_PX) }}
+          />
           <Handle
             testId="table-width"
             bind={handlers({ kind: 'width' })}

@@ -41,7 +41,7 @@ const SECTIONS: Section[] = [
       { keys: [], what: 'The table button draws one row; split it into columns and add rows' },
       { keys: [], what: 'Drag a column divider for that column\u2019s width' },
       { keys: [], what: 'Drag the line under a row for that row\u2019s height; the rows below move down' },
-      { keys: [], what: 'Drag the right edge for the whole table\u2019s width, the corner for both' },
+      { keys: [], what: 'Drag either side edge for the whole table\u2019s width, the corner for both' },
       { keys: [], what: 'Every handle says what it does when you point at it' },
       { keys: [], what: 'Rows you leave empty print nothing' },
     ],
@@ -62,6 +62,7 @@ const SECTIONS: Section[] = [
     shortcuts: [
       { keys: [['Ctrl', 'Z']], what: 'Undo' },
       { keys: [['Ctrl', 'Shift', 'Z']], what: 'Redo' },
+      { keys: [['Ctrl', 'Y']], what: 'Redo, the other way' },
       { keys: [], what: 'Save keeps the layout and what you typed; Download writes the PDF' },
     ],
   },
