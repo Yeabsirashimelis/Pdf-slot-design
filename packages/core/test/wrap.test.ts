@@ -127,10 +127,31 @@ test('padding insets every side, and does not move the box', () => {
   expect(input.width).toBe(192)
 })
 
-test('padding never eats the whole box', () => {
-  const narrow = { ...padded, width: 10, padding: 50 }
-  expect(slotLayout(narrow, narrow.text).width).toBeGreaterThanOrEqual(MIN_TEXT_WIDTH)
-  expect(slotInset(narrow)).toBe((10 - MIN_TEXT_WIDTH) / 2)
+test('padding never squeezes a line down to single letters', () => {
+  const narrow = { ...padded, width: 40, padding: 50 }
+  expect(slotLayout(narrow, narrow.text).width).toBe(MIN_TEXT_WIDTH)
+  expect(slotInset(narrow)).toBe((40 - MIN_TEXT_WIDTH) / 2)
+})
+
+test('a box with a height of its own keeps room for a line inside the padding', () => {
+  // A table's cell owns its row: if padding pushed the text past the
+  // row's height the box would grow and the table would come apart.
+  // `fixed` makes a line exactly `size` tall (0.75 up, 0.25 down).
+  const cell = { ...padded, width: 200, height: 22, padding: 50 }
+  expect(slotInset(cell, fixed)).toBe((22 - 10) / 2)
+  // Without a height there is nothing below to protect: the padding is
+  // taken as asked, since 50 a side still leaves a line's worth across.
+  const free = { ...padded, width: 200, height: undefined, padding: 50 }
+  expect(slotInset(free, fixed)).toBe(50)
+  // Only a box too narrow for it pulls the number down.
+  expect(slotInset({ ...free, width: 80 }, fixed)).toBe((80 - MIN_TEXT_WIDTH) / 2)
+})
+
+test('the text still fits the row it was given', () => {
+  const cell = { ...padded, width: 200, height: 22, size: 10, padding: 50 }
+  const inset = slotInset(cell, fixed)
+  const line = fixed.ascender(10) - fixed.descender(10)
+  expect(line + inset * 2).toBeLessThanOrEqual(22)
 })
 
 test('a negative padding is no padding', () => {

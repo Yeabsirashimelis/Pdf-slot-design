@@ -6,8 +6,12 @@ export type Align = 'left' | 'center' | 'right'
 /** A single laid-out line. `x` and `baselineY` are PDF points. */
 export type PositionedLine = { text: string; x: number; baselineY: number }
 
-/** A box is never inset so far that there is no room left to read. */
-export const MIN_TEXT_WIDTH = 4
+/**
+ * A box is never inset so far that there is no room left to read.
+ * Narrower than this and a word breaks to one letter a line, which is
+ * not text any more.
+ */
+export const MIN_TEXT_WIDTH = 12
 
 export type LayoutInput = {
   text: string
@@ -110,23 +114,35 @@ function breakParagraph(
  * `text` is passed in rather than read off the slot because the overlay
  * also lays out a slot's *name*, as the placeholder in an empty box.
  */
-export function slotLayout(slot: Slot, text: string): LayoutInput {
+export function slotLayout(slot: Slot, text: string, metrics?: FontMetrics): LayoutInput {
+  const inset = slotInset(slot, metrics)
   return {
     text,
     size: slot.size,
-    width: slot.width - slotInset(slot) * 2,
+    width: slot.width - inset * 2,
     align: slot.align,
     lineHeight: slot.lineHeight,
-    originX: slot.x + slotInset(slot),
+    originX: slot.x + inset,
     // PDF y grows upward, so insetting from the top means going down.
-    originY: slot.y - slotInset(slot),
+    originY: slot.y - inset,
   }
 }
 
-/** The padding actually applied: never more than the box can spare. */
-export function slotInset(slot: Slot): number {
+/**
+ * The padding actually applied: never more than the box can spare.
+ *
+ * Two limits, and the tighter one wins. Across, the text must stay wide
+ * enough to be a line rather than a column of single letters. Down, a box
+ * with a height of its own -- a table's cell, which owns its row -- must
+ * still hold one line inside its padding, or the text would push the box
+ * past the row it belongs to and the table would come apart.
+ */
+export function slotInset(slot: Slot, metrics?: FontMetrics): number {
   const wanted = Math.max(0, slot.padding ?? 0)
-  return Math.min(wanted, Math.max(0, (slot.width - MIN_TEXT_WIDTH) / 2))
+  const across = Math.max(0, (slot.width - MIN_TEXT_WIDTH) / 2)
+  const line = metrics ? metrics.ascender(slot.size) - metrics.descender(slot.size) : 0
+  const down = slot.height === undefined ? Infinity : Math.max(0, (slot.height - line) / 2)
+  return Math.min(wanted, across, down)
 }
 
 export function layoutText(input: LayoutInput, metrics: FontMetrics): PositionedLine[] {

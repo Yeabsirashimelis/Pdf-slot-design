@@ -183,7 +183,7 @@ async function drawSlots(pdf: PDFDocument, slots: Slot[], fonts: FontBytes): Pro
       metrics.set(slot.fontId, slotMetrics)
     }
 
-    const lines = layoutText(slotLayout(slot, slot.text), slotMetrics)
+    const lines = layoutText(slotLayout(slot, slot.text, slotMetrics), slotMetrics)
 
     // Slots (and so `lines`) are in the page's *displayed* space; the
     // content stream is in its unrotated user space. Map each baseline

@@ -24,7 +24,7 @@ export function layoutSlot(
   name = '',
 ): { lines: PositionedLine[]; boxHeight: number; placeholder: boolean } {
   const placeholder = slot.text === '' && name !== ''
-  const lines = layoutText(slotLayout(slot, placeholder ? name : slot.text), metrics)
+  const lines = layoutText(slotLayout(slot, placeholder ? name : slot.text, metrics), metrics)
   // An empty, unnamed slot still needs a visible, clickable box --
   // layoutText('') returns zero lines, which would otherwise collapse the
   // box to zero height.
@@ -34,6 +34,6 @@ export function layoutSlot(
   // dragged it (slot.height, a minimum) -- whichever is more.
   // The box has to hold the padding as well as the glyphs, or text
   // inset from the top would push out through the bottom.
-  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight, metrics) + slotInset(slot) * 2
+  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight, metrics) + slotInset(slot, metrics) * 2
   return { lines, boxHeight: Math.max(textHeight, slot.height ?? 0), placeholder }
 }
