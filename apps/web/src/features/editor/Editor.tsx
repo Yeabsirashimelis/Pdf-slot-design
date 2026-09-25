@@ -27,7 +27,9 @@ import { TableDrawLayer } from './table/TableDrawLayer'
 import { TableOverlay, type TableDragPatch } from './table/TableOverlay'
 import type { DrawnRow } from './table/useTables'
 import type { EditorPipeline } from './useEditorPipeline'
+import { toast } from 'sonner'
 import { useEditorShortcuts } from './useEditorShortcuts'
+import { HISTORY_CAP } from './state/editorHistory'
 import { useSlotClipboard, type PasteTarget } from './useSlotClipboard'
 
 /** Clear space around a page fitted to the workspace, in CSS px. */
@@ -204,8 +206,22 @@ export function Editor({
     locked ? null : onPasteSlot(slot, names[slot.id], { page: slot.page, x: slot.x, y: slot.y })
 
   useEditorShortcuts({
-    undo: store.undo,
-    redo: store.redo,
+    // Pressing Ctrl+Z into an empty history looks exactly like a broken
+    // Ctrl+Z, so it says so instead of doing nothing at all.
+    undo: () => {
+      if (!store.canUndo) {
+        toast('Nothing left to undo', { description: `The editor keeps the last ${HISTORY_CAP} changes.` })
+        return
+      }
+      store.undo()
+    },
+    redo: () => {
+      if (!store.canRedo) {
+        toast('Nothing to redo')
+        return
+      }
+      store.redo()
+    },
     commit: pipeline.commit,
     duplicateSelected: () => {
       if (locked || !store.selectedId) return

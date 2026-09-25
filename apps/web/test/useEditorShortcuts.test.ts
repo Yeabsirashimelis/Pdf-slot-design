@@ -139,6 +139,38 @@ describe('useEditorShortcuts', () => {
     panel.remove()
   })
 
+  it('undo and redo reach the editor even with a slot\'s box focused', () => {
+    // That box is the canvas: Ctrl+Z over it means the thing just done,
+    // not the last letter typed into a form field.
+    const undo = vi.fn(), redo = vi.fn()
+    renderHook(() => useEditorShortcuts({ undo, redo, commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn() }))
+    const box = document.createElement('div')
+    box.setAttribute('data-slot-id', 's1')
+    const ta = document.createElement('textarea')
+    box.append(ta)
+    document.body.append(box)
+
+    key({ key: 'z', ctrlKey: true }, ta)
+    expect(undo).toHaveBeenCalledTimes(1)
+    key({ key: 'z', ctrlKey: true, shiftKey: true }, ta)
+    key({ key: 'y', ctrlKey: true }, ta)
+    expect(redo).toHaveBeenCalledTimes(2)
+    box.remove()
+  })
+
+  it('a panel field keeps the browser\'s own undo', () => {
+    const undo = vi.fn()
+    renderHook(() => useEditorShortcuts({ undo, redo: vi.fn(), commit: vi.fn(), duplicateSelected: vi.fn(), nudgeSelected: vi.fn() }))
+    const panel = document.createElement('aside')
+    panel.setAttribute('data-testid', 'slot-panel')
+    const input = document.createElement('input')
+    panel.append(input)
+    document.body.append(panel)
+    expect(key({ key: 'z', ctrlKey: true }, input)).toBe(true) // not prevented
+    expect(undo).not.toHaveBeenCalled()
+    panel.remove()
+  })
+
   it('? opens the list of commands, but not while typing one into a field', () => {
     const showShortcuts = vi.fn()
     renderHook(() =>
