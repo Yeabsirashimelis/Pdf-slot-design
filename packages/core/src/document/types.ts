@@ -30,6 +30,14 @@ export type Slot = {
    */
   height?: number
   text: string
+  /**
+   * Space kept clear inside the box, PDF points, on every side.
+   *
+   * Text laid out hard against a ruled cell reads as if it is falling out
+   * of it. This insets the text without moving the box, so a slot lined
+   * up with something printed stays lined up.
+   */
+  padding?: number
   fontId: FontId
   size: number
   color: RGB

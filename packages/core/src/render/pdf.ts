@@ -21,7 +21,7 @@ import type { EditorDocument, Slot } from '../document/types'
 import type { FontBytes, FontId } from '../fonts/registry'
 import { normalizeRotation, toUnrotatedPoint } from '../geometry/rotation'
 import { createFontMetrics } from '../layout/metrics'
-import { layoutText } from '../layout/wrap'
+import { layoutText, slotLayout } from '../layout/wrap'
 
 /** Fixed so identical input yields identical bytes. */
 const EPOCH = new Date(0)
@@ -183,14 +183,7 @@ async function drawSlots(pdf: PDFDocument, slots: Slot[], fonts: FontBytes): Pro
       metrics.set(slot.fontId, slotMetrics)
     }
 
-    const lines = layoutText(
-      {
-        text: slot.text, size: slot.size, width: slot.width,
-        align: slot.align, lineHeight: slot.lineHeight,
-        originX: slot.x, originY: slot.y,
-      },
-      slotMetrics,
-    )
+    const lines = layoutText(slotLayout(slot, slot.text), slotMetrics)
 
     // Slots (and so `lines`) are in the page's *displayed* space; the
     // content stream is in its unrotated user space. Map each baseline

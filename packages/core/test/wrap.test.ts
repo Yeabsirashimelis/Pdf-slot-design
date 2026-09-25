@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest'
-import { layoutHeight, layoutText } from '../src/layout/wrap.js'
+import { MIN_TEXT_WIDTH, layoutHeight, layoutText, slotInset, slotLayout } from '../src/layout/wrap.js'
+import type { Slot } from '../src/document/types.js'
 import type { FontMetrics } from '../src/layout/metrics.js'
 
 /** Every glyph is exactly `size` wide. Makes expected breaks arithmetic. */
@@ -105,4 +106,46 @@ test('a hard character break never splits a grapheme cluster', () => {
   for (const line of lines) {
     expect(line.text.codePointAt(0)).not.toBe(0x0301)
   }
+})
+
+/** A box with text in it, for the padding tests. */
+const padded: Slot = {
+  id: 's1', page: 0, x: 100, y: 700, width: 200, text: 'hello',
+  fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2,
+}
+
+test('no padding: the text starts at the box\'s own corner', () => {
+  const input = slotLayout(padded, padded.text)
+  expect([input.originX, input.originY, input.width]).toEqual([100, 700, 200])
+})
+
+test('padding insets every side, and does not move the box', () => {
+  const input = slotLayout({ ...padded, padding: 4 }, padded.text)
+  expect(input.originX).toBe(104)
+  // PDF y grows upward, so coming in from the top means going down.
+  expect(input.originY).toBe(696)
+  expect(input.width).toBe(192)
+})
+
+test('padding never eats the whole box', () => {
+  const narrow = { ...padded, width: 10, padding: 50 }
+  expect(slotLayout(narrow, narrow.text).width).toBeGreaterThanOrEqual(MIN_TEXT_WIDTH)
+  expect(slotInset(narrow)).toBe((10 - MIN_TEXT_WIDTH) / 2)
+})
+
+test('a negative padding is no padding', () => {
+  expect(slotInset({ ...padded, padding: -8 })).toBe(0)
+})
+
+test('right-aligned text is held off the right edge by the padding', () => {
+  const lines = layoutText(slotLayout({ ...padded, align: 'right', padding: 6 }, 'hi'), fixed)
+  // Every glyph is `size` wide here, so 'hi' is 20pt. The box ends at
+  // 300; the text ends 6pt short of it.
+  expect(lines[0]!.x + 20).toBeCloseTo(294)
+})
+
+test('padding pushes the first baseline down, not the box', () => {
+  const plain = layoutText(slotLayout(padded, 'hi'), fixed)
+  const inset = layoutText(slotLayout({ ...padded, padding: 5 }, 'hi'), fixed)
+  expect(plain[0]!.baselineY - inset[0]!.baselineY).toBeCloseTo(5)
 })

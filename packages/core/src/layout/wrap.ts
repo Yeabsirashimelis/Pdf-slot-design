@@ -1,9 +1,13 @@
 import type { FontMetrics } from './metrics'
+import type { Slot } from '../document/types'
 
 export type Align = 'left' | 'center' | 'right'
 
 /** A single laid-out line. `x` and `baselineY` are PDF points. */
 export type PositionedLine = { text: string; x: number; baselineY: number }
+
+/** A box is never inset so far that there is no room left to read. */
+export const MIN_TEXT_WIDTH = 4
 
 export type LayoutInput = {
   text: string
@@ -94,6 +98,35 @@ function breakParagraph(
 
   if (current !== '') lines.push(current)
   return lines.length === 0 ? [''] : lines
+}
+
+/**
+ * What to lay out for a slot, its padding already taken off.
+ *
+ * Both the overlay and the PDF writer go through here rather than
+ * building their own input, because the two must agree to the point:
+ * preview equals download is decided by whether these numbers match.
+ *
+ * `text` is passed in rather than read off the slot because the overlay
+ * also lays out a slot's *name*, as the placeholder in an empty box.
+ */
+export function slotLayout(slot: Slot, text: string): LayoutInput {
+  return {
+    text,
+    size: slot.size,
+    width: slot.width - slotInset(slot) * 2,
+    align: slot.align,
+    lineHeight: slot.lineHeight,
+    originX: slot.x + slotInset(slot),
+    // PDF y grows upward, so insetting from the top means going down.
+    originY: slot.y - slotInset(slot),
+  }
+}
+
+/** The padding actually applied: never more than the box can spare. */
+export function slotInset(slot: Slot): number {
+  const wanted = Math.max(0, slot.padding ?? 0)
+  return Math.min(wanted, Math.max(0, (slot.width - MIN_TEXT_WIDTH) / 2))
 }
 
 export function layoutText(input: LayoutInput, metrics: FontMetrics): PositionedLine[] {
