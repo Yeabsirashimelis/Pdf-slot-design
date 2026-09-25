@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   MIN_COLUMN_WIDTH,
   MIN_ROW_MEASURE,
@@ -25,20 +25,28 @@ export type DrawnRow = { page: number; x: number; y: number; width: number; heig
 /**
  * The tables on a file, and what is written in their cells.
  *
- * Deliberately outside the editor's undo history. A cell's position is
- * not a fact to remember but a consequence of its table, so the history
- * keeps the hand-placed slots and the tables keep themselves -- otherwise
- * an undo could put the cells back where the table no longer says they
- * are.
+ * The state itself lives in the editor's history, not here, so one
+ * Ctrl+Z takes back whichever thing was last done -- a slot moved, a
+ * column widened, a row dropped. A cell's position is a consequence of
+ * its table rather than a fact of its own, so the two have to travel
+ * together: the history holds the tables and the slots in one snapshot,
+ * and cannot restore one without the other.
+ *
+ * What is left here is the vocabulary -- draw a table, add a row, widen
+ * a column -- each expressed as the next set of tables for the store.
  */
-export function useTables(initialTables: TemplateTable[], initialTexts: Record<string, string>) {
-  const [tables, setTables] = useState<TemplateTable[]>(initialTables)
-  const [texts, setTexts] = useState<Record<string, string>>(initialTexts)
+export function useTables(store: {
+  tables: TemplateTable[]
+  texts: Record<string, string>
+  setTables(change: { tables?: TemplateTable[]; texts?: Record<string, string> }, step?: boolean): void
+}) {
+  const { tables, texts } = store
 
   const cells = useMemo(() => cellsWithText(tables, texts), [tables, texts])
 
-  const update = (id: string, change: (table: TemplateTable) => TemplateTable) =>
-    setTables((current) => current.map((table) => (table.id === id ? change(table) : table)))
+  /** One whole change, closed to undo the moment it is made. */
+  const update = (id: string, change: (table: TemplateTable) => TemplateTable, step = true) =>
+    store.setTables({ tables: tables.map((table) => (table.id === id ? change(table) : table)) }, step)
 
   return {
     tables,
@@ -64,15 +72,15 @@ export function useTables(initialTables: TemplateTable[], initialTexts: Record<s
         rowHeights: [Math.max(MIN_ROW_MEASURE, row.height)],
         style,
       }
-      setTables((current) => [...current, table])
+      store.setTables({ tables: [...tables, table] }, true)
       return table
     },
 
     remove(id: string) {
-      setTables((current) => current.filter((table) => table.id !== id))
-      setTexts((current) =>
-        Object.fromEntries(Object.entries(current).filter(([key]) => tableIdOfCell(key) !== id)),
-      )
+      store.setTables({
+        tables: tables.filter((table) => table.id !== id),
+        texts: Object.fromEntries(Object.entries(texts).filter(([key]) => tableIdOfCell(key) !== id)),
+      }, true)
     },
 
     /** Live from the handles on the page (see TableOverlay). */
@@ -84,7 +92,7 @@ export function useTables(initialTables: TemplateTable[], initialTexts: Record<s
         // leaves the table's width alone; a width typed into the panel
         // still sets that column outright (see setColumnWidth).
         return columnWidth ? resizeColumnBoundary(moved, columnWidth.key, columnWidth.width) : moved
-      })
+      }, false)
     },
 
     setColumnWidth(id: string, key: string, width: number) {
@@ -119,12 +127,18 @@ export function useTables(initialTables: TemplateTable[], initialTexts: Record<s
     },
 
     removeColumn(id: string, key: string) {
-      update(id, (table) =>
-        table.columns.length <= 1 ? table : { ...table, columns: table.columns.filter((column) => column.key !== key) },
-      )
-      setTexts((current) =>
-        Object.fromEntries(Object.entries(current).filter(([cell]) => !cell.startsWith(`${id}#`) || !cell.endsWith(`:${key}`))),
-      )
+      const table = tables.find((candidate) => candidate.id === id)
+      if (!table || table.columns.length <= 1) return
+      store.setTables({
+        tables: tables.map((candidate) =>
+          candidate.id === id
+            ? { ...candidate, columns: candidate.columns.filter((column) => column.key !== key) }
+            : candidate,
+        ),
+        texts: Object.fromEntries(
+          Object.entries(texts).filter(([cell]) => !cell.startsWith(`${id}#`) || !cell.endsWith(`:${key}`)),
+        ),
+      }, true)
     },
 
     addRow(id: string) {
@@ -137,8 +151,11 @@ export function useTables(initialTables: TemplateTable[], initialTexts: Record<s
       if (!table) return
       const removal = removeTableRow(table, row)
       if (removal.removedIds.length === 0) return
-      update(id, () => removal.table)
-      setTexts((current) => applyRowRemoval(current, removal))
+      // The row and the text that moves up with it are one step.
+      store.setTables({
+        tables: tables.map((candidate) => (candidate.id === id ? removal.table : candidate)),
+        texts: applyRowRemoval(texts, removal),
+      }, true)
     },
 
     /** Restyles the whole table: every cell shares one typography. */
@@ -147,7 +164,8 @@ export function useTables(initialTables: TemplateTable[], initialTexts: Record<s
     },
 
     setCellText(cell: string, text: string) {
-      setTexts((current) => ({ ...current, [cell]: text }))
+      // Typing is live: a word becomes one undo step, not one per letter.
+      store.setTables({ texts: { ...texts, [cell]: text } }, false)
     },
 
     /** The first cell of a row -- what selecting a row in the panel points at. */
@@ -158,8 +176,7 @@ export function useTables(initialTables: TemplateTable[], initialTexts: Record<s
 
     /** Picks the cells' text back up from a freshly opened file. */
     reset(nextTables: TemplateTable[], nextTexts: Record<string, string>) {
-      setTables(nextTables)
-      setTexts(nextTexts)
+      store.setTables({ tables: nextTables, texts: nextTexts }, true)
     },
   }
 }

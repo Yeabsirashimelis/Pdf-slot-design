@@ -11,7 +11,10 @@ import {
   applyUpdateSlot,
   canRedo,
   canUndo,
+  applyEdit,
+  applyStep,
   createHistory,
+  snapshot,
   type HistoryState,
 } from '../src/features/editor/state/editorHistory'
 
@@ -37,8 +40,8 @@ describe('editorHistory: add / update / remove / select-adjacent semantics', () 
     const slot = makeSlot()
     const state = applyAddSlot(createHistory(), slot)
 
-    expect(state.present).toEqual([slot])
-    expect(state.past).toEqual([[]])
+    expect(state.present.slots).toEqual([slot])
+    expect(state.past).toEqual([snapshot()])
     expect(canUndo(state)).toBe(true)
   })
 
@@ -47,18 +50,20 @@ describe('editorHistory: add / update / remove / select-adjacent semantics', () 
     const afterAdd = applyAddSlot(createHistory(), slot)
     const afterRemove = applyRemoveSlot(afterAdd, slot.id)
 
-    expect(afterRemove.present).toEqual([])
-    expect(afterRemove.past).toEqual([[], [slot]])
+    expect(afterRemove.present.slots).toEqual([])
+    expect(afterRemove.past).toEqual([snapshot(), snapshot({ slots: [slot] })])
   })
 
   it('updateSlot patches the matching slot in present, leaving others untouched', () => {
     const a = makeSlot({ id: 'a', text: 'hello' })
     const b = makeSlot({ id: 'b', text: 'world' })
-    const state: HistoryState = { past: [], present: [a, b], future: [], pendingBefore: null }
+    const state: HistoryState = {
+      past: [], present: snapshot({ slots: [a, b] }), future: [], pendingBefore: null,
+    }
 
     const patched = applyUpdateSlot(state, 'a', { text: 'HELLO' })
 
-    expect(patched.present).toEqual([{ ...a, text: 'HELLO' }, b])
+    expect(patched.present.slots).toEqual([{ ...a, text: 'HELLO' }, b])
   })
 
   it('undo after removeSlot restores the removed slot', () => {
@@ -68,7 +73,7 @@ describe('editorHistory: add / update / remove / select-adjacent semantics', () 
 
     const undone = applyUndo(afterRemove)
 
-    expect(undone.present).toEqual([slot])
+    expect(undone.present.slots).toEqual([slot])
   })
 })
 
@@ -88,16 +93,16 @@ describe('editorHistory: undo boundaries on gestures', () => {
     // Still in-flight: no new past entries have been pushed yet, only the
     // pending snapshot captured at the first keystroke.
     expect(state.past.length).toBe(pastCountAfterAdd)
-    expect(state.present[0]?.text).toBe('hello')
+    expect(state.present.slots[0]?.text).toBe('hello')
 
     const committed = applyCommitEdit(state)
 
     // Exactly one new undo entry for the whole five-keystroke edit.
     expect(committed.past.length).toBe(pastCountAfterAdd + 1)
-    expect(committed.present[0]?.text).toBe('hello')
+    expect(committed.present.slots[0]?.text).toBe('hello')
 
     const undone = applyUndo(committed)
-    expect(undone.present[0]?.text).toBe('')
+    expect(undone.present.slots[0]?.text).toBe('')
   })
 
   it('a multi-pointermove drag collapses into ONE undo entry', () => {
@@ -112,10 +117,10 @@ describe('editorHistory: undo boundaries on gestures', () => {
     state = applyCommitEdit(state)
 
     expect(state.past.length).toBe(pastCountAfterAdd + 1)
-    expect(state.present[0]).toMatchObject({ x: 10, y: 10 })
+    expect(state.present.slots[0]).toMatchObject({ x: 10, y: 10 })
 
     const undone = applyUndo(state)
-    expect(undone.present[0]).toMatchObject({ x: 0, y: 0 })
+    expect(undone.present.slots[0]).toMatchObject({ x: 0, y: 0 })
   })
 
   it('committing with nothing in flight is a no-op', () => {
@@ -139,7 +144,7 @@ describe('editorHistory: undo boundaries on gestures', () => {
     // No explicit commitEdit() call -- undo() itself must flush first.
     const undone = applyUndo(state)
 
-    expect(undone.present[0]?.text).toBe('')
+    expect(undone.present.slots[0]?.text).toBe('')
   })
 })
 
@@ -151,20 +156,20 @@ describe('editorHistory: undo / redo round trip', () => {
     state = applyCommitEdit(state)
 
     const undone = applyUndo(state)
-    expect(undone.present[0]?.text).toBe('')
+    expect(undone.present.slots[0]?.text).toBe('')
 
     const redone = applyRedo(undone)
-    expect(redone.present[0]?.text).toBe('hi')
+    expect(redone.present.slots[0]?.text).toBe('hi')
   })
 
   it('undo with an empty past is a no-op and canUndo is false', () => {
-    const state = createHistory([makeSlot()])
+    const state = createHistory({ slots: [makeSlot()] })
     expect(canUndo(state)).toBe(false)
     expect(applyUndo(state)).toEqual(state)
   })
 
   it('redo with an empty future is a no-op and canRedo is false', () => {
-    const state = createHistory([makeSlot()])
+    const state = createHistory({ slots: [makeSlot()] })
     expect(canRedo(state)).toBe(false)
     expect(applyRedo(state)).toEqual(state)
   })
@@ -182,7 +187,7 @@ describe('editorHistory: undo / redo round trip', () => {
     state = applyAddSlot(state, third)
 
     expect(canRedo(state)).toBe(false)
-    expect(state.present.map((s) => s.id)).toEqual(['a', 'c'])
+    expect(state.present.slots.map((s) => s.id)).toEqual(['a', 'c'])
   })
 })
 
@@ -195,13 +200,13 @@ describe('editorHistory: cap at 50 entries', () => {
     }
 
     expect(state.past.length).toBe(HISTORY_CAP)
-    expect(state.present.length).toBe(HISTORY_CAP + overflow)
+    expect(state.present.slots.length).toBe(HISTORY_CAP + overflow)
 
     // The oldest surviving snapshot in `past` is the one taken right before
     // slot `overflow` was added -- i.e. it already contains slots
     // 0..overflow-1 -- proving the earliest snapshots (empty, [slot-0], ...)
     // were the ones dropped, not the most recent ones.
-    const oldestSurviving = state.past[0]!
+    const oldestSurviving = state.past[0]!.slots
     expect(oldestSurviving.length).toBe(overflow)
     expect(oldestSurviving.map((s) => s.id)).toEqual(
       Array.from({ length: overflow }, (_, i) => `slot-${i}`),
@@ -211,12 +216,65 @@ describe('editorHistory: cap at 50 entries', () => {
 
 describe('editorHistory: applyReplace', () => {
   it('applyReplace swaps the present list and forgets all history', () => {
-    let state = createHistory([makeSlot({ id: 'a' })])
+    let state = createHistory({ slots: [makeSlot({ id: 'a' })] })
     state = applyAddSlot(state, makeSlot({ id: 'b' }))
-    state = applyReplace(state, [makeSlot({ id: 'z' })])
-    expect(state.present.map((s) => s.id)).toEqual(['z'])
+    state = applyReplace(state, { slots: [makeSlot({ id: 'z' })] })
+    expect(state.present.slots.map((s) => s.id)).toEqual(['z'])
     expect(state.past).toEqual([])
     expect(state.future).toEqual([])
     expect(state.pendingBefore).toBeNull()
+  })
+})
+
+describe('editorHistory: tables travel with the slots', () => {
+  const table = (id: string, width: number) => ({
+    id, page: 0, x: 40, y: 500,
+    columns: [{ key: 'c1', name: 'No.', width }],
+    rowHeights: [20, 20],
+    style: { fontId: 'sans' as const, size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left' as const, lineHeight: 1.2 },
+  })
+
+  it('a whole step puts the tables back as they were', () => {
+    let state = createHistory({ tables: [table('t1', 50)] })
+    state = applyStep(state, { tables: [table('t1', 50), table('t2', 80)] })
+    expect(state.present.tables).toHaveLength(2)
+
+    const undone = applyUndo(state)
+    expect(undone.present.tables).toHaveLength(1)
+    expect(applyRedo(undone).present.tables).toHaveLength(2)
+  })
+
+  it('a drag is one step however many frames it reported', () => {
+    let state = createHistory({ tables: [table('t1', 50)] })
+    // Every pointermove during the drag.
+    for (const width of [60, 70, 80, 90]) state = applyEdit(state, { tables: [table('t1', width)] })
+    expect(state.present.tables[0]!.columns[0]!.width).toBe(90)
+    expect(state.past).toHaveLength(0)
+
+    state = applyCommitEdit(state)
+    expect(state.past).toHaveLength(1)
+    // One Ctrl+Z, all the way back to where the drag started.
+    expect(applyUndo(state).present.tables[0]!.columns[0]!.width).toBe(50)
+  })
+
+  it('a cell\'s text and its table go back together, never one without the other', () => {
+    // The reason they share a history: a cell's place comes from its
+    // table, so text restored beside a table that has moved on would sit
+    // where nothing claims it.
+    let state = createHistory({ tables: [table('t1', 50)], texts: { 't1#0:c1': 'one' } })
+    state = applyStep(state, { tables: [], texts: {} })
+    expect(state.present.tables).toEqual([])
+
+    const undone = applyUndo(state)
+    expect(undone.present.tables).toHaveLength(1)
+    expect(undone.present.texts).toEqual({ 't1#0:c1': 'one' })
+  })
+
+  it('undoing a slot leaves the tables where they are', () => {
+    let state = createHistory({ tables: [table('t1', 50)] })
+    state = applyAddSlot(state, makeSlot({ id: 'a' }))
+    const undone = applyUndo(state)
+    expect(undone.present.slots).toEqual([])
+    expect(undone.present.tables).toHaveLength(1)
   })
 })

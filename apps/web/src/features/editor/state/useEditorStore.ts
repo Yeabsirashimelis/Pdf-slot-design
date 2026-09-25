@@ -1,11 +1,13 @@
 'use client'
 
 import { useCallback, useState } from 'react'
-import type { Align, FontId, Point, RGB, Slot } from '@pdf-slot/core'
+import type { Align, FontId, Point, RGB, Slot, TemplateTable } from '@pdf-slot/core'
 import { randomId } from '@/lib/files/fileHash'
 import {
   applyAddSlot,
   applyCommitEdit,
+  applyEdit,
+  applyStep,
   applyRedo,
   applyRemoveSlot,
   applyReplace,
@@ -14,6 +16,7 @@ import {
   canRedo as computeCanRedo,
   canUndo as computeCanUndo,
   createHistory,
+  type EditorSnapshot,
   type HistoryState,
 } from './editorHistory'
 import { recallSlotStyle, rememberSlotStyle, type SlotStyle } from './slotStyleMemory'
@@ -47,6 +50,19 @@ function isStyleChange(patch: Partial<Slot>): boolean {
 
 export type EditorStore = {
   slots: Slot[]
+  /** The tables on the file -- in the same history as the slots. */
+  tables: TemplateTable[]
+  /** What is typed in each table cell, by the cell's derived id. */
+  texts: Record<string, string>
+  /**
+   * Change the tables and/or the cells' text.
+   *
+   * `step: true` closes the undo boundary at once, for something done in
+   * one go -- adding a row, throwing a table away. Left off, the change
+   * is live and collapses with the rest of the gesture until `commitEdit`,
+   * which is what a drag on a column boundary wants.
+   */
+  setTables(change: Partial<Pick<EditorSnapshot, 'tables' | 'texts'>>, step?: boolean): void
   selectedId: string | null
   addSlot(atPdf: Point, page: number): string
   /**
@@ -96,8 +112,10 @@ export type EditorStore = {
  * later changes to the argument are ignored, same as any other initial-value
  * prop.
  */
-export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
-  const [history, setHistory] = useState<HistoryState>(() => createHistory(initialSlots))
+export function useEditorStore(initial: Partial<EditorSnapshot> | Slot[] = []): EditorStore {
+  const [history, setHistory] = useState<HistoryState>(() =>
+    createHistory(Array.isArray(initial) ? { slots: initial } : initial),
+  )
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const addSlot = useCallback((atPdf: Point, page: number) => {
@@ -116,13 +134,13 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
   }, [])
 
   const duplicateSlot = useCallback((id: string): string | null => {
-    const source = history.present.find((slot) => slot.id === id)
+    const source = history.present.slots.find((slot) => slot.id === id)
     if (!source) return null
     const copy: Slot = { ...source, id: randomId(), x: source.x + DUPLICATE_OFFSET, y: source.y - DUPLICATE_OFFSET }
     setHistory((state) => applyAddSlot(state, copy))
     setSelectedId(copy.id)
     return copy.id
-  }, [history.present])
+  }, [history.present.slots])
 
   const pasteSlot = useCallback((snapshot: Slot, target: { page: number; x: number; y: number }): string => {
     const pasted: Slot = { ...snapshot, id: randomId(), page: target.page, x: target.x, y: target.y }
@@ -133,7 +151,7 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
 
   const nudgeSlot = useCallback((id: string, dx: number, dy: number) => {
     setHistory((state) => {
-      const slot = state.present.find((s) => s.id === id)
+      const slot = state.present.slots.find((s) => s.id === id)
       if (!slot) return state
       // One undo step per press: update, then close the boundary.
       return applyCommitEdit(applyUpdateSlot(state, id, { x: slot.x + dx, y: slot.y + dy }))
@@ -147,7 +165,7 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
       // for the next slot. Read off the updated slot rather than the patch
       // so the remembered style is always a complete, coherent set.
       if (isStyleChange(patch)) {
-        const updated = next.present.find((s) => s.id === id)
+        const updated = next.present.slots.find((s) => s.id === id)
         if (updated) rememberSlotStyle(updated)
       }
       return next
@@ -155,9 +173,16 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
   }, [])
 
   const replaceSlots = useCallback((slots: Slot[]) => {
-    setHistory((state) => applyReplace(state, slots))
+    setHistory((state) => applyReplace(state, { slots }))
     setSelectedId(null)
   }, [])
+
+  const setTables = useCallback(
+    (change: Partial<Pick<EditorSnapshot, 'tables' | 'texts'>>, step = false) => {
+      setHistory((state) => (step ? applyStep(state, change) : applyEdit(state, change)))
+    },
+    [],
+  )
 
   const removeSlot = useCallback((id: string) => {
     setHistory((state) => applyRemoveSlot(state, id))
@@ -181,7 +206,10 @@ export function useEditorStore(initialSlots: Slot[] = []): EditorStore {
   }, [])
 
   return {
-    slots: history.present,
+    slots: history.present.slots,
+    tables: history.present.tables,
+    texts: history.present.texts,
+    setTables,
     selectedId,
     addSlot,
     duplicateSlot,

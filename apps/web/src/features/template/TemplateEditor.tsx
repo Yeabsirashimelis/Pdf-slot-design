@@ -48,11 +48,20 @@ export function TemplateEditor({
   // derived from the table (see useTables), so keeping them here as well
   // would leave two copies of the same geometry to drift apart -- and an
   // undo could put a cell back where its table no longer says it is.
-  const editor = useEditorStore(layout ? toSlots({ ...layout, tables: [] }, values) : [])
-  const tables = useTables(
-    layout?.tables ?? [],
-    layout ? textsOfCells(toSlots(layout, values)) : {},
+  // One history for the page: the hand-placed slots, the tables and what
+  // is typed in their cells, so a single Ctrl+Z takes back whichever of
+  // them was last touched -- and a cell can never be restored to a place
+  // its table no longer claims.
+  const editor = useEditorStore(
+    layout
+      ? {
+          slots: toSlots({ ...layout, tables: [] }, values),
+          tables: layout.tables ?? [],
+          texts: textsOfCells(toSlots(layout, values)),
+        }
+      : {},
   )
+  const tables = useTables(editor)
   // What the rest of the editor sees: both kinds of slot, and a store
   // that knows which is which. A cell's text belongs to its table, and a
   // cell cannot be moved, duplicated or deleted on its own -- the table
