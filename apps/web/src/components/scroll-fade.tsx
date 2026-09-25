@@ -25,7 +25,7 @@ export function ScrollFade({
   className,
   'data-testid': testId,
 }: {
-  children: ReactNode
+  children?: ReactNode
   /** The scrolling box: give it the height you want it capped at. */
   className?: string
   'data-testid'?: string
@@ -35,10 +35,12 @@ export function ScrollFade({
 
   const measure = useCallback((viewport: HTMLElement) => {
     const { scrollTop, scrollHeight, clientHeight } = viewport
-    setEdges({
-      above: scrollTop > EDGE_SLOP_PX,
-      below: scrollTop + clientHeight < scrollHeight - EDGE_SLOP_PX,
-    })
+    const above = scrollTop > EDGE_SLOP_PX
+    const below = scrollTop + clientHeight < scrollHeight - EDGE_SLOP_PX
+    // Keep the old object when the answer has not changed. A fresh one
+    // every time is a state change every time, and this is called from an
+    // effect: that is a render loop with nothing to stop it.
+    setEdges((was) => (was.above === above && was.below === below ? was : { above, below }))
   }, [])
 
   useEffect(() => {
@@ -54,13 +56,20 @@ export function ScrollFade({
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => measure(viewport))
     if (observer) {
       observer.observe(viewport)
-      for (const child of viewport.children) observer.observe(child)
+      // The content, not each row: rows come and go, and a list of them
+      // measured once at mount would stop being the list being watched.
+      const content = viewport.firstElementChild
+      if (content) observer.observe(content)
     }
     return () => {
       viewport.removeEventListener('scroll', onScroll)
       observer?.disconnect()
     }
-  }, [measure, children])
+    // Deliberately not keyed on `children`: that is a new object on every
+    // render, so the effect would re-run, measure, set state and render
+    // again, for ever. The observer above is what notices the list
+    // changing.
+  }, [measure])
 
   return (
     <div ref={root} className="relative min-h-0" data-testid={testId}>
