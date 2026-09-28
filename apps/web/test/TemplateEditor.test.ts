@@ -516,4 +516,39 @@ describe('TemplateEditor', () => {
     })
     expect(fireEvent.dragStart(box)).toBe(false)
   })
+
+  it('refuses a slot name another slot on this file already has', async () => {
+    // A slot's name is a column in a bulk-generation data file, so two
+    // slots on one file cannot share one -- the API refuses such a
+    // layout. Naming is inline on the box now rather than in a dialog,
+    // so the check lives there.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = memoryStore()
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store, onStartOver: vi.fn() }))
+    await placeSlot(container, 'Date')
+    const canvas = await waitForCanvas(container)
+    fireEvent.click(canvas, { clientX: 150, clientY: 150 })
+
+    const input = await waitFor(() => screen.getByTestId('slot-name-inline') as HTMLInputElement)
+    fireEvent.change(input, { target: { value: 'Date' } })
+    await waitFor(() => expect(screen.getByTestId('slot-name-taken')).toBeTruthy())
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+
+    // The box is already on the page -- it is named in place -- so what
+    // Enter must not do is accept the name: the field stays open.
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(screen.getByTestId('slot-name-inline')).toBeTruthy()
+    expect(screen.getByTestId('slot-name-taken')).toBeTruthy()
+
+    // Case and surrounding space do not make it a different name.
+    fireEvent.change(input, { target: { value: '  date  ' } })
+    await waitFor(() => expect(screen.queryByTestId('slot-name-taken')).toBeTruthy())
+
+    fireEvent.change(input, { target: { value: 'Date 2' } })
+    await waitFor(() => expect(screen.queryByTestId('slot-name-taken')).toBeNull())
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // A free name is taken, the field closes, and both slots are named.
+    await waitFor(() => expect(screen.queryByTestId('slot-name-inline')).toBeNull())
+    expect(container.querySelectorAll('[data-slot-id]')).toHaveLength(2)
+  })
 })

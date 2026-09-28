@@ -277,7 +277,7 @@ describe('Home', () => {
   })
 
   it('Delete asks first, then removes the file from the list and the store', async () => {
-    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: 't' })
+    memory.files.set(FILE_ID, { fileId: FILE_ID, name: 'known.pdf', source: bytes, pages: doc.pages, createdAt: '2026-09-19T00:00:00.000Z' })
     memory.layouts.set(FILE_ID, knownLayout)
 
     const Home = (await import('../src/app/page')).default

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type KeyboardEvent } from 'react'
+import { useState, type KeyboardEvent, type ReactNode } from 'react'
 import { ArrowLeft, Copy, Keyboard, Lock, LockOpen, Table, Trash2, Type } from 'lucide-react'
 import {
   AlertDialog,
@@ -59,6 +59,7 @@ export function SlotsPanel({
   onRemoveTableRow,
   onRemoveTable,
   onShowShortcuts,
+  generate,
 }: {
   fileName: string
   slots: PanelSlot[]
@@ -87,6 +88,8 @@ export function SlotsPanel({
   onRemoveTable?(id: string): void
   /** Opens the list of commands. The panel only says which key does it. */
   onShowShortcuts?(): void
+  /** Bulk generation, when a backend is configured (see GeneratePanel). */
+  generate?: ReactNode
 }) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   // Removing a table takes every row with it and cannot be undone --
@@ -346,6 +349,8 @@ export function SlotsPanel({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {generate}
 
         <button
           type="button"

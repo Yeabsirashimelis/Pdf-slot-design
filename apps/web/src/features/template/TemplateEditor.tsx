@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { cellName, tableIdOfCell, tableStyle, toLayout, toSlots, toValues, type Point, type Slot, type TableStyle } from '@pdf-slot/core'
+import { apiUrl } from '@/lib/persistence'
 import type { SessionStore, TemplateStore } from '@/lib/persistence/templateStore'
 import { Editor, type NamingState } from '@/features/editor/Editor'
 import { useEditorPipeline } from '@/features/editor/useEditorPipeline'
@@ -12,6 +13,7 @@ import { isCell, textsOfCells } from '@/features/editor/table/tableSlots'
 import { useTables, type DrawnRow } from '@/features/editor/table/useTables'
 import { InspectorPanel } from '@/features/editor/panels/InspectorPanel'
 import { SlotsPanel } from '@/features/editor/panels/SlotsPanel'
+import { GeneratePanel } from '@/features/generate/GeneratePanel'
 import { ShortcutsDialog } from '@/features/editor/panels/ShortcutsDialog'
 import { copyName } from './copyName'
 import { useDebouncedWrite } from './useTemplatePersistence'
@@ -124,6 +126,11 @@ export function TemplateEditor({
     void store.put({ fileId })
   }, [fileId, store])
 
+  // The slot names the generate panel checks a data file's columns
+  // against. Memoised because it is the panel's memo key: a fresh array
+  // every render would re-parse the pasted rows each time.
+  const slotNames = useMemo(() => Object.values(names), [names])
+
   // Debounced safety-net writes of both records; Save writes at once.
   const currentLayout = useMemo(
     () => toLayout(fileId, editor.slots, names, new Date().toISOString(), tables.tables),
@@ -170,15 +177,26 @@ export function TemplateEditor({
     return pastedId
   }
 
+  // A slot's name is a column in a bulk-generation data file, so two
+  // slots on one file cannot share one -- the API refuses such a layout.
+  const nameTaken = (id: string, value: string) => {
+    const wanted = value.trim().toLowerCase()
+    if (wanted === '') return false
+    return Object.entries(names).some(([other, name]) => other !== id && name.trim().toLowerCase() === wanted)
+  }
+
   const namingState: NamingState | null = naming
     ? {
         id: naming.id,
         value: naming.value,
+        taken: nameTaken(naming.id, naming.value),
         onChange: (value) => updateNaming({ ...naming, value }),
         onCommit: () => {
           const current = namingRef.current
           if (!current) return
           const trimmed = current.value.trim()
+          // Held open until it is changed: the overlay is already saying so.
+          if (nameTaken(current.id, trimmed)) return
           updateNaming(null)
           if (trimmed === '') {
             // Nothing typed: a new slot is discarded, a rename is dropped.
@@ -283,6 +301,7 @@ export function TemplateEditor({
           tables.remove(id)
         }}
         onShowShortcuts={() => setShortcutsOpen(true)}
+        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} slotNames={slotNames} /> : undefined}
       />
       <main className="relative min-w-0 flex-1">
         <Editor

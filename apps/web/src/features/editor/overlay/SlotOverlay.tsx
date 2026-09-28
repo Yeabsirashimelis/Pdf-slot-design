@@ -55,6 +55,12 @@ export type SlotNaming = {
   onCommit(): void
   /** Escape: give up on the edit. */
   onCancel(): void
+  /**
+   * Another slot on this file already answers to this name. A slot's
+   * name is a column in a bulk-generation data file, so two of them
+   * cannot share one -- the API refuses such a layout outright.
+   */
+  taken?: boolean
 }
 
 export function SlotOverlay({
@@ -171,7 +177,9 @@ export function SlotOverlay({
     if (!naming) return
     if (event.key === 'Enter') {
       event.preventDefault()
-      naming.onCommit()
+      // A name already in use is not committed: Enter does nothing until
+      // it is changed, which is what the note under the box is saying.
+      if (!naming.taken) naming.onCommit()
     } else if (event.key === 'Escape') {
       event.preventDefault()
       naming.onCancel()
@@ -396,11 +404,22 @@ export function SlotOverlay({
           value={naming.value}
           onChange={(e) => naming.onChange(e.target.value)}
           onKeyDown={handleNameKeyDown}
-          onBlur={naming.onCommit}
+          onBlur={() => { if (!naming.taken) naming.onCommit() }}
+          aria-invalid={naming.taken || undefined}
           onPointerDown={(e) => e.stopPropagation()}
           className="absolute inset-0 h-full w-full rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
           style={{ ...typography, color: rgbToCss(slot.color), caretColor: rgbToCss(slot.color) }}
         />
+      )}
+      {naming?.taken && (
+        <span
+          data-testid="slot-name-taken"
+          role="status"
+          className="pointer-events-none absolute left-0 top-full select-none whitespace-nowrap rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground"
+          style={{ fontSize: px(11), lineHeight: `${px(15)}px`, marginTop: px(3) }}
+        >
+          That name is already taken
+        </span>
       )}
       {/*
         One invisible grab strip along each edge, 8 screen px wide:
