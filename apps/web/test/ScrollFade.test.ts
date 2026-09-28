@@ -30,6 +30,27 @@ describe('ScrollFade', () => {
     add.mockRestore()
   })
 
+  it('caps its own box, not a box inside it', () => {
+    // The height the caller asks for has to land on the outer element:
+    // that is the one its container sizes, and the one the fades are
+    // drawn over. On an inner element instead, the outer box shrinks to
+    // whatever room is left while the inner one keeps growing with the
+    // list -- so the list paints straight over whatever sits below it,
+    // which is what happened to the generate panel in the slot sidebar.
+    render(createElement(ScrollFade, { 'data-testid': 'list', className: 'max-h-40 flex-1' },
+      createElement('div', null, 'rows')))
+    const outer = screen.getByTestId('list')
+    expect(outer.className).toContain('max-h-40')
+    expect(outer.className).toContain('flex-1')
+
+    // And the scroller inside fills that box by flex rather than by
+    // `height: 100%`, which resolves to nothing against a parent whose
+    // own height is a max-height or a flex share.
+    const inner = outer.querySelector('[data-slot="scroll-area"]')!
+    expect(inner.className).not.toContain('max-h')
+    expect(inner.className).toContain('flex-1')
+  })
+
   it('shows the list, and no fade while there is nothing to scroll', () => {
     render(createElement(ScrollFade, { 'data-testid': 'list' }, createElement('div', null, 'one row')))
     expect(screen.getByTestId('list').textContent).toContain('one row')

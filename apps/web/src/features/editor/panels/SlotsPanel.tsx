@@ -274,7 +274,10 @@ export function SlotsPanel({
           </Tooltip>
         </div>
 
-        <ScrollFade className="min-h-0 flex-1 px-2" data-testid="slot-list">
+        {/* A floor, not just a share: the generate panel below is a few
+            hundred pixels of form, and in a short window an unfloored
+            flex-1 gives all of it away and leaves the list a sliver. */}
+        <ScrollFade className="min-h-32 flex-1 px-2" data-testid="slot-list">
           <div className="flex flex-col gap-0.5 pb-2">
             {slots.length === 0 && tables.length === 0 && (
               <p className="px-2 py-6 text-center text-xs text-muted-foreground" data-testid="empty-hint">
@@ -350,7 +353,14 @@ export function SlotsPanel({
           </AlertDialogContent>
         </AlertDialog>
 
-        {generate}
+        {/* Whatever is left over after the list has its floor, and it
+            scrolls inside that rather than pushing the shortcuts row off
+            the bottom of the window. */}
+        {generate === undefined ? null : (
+          <div className="min-h-0 overflow-y-auto" data-testid="generate-region">
+            {generate}
+          </div>
+        )}
 
         <button
           type="button"

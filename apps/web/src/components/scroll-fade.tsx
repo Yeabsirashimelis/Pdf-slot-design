@@ -26,7 +26,12 @@ export function ScrollFade({
   'data-testid': testId,
 }: {
   children?: ReactNode
-  /** The scrolling box: give it the height you want it capped at. */
+  /**
+   * The scrolling box: give it the height you want it capped at, however
+   * you would cap any box -- `flex-1` in a flex column, `max-h-*`, a
+   * fixed height. It lands on the outer element, which is both the box
+   * the list scrolls inside and the box the fades are drawn over.
+   */
   className?: string
   'data-testid'?: string
 }) {
@@ -72,8 +77,15 @@ export function ScrollFade({
   }, [measure])
 
   return (
-    <div ref={root} className="relative min-h-0" data-testid={testId}>
-      <ScrollArea className={className}>{children}</ScrollArea>
+    /* The caller's height goes on this element, not on the ScrollArea
+       inside it. Put it on the inner one and this element is left to be
+       sized by whatever contains it, while the ScrollArea keeps growing
+       with its content: the list then paints straight over whatever sits
+       below it. A flex column with a flex-1 child caps the scroller
+       against a parent whose own height is a max-height or a flex share,
+       neither of which `height: 100%` can resolve against. */
+    <div ref={root} className={cn('relative flex min-h-0 flex-col', className)} data-testid={testId}>
+      <ScrollArea className="min-h-0 flex-1">{children}</ScrollArea>
       <div
         aria-hidden
         data-testid={testId ? `${testId}-fade-top` : undefined}

@@ -167,7 +167,12 @@ describe('table row slots', () => {
     const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
     await drawTable(container)
     const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
-    const rows = () => screen.getByTestId(`table-rows-${tableId}`).querySelector('[data-slot="scroll-area"]')
+    // The cap sits on the scrolling box itself -- the element carrying the
+    // test id -- not on anything nested inside it. Put it on an inner
+    // element and the outer one is sized by its container while the inner
+    // one grows with the list, which is how the list came to paint over
+    // the panel below it.
+    const rows = () => screen.getByTestId(`table-rows-${tableId}`)
 
     // Six rows still fit, so nothing is capped.
     for (let i = 0; i < 5; i++) fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
