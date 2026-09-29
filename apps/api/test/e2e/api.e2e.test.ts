@@ -111,7 +111,7 @@ describe('API end to end: upload -> layout -> values -> job -> generation -> zip
 
     const noLayout = await postJob(api, [{ Name: 'A' }])
     expect(noLayout.status).toBe(400)
-    expect(await noLayout.json()).toEqual({ error: { code: 'no_layout', message: 'Lay out at least one slot before generating' } })
+    expect(await noLayout.json()).toEqual({ error: { code: 'no_layout', message: 'Lay out at least one slot or table before generating' } })
 
     const duplicate = await putJson(api, `/files/${FILE_ID}/layout`, {
       fileId: FILE_ID, updatedAt: UPDATED_AT, slots: [slot(), slot({ id: 's2', order: 1 })],

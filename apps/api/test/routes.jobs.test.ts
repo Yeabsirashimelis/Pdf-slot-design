@@ -62,6 +62,34 @@ describe('jobs routes', () => {
     expect((await app.request(`/files/${FILE_ID}/jobs`, post({ records: [] }))).status).toBe(400)
     expect((await app.request('/jobs/nope')).status).toBe(404)
   })
+
+  it('a file whose only content is a table still generates', async () => {
+    // The guard used to count plain slots alone, so a file laid out
+    // entirely as a table -- which has nothing in `slots` -- was refused
+    // although every one of its cells is a place a record fills.
+    const app = createApp(await testDeps())
+    await putTestFile(app)
+    const style = { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 }
+    const layout = await app.request(`/files/${FILE_ID}/layout`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileId: FILE_ID,
+        slots: [],
+        tables: [{
+          id: 't1', name: 'Change orders', page: 0, x: 40, y: 500,
+          columns: [{ key: 'c1', name: 'No', width: 40 }],
+          rowHeights: [22],
+          style,
+        }],
+        updatedAt: '2026-09-29T00:00:00.000Z',
+      }),
+    })
+    expect(layout.status).toBe(204)
+
+    const started = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ 'Change orders': [{ No: '1' }] }] }))
+    expect(started.status).toBe(202)
+  })
   it('the zip is only available once the job is done', async () => {
     const deps = await testDeps()
     const app = createApp(deps)

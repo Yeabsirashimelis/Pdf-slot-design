@@ -159,6 +159,9 @@ describe('GeneratePanel: a file with a table', () => {
   it('says a CSV cannot fill a table, and offers the shape that can', () => {
     withTable()
     expect(screen.getByTestId('generate-csv-note').textContent).toContain('never a table')
+    // The label still offers CSV: it fills the slots even here, and saying
+    // "JSON array" would tell the user their spreadsheet is refused.
+    expect(screen.getByLabelText('Records (JSON array or CSV)')).toBeTruthy()
     const placeholder = (screen.getByTestId('generate-records') as HTMLTextAreaElement).placeholder
     expect(placeholder).toContain('"Client"')
     expect(placeholder).toContain('"Change orders"')
@@ -188,6 +191,15 @@ describe('GeneratePanel: a file with a table', () => {
     expect(screen.getByTestId('generate-extra-rows-Change orders').textContent)
       .toContain('2 more rows of data than it has rows on the page')
     // A warning, not a refusal: the rows that fit still print.
+    expect(submit().disabled).toBe(false)
+  })
+
+  it('still takes a pasted CSV, which fills the slots and leaves the table blank', () => {
+    withTable()
+    type('Client\nAbel\nSara\n')
+    const summary = screen.getByTestId('generate-summary').textContent ?? ''
+    expect(summary).toContain('2 rows')
+    expect(summary).toContain('Left blank: "Change orders" has no column.')
     expect(submit().disabled).toBe(false)
   })
 

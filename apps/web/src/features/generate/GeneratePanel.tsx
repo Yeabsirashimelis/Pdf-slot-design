@@ -157,9 +157,12 @@ export function GeneratePanel({ apiUrl, fileId, targets }: { apiUrl: string; fil
             {fileName && <p className="truncate text-xs text-muted-foreground" data-testid="generate-file-name">{fileName}</p>}
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="generate-records" className="text-xs">
-              {hasTables ? 'Records (JSON array)' : 'Records (JSON array or CSV)'}
-            </Label>
+            {/* Always both, even with a table on the file: a CSV cannot
+                fill the table, but it still fills the plain slots, and a
+                label reading "JSON array" would be telling the user their
+                spreadsheet is refused when it is not. What a CSV can and
+                cannot do is said underneath, where it can be said properly. */}
+            <Label htmlFor="generate-records" className="text-xs">Records (JSON array or CSV)</Label>
             <Textarea id="generate-records" className="text-xs md:text-xs" data-testid="generate-records" rows={4} value={text} onChange={(e) => setText(e.target.value)}
               placeholder={hasTables ? tableExample(targets) : 'Name,Date\nAbel,18 Sep 2026'} />
             {hasTables && (

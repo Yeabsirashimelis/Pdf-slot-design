@@ -25,7 +25,11 @@ jobsRoutes.post(
     const fileId = fileIdParam(c.req.param('id'))
     if (!(await getFileMeta(db, fileId))) throw notFound('File')
     const layout = await getLayout(db, fileId)
-    if (!layout || layout.slots.length === 0) throw new ApiError(400, 'no_layout', 'Lay out at least one slot before generating')
+    // A table counts: a file whose only content is a table has nothing in
+    // `slots`, and every one of its cells is still a place a record fills.
+    if (!layout || (layout.slots.length === 0 && (layout.tables ?? []).length === 0)) {
+      throw new ApiError(400, 'no_layout', 'Lay out at least one slot or table before generating')
+    }
     const id = crypto.randomUUID()
     await createJob(db, { id, fileId, records: c.req.valid('json').records })
     try {
