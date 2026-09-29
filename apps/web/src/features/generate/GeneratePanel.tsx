@@ -1,5 +1,5 @@
 'use client'
-import { ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   AlertDialog,
@@ -19,6 +19,7 @@ import { Progress } from '@/components/ui/progress'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { checkColumns, noColumnsMatch, noColumnsMatchMessage, validateBeforeSubmit, type ColumnCheck, type FillTargets } from './checkColumns'
+import type { JobRecord } from '@pdf-slot/contracts'
 import { createJob, zipUrl } from './jobsClient'
 import { parseRecords } from './parseRecords'
 import { useJobPolling } from './useJobPolling'
@@ -46,7 +47,7 @@ type Summary =
   | (ColumnCheck & { kind: 'data'; rows: number; nothingMatches: boolean })
 
 /** Step 2: paste or import a list of records, get one PDF per record from the server, download the zip. */
-export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNow }: {
+export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNow, onPreviewRecord }: {
   apiUrl: string
   fileId: string
   targets: FillTargets
@@ -63,6 +64,12 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
    * the one that prints.
    */
   onSaveNow?: () => Promise<unknown>
+  /**
+   * Pours one record into the boxes on the page. Called the moment a file
+   * is imported, so what it will produce can be read off the document
+   * rather than guessed at from a summary.
+   */
+  onPreviewRecord?: (record: JobRecord) => void
 }) {
   const [apiKey, setApiKey] = useState(readKey)
   const [open, setOpen] = useState(readOpen)
@@ -71,6 +78,8 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [asking, setAsking] = useState(false)
+  /** Which record of the data the page is showing, or null for none. */
+  const [previewing, setPreviewing] = useState<number | null>(null)
   const job = useJobPolling(apiUrl, jobId)
   const running = job?.status === 'queued' || job?.status === 'running' || (jobId !== null && job === null)
 
@@ -86,6 +95,25 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
   }, [text, targets])
   const blocked = summary === null || summary.kind === 'error' || summary.nothingMatches
 
+  /** The records as parsed, or none if the box does not hold usable data. */
+  const records = useMemo(() => {
+    if (text.trim() === '') return []
+    const parsed = parseRecords(text)
+    return 'error' in parsed ? [] : parsed.records
+  }, [text])
+
+  /**
+   * Puts a record on the page. Every box it names is filled and every box
+   * it does not is emptied, so what is on the document is that record and
+   * nothing else -- which is what generating it would produce.
+   */
+  const showRecord = (index: number) => {
+    const record = records[index]
+    if (!record || !onPreviewRecord) return
+    onPreviewRecord(record)
+    setPreviewing(index)
+  }
+
   const importFile = async (file: File | undefined) => {
     if (!file) return
     setError(null)
@@ -99,6 +127,15 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
     // Into the same box the user types in, so an import can be read and corrected in place.
     setText(contents)
     setFileName(file.name)
+    // On the page immediately: a summary says how many rows there are, but
+    // only the document itself says what one of them will look like.
+    const parsed = parseRecords(contents)
+    if (!('error' in parsed) && parsed.records[0] && onPreviewRecord) {
+      onPreviewRecord(parsed.records[0])
+      setPreviewing(0)
+    } else {
+      setPreviewing(null)
+    }
     // The zip and the failure list belong to the data that has just been replaced.
     setJobId(null)
   }
@@ -221,6 +258,35 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
               </p>
             )}
           </div>
+          {records.length > 0 && onPreviewRecord && (
+            <div className="flex items-center gap-1.5" data-testid="generate-preview">
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={previewing === null || previewing <= 0}
+                onClick={() => showRecord((previewing ?? 0) - 1)}
+                aria-label="Show the row before"
+                data-testid="generate-preview-prev"
+              >
+                <ChevronLeft />
+              </Button>
+              <span className="min-w-0 flex-1 truncate text-center text-xs text-muted-foreground" data-testid="generate-preview-label">
+                {previewing === null
+                  ? `${records.length} ${records.length === 1 ? 'row' : 'rows'} · show one on the page`
+                  : `Showing row ${previewing + 1} of ${records.length}`}
+              </span>
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={previewing !== null && previewing >= records.length - 1}
+                onClick={() => showRecord(previewing === null ? 0 : previewing + 1)}
+                aria-label="Show the next row"
+                data-testid="generate-preview-next"
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          )}
           {summary && <DataSummary summary={summary} targets={targets} />}
           {error && <p className="text-xs text-destructive" data-testid="generate-error">{error}</p>}
           <Button

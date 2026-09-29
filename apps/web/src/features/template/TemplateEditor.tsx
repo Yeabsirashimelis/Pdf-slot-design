@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { cellName, tableIdOfCell, tableStyle, toLayout, toSlots, toValues, type Point, type Slot, type TableStyle } from '@pdf-slot/core'
+import { cellName, recordToValues, tableIdOfCell, tableStyle, toLayout, toSlots, toValues, type DataRecord, type Point, type Slot, type TableStyle } from '@pdf-slot/core'
 import { apiUrl } from '@/lib/persistence'
 import type { SessionStore, TemplateStore } from '@/lib/persistence/templateStore'
 import { Editor, type NamingState } from '@/features/editor/Editor'
@@ -165,6 +165,25 @@ export function TemplateEditor({
     [fileId, editor.slots, names, tables.tables],
   )
   const currentValues = useMemo(() => toValues(fileId, allSlots, new Date().toISOString()), [fileId, allSlots])
+
+  /**
+   * Pours one record of a data file into the boxes on the page, so what a
+   * file will produce can be read off the document itself before a job is
+   * ever started.
+   *
+   * Every box the record names is set and every box it does not is
+   * emptied: what is on the page is then that record and nothing else,
+   * which is what the generated PDF will be. It is one undo step, so the
+   * work it writes over is one Ctrl+Z away.
+   */
+  const previewRecord = useCallback((record: DataRecord) => {
+    const values = recordToValues(currentLayout, record)
+    const texts: Record<string, string> = {}
+    for (const cell of tables.cells) texts[cell.id] = values[cell.id] ?? ''
+    tables.setTexts(texts)
+    for (const slot of editor.slots) editor.updateSlot(slot.id, { text: values[slot.id] ?? '' })
+    editor.commitEdit()
+  }, [currentLayout, editor, tables])
   useDebouncedWrite(currentLayout, (l) => store.putLayout(l))
   useDebouncedWrite(currentValues, (v) => store.putValues(v))
 
@@ -337,7 +356,7 @@ export function TemplateEditor({
           tables.remove(id)
         }}
         onShowShortcuts={() => setShortcutsOpen(true)}
-        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} targets={fillTargets} filledIn={filledIn} onSaveNow={saveNow} /> : undefined}
+        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} targets={fillTargets} filledIn={filledIn} onSaveNow={saveNow} onPreviewRecord={previewRecord} /> : undefined}
       />
       <main className="relative min-w-0 flex-1">
         <Editor

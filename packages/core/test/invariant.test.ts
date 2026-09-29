@@ -7,6 +7,8 @@ import { normalizePdf } from '../src/document/normalize.js'
 import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { createFontMetrics } from '../src/layout/metrics.js'
 import { MIN_TEXT_WIDTH, layoutText, slotInset, slotLayout } from '../src/layout/wrap.js'
+import { recordToValues } from '../src/document/records.js'
+import { toSlots } from '../src/document/template.js'
 import { tableCells, tableFromStored, type TemplateTable } from '../src/document/table.js'
 import type { Slot } from '../src/document/types.js'
 import { requireContentStreamText } from './helpers/content-stream.js'
@@ -264,4 +266,51 @@ test('a table saved in the old shape still prints where it always did', async ()
 
   const tops = tableCells(restored).filter((_, i) => i % 4 === 0).map((cell) => cell.y)
   expect(tops).toEqual([668, 646, 624])
+})
+
+test('the row put on the page is the row that gets generated', async () => {
+  // The editor previews a record by running it through recordToValues and
+  // writing the result into the boxes; the job renders a record by running
+  // it through the same function. One function, so the two cannot drift --
+  // and drift here means the page shows one thing and the zip holds
+  // another, which is the same promise as preview equals download.
+  const table = paddedTable(3)
+  const layout = {
+    fileId: 'f'.repeat(64),
+    updatedAt: '2026-09-29T00:00:00.000Z',
+    slots: [{
+      id: 's1', name: 'Client', order: 0, page: 0, x: 60, y: 720, width: 200,
+      fontId: 'sans' as const, size: 11, color: { r: 0, g: 0, b: 0 },
+      align: 'left' as const, lineHeight: 1.2,
+    }],
+    tables: [table],
+  }
+  const record = {
+    Client: 'Abel',
+    [table.name]: [
+      { 'No.': '1', Date: '03/14', Description: 'Doors', Amount: '10.00' },
+      { 'No.': '2', Date: '03/28', Description: 'Grid', Amount: '20.00' },
+    ],
+  }
+
+  const values = recordToValues(layout, record)
+  const slots = toSlots(layout, { fileId: layout.fileId, updatedAt: layout.updatedAt, values })
+
+  // What the overlay would draw for those boxes...
+  const metrics = createFontMetrics(fonts.sans)
+  const shown = slots.flatMap((slot) => layoutText(slotLayout(slot, slot.text, metrics), metrics))
+  // ...against what the writer actually puts on the page.
+  const out = await renderPdf(await doc(), slots, fonts)
+  const drawn = extractDrawnPositions(requireContentStreamText(out))
+
+  expect(shown.length).toBeGreaterThan(0)
+  expect(drawn).toHaveLength(shown.length)
+  shown.forEach((line, i) => {
+    expect(drawn[i]?.x).toBeCloseTo(line.x, 3)
+    expect(drawn[i]?.y).toBeCloseTo(line.baselineY, 3)
+  })
+
+  // And the record really reached both: the words are the record's own.
+  expect(shown.map((l) => l.text)).toContain('Abel')
+  expect(shown.map((l) => l.text)).toContain('10.00')
 })

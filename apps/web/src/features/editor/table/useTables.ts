@@ -179,6 +179,11 @@ export function useTables(store: {
       update(id, (table) => ({ ...table, style: { ...table.style, ...patch } }), false)
     },
 
+    /** Every cell at once, as one undo step: what previewing a record does. */
+    setTexts(next: Record<string, string>) {
+      store.setTables({ texts: next }, true)
+    },
+
     setCellText(cell: string, text: string) {
       // Typing is live: a word becomes one undo step, not one per letter.
       store.setTables({ texts: { ...texts, [cell]: text } }, false)

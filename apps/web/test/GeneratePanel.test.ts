@@ -300,3 +300,66 @@ describe('GeneratePanel: what happens to the boxes the data leaves out', () => {
     expect(order).toEqual([])
   })
 })
+
+describe('GeneratePanel: the data goes on the page', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  beforeEach(() => { vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset(); localStorage.clear() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  const open = (props: Record<string, unknown> = {}) => {
+    render(createElement(GeneratePanel, {
+      apiUrl: 'http://api.test', fileId, targets: { slotNames: ['Name'], tables: [] }, ...props,
+    }))
+    if (screen.queryByTestId('generate-panel') === null) fireEvent.click(screen.getByTestId('generate-toggle'))
+  }
+  const rows = 'Name\nAbel\nSara\nTeddy\n'
+
+  it('puts the first row on the page the moment a file is imported', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    pick(new File([rows], 'rows.csv', { type: 'text/csv' }))
+
+    await waitFor(() => expect(onPreviewRecord).toHaveBeenCalledWith({ Name: 'Abel' }))
+    expect(screen.getByTestId('generate-preview-label').textContent).toBe('Showing row 1 of 3')
+  })
+
+  it('steps through the rows, and stops at each end', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    pick(new File([rows], 'rows.csv', { type: 'text/csv' }))
+    await waitFor(() => expect(screen.getByTestId('generate-preview-label').textContent).toBe('Showing row 1 of 3'))
+
+    // Nothing before the first.
+    expect((screen.getByTestId('generate-preview-prev') as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Name: 'Sara' })
+    expect(screen.getByTestId('generate-preview-label').textContent).toBe('Showing row 2 of 3')
+
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Name: 'Teddy' })
+    // And nothing after the last.
+    expect((screen.getByTestId('generate-preview-next') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('offers to show a row for data that was pasted rather than imported', () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    type(rows)
+
+    // Pasting does not take the page over -- it is typed a letter at a
+    // time, and a page rewritten on every keystroke is unusable.
+    expect(onPreviewRecord).not.toHaveBeenCalled()
+    expect(screen.getByTestId('generate-preview-label').textContent).toBe('3 rows · show one on the page')
+
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(onPreviewRecord).toHaveBeenCalledWith({ Name: 'Abel' })
+  })
+
+  it('has nothing to show when the box is empty or the data is unusable', () => {
+    open({ onPreviewRecord: vi.fn() })
+    expect(screen.queryByTestId('generate-preview')).toBeNull()
+    type('Name,Name\nAbel,Sara\n')
+    expect(screen.queryByTestId('generate-preview')).toBeNull()
+  })
+})
