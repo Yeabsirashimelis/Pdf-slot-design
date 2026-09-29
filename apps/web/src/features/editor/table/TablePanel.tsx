@@ -107,7 +107,10 @@ export function TablePanel({
               isSelected && 'bg-accent text-accent-foreground hover:bg-accent',
             )}
           >
-            <span className="w-10 shrink-0 text-xs text-muted-foreground tabular-nums">Row {row + 1}</span>
+            {/* Wide enough for three digits and told not to wrap: at the
+                old width "Row 10" broke over two lines the moment a table
+                reached ten rows, and every row after it was double height. */}
+            <span className="w-14 shrink-0 whitespace-nowrap text-xs text-muted-foreground tabular-nums">Row {row + 1}</span>
             <span
               className={cn('min-w-0 flex-1 truncate text-xs', preview === '' && 'italic opacity-60')}
               data-testid={`table-row-preview-${table.id}-${row}`}

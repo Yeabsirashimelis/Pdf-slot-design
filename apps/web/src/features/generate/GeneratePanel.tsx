@@ -79,19 +79,28 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
 
   const failures = job?.items.filter((i) => i.status === 'failed') ?? []
   return (
-    <div className="grid gap-3" data-testid="generate-panel">
-      <Separator />
+    /* px-3 lines this up with the "Slots" heading above it, and the
+       separator is pulled back out to the panel's edges: it divides the
+       sidebar, so it should run the width of the sidebar.
+
+       The form controls are a size down from their defaults. This is a
+       256px sidebar whose every other line is text-xs; at the stock
+       text-sm the fields read as a different, larger interface that
+       happens to be sitting inside this one. (`md:` too, because that is
+       the breakpoint the stock size comes back at.) */
+    <div className="grid gap-3 px-3 pb-3" data-testid="generate-panel">
+      <Separator className="-mx-3 w-auto" />
       <div>
         <h3 className="text-sm font-medium">Generate from data</h3>
         <p className="text-xs text-muted-foreground">One PDF per row. Column names must match the slot names.</p>
       </div>
       <div className="grid gap-1.5">
-        <Label htmlFor="generate-key">API key</Label>
-        <Input id="generate-key" data-testid="generate-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
+        <Label htmlFor="generate-key" className="text-xs">API key</Label>
+        <Input id="generate-key" className="text-xs md:text-xs" data-testid="generate-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
       </div>
       <div className="grid gap-1.5">
-        <Label htmlFor="generate-file">Import a file</Label>
-        <Input id="generate-file" data-testid="generate-file" type="file" accept=".csv,.json,text/csv,application/json"
+        <Label htmlFor="generate-file" className="text-xs">Import a file</Label>
+        <Input id="generate-file" className="text-xs md:text-xs file:text-xs" data-testid="generate-file" type="file" accept=".csv,.json,text/csv,application/json"
           onChange={(e) => {
             const picked = e.target.files?.[0]
             // Cleared so that picking the same file again -- after fixing it -- still fires a change.
@@ -101,13 +110,13 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
         {fileName && <p className="truncate text-xs text-muted-foreground" data-testid="generate-file-name">{fileName}</p>}
       </div>
       <div className="grid gap-1.5">
-        <Label htmlFor="generate-records">Records (JSON array or CSV)</Label>
-        <Textarea id="generate-records" data-testid="generate-records" rows={6} value={text} onChange={(e) => setText(e.target.value)}
+        <Label htmlFor="generate-records" className="text-xs">Records (JSON array or CSV)</Label>
+        <Textarea id="generate-records" className="text-xs md:text-xs" data-testid="generate-records" rows={4} value={text} onChange={(e) => setText(e.target.value)}
           placeholder={'Name,Date\nAbel,18 Sep 2026'} />
       </div>
       {summary && <DataSummary summary={summary} slotNames={slotNames} />}
       {error && <p className="text-xs text-destructive" data-testid="generate-error">{error}</p>}
-      <Button onClick={() => void submit()} disabled={running || blocked} data-testid="generate-submit">
+      <Button size="sm" onClick={() => void submit()} disabled={running || blocked} data-testid="generate-submit">
         {running ? 'Generating…' : 'Generate PDFs'}
       </Button>
       {job && (
@@ -117,7 +126,7 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
             {job.done + job.failed} / {job.total} {job.status === 'failed' ? `— failed: ${job.error ?? ''}` : ''}
           </p>
           {job.status === 'done' && (
-            <Button render={<a href={zipUrl(apiUrl, job.id)} data-testid="generate-zip" />} nativeButton={false} variant="outline">
+            <Button size="sm" render={<a href={zipUrl(apiUrl, job.id)} data-testid="generate-zip" />} nativeButton={false} variant="outline">
               Download zip ({job.done} PDFs)
             </Button>
           )}
