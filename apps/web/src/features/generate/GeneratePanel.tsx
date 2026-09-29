@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { checkColumns, noColumnsMatch, noColumnsMatchMessage, validateBeforeSubmit, type ColumnCheck } from './checkColumns'
+import { checkColumns, noColumnsMatch, noColumnsMatchMessage, validateBeforeSubmit, type ColumnCheck, type FillTargets } from './checkColumns'
 import { createJob, zipUrl } from './jobsClient'
 import { parseRecords } from './parseRecords'
 import { useJobPolling } from './useJobPolling'
@@ -36,7 +36,7 @@ type Summary =
   | (ColumnCheck & { kind: 'data'; rows: number; nothingMatches: boolean })
 
 /** Step 2: paste or import a list of records, get one PDF per record from the server, download the zip. */
-export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; fileId: string; slotNames: readonly string[] }) {
+export function GeneratePanel({ apiUrl, fileId, targets }: { apiUrl: string; fileId: string; targets: FillTargets }) {
   const [apiKey, setApiKey] = useState(readKey)
   const [open, setOpen] = useState(readOpen)
   const [text, setText] = useState('')
@@ -50,12 +50,12 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
     if (text.trim() === '') return null
     const parsed = parseRecords(text)
     if ('error' in parsed) return { kind: 'error', message: parsed.error }
-    const check = checkColumns(parsed.records, slotNames)
+    const check = checkColumns(parsed.records, targets)
     // An extra column or a deliberately blank slot is legitimate, so neither blocks. Nothing
     // matching at all never is: it is the wrong file, or a header row that was never these slots.
-    const nothingMatches = noColumnsMatch(check, slotNames)
+    const nothingMatches = noColumnsMatch(check, targets)
     return { kind: 'data', rows: parsed.records.length, nothingMatches, ...check }
-  }, [text, slotNames])
+  }, [text, targets])
   const blocked = summary === null || summary.kind === 'error' || summary.nothingMatches
 
   const importFile = async (file: File | undefined) => {
@@ -79,7 +79,7 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
     setError(null)
     // The `disabled` prop on the button is a convenience, not the guard: this is the function that
     // actually calls the API, so it refuses on its own rather than trusting the button was disabled.
-    const validated = validateBeforeSubmit({ text, slotNames, apiKey })
+    const validated = validateBeforeSubmit({ text, targets, apiKey })
     if ('error' in validated) { setError(validated.error); return }
     saveKey(apiKey)
     const result = await createJob(apiUrl, fileId, validated.records, apiKey)
@@ -87,6 +87,7 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
     setJobId(result.jobId)
   }
 
+  const hasTables = targets.tables.length > 0
   const failures = job?.items.filter((i) => i.status === 'failed') ?? []
   return (
     <Collapsible
@@ -112,7 +113,11 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
             happens to be sitting inside this one. (`md:` too, because that
             is the breakpoint the stock size comes back at.) */}
         <div className="grid gap-3 px-3 pb-3" data-testid="generate-panel">
-          <p className="text-xs text-muted-foreground">One PDF per row. Column names must match the slot names.</p>
+          <p className="text-xs text-muted-foreground">
+            {hasTables
+              ? 'One PDF per record. Names must match your slots and tables; a table\'s rows go in a list under its name.'
+              : 'One PDF per row. Column names must match the slot names.'}
+          </p>
           <div className="grid gap-1.5">
             <Label htmlFor="generate-key" className="text-xs">API key</Label>
             <Input id="generate-key" className="text-xs md:text-xs" data-testid="generate-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
@@ -152,11 +157,18 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
             {fileName && <p className="truncate text-xs text-muted-foreground" data-testid="generate-file-name">{fileName}</p>}
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="generate-records" className="text-xs">Records (JSON array or CSV)</Label>
+            <Label htmlFor="generate-records" className="text-xs">
+              {hasTables ? 'Records (JSON array)' : 'Records (JSON array or CSV)'}
+            </Label>
             <Textarea id="generate-records" className="text-xs md:text-xs" data-testid="generate-records" rows={4} value={text} onChange={(e) => setText(e.target.value)}
-              placeholder={'Name,Date\nAbel,18 Sep 2026'} />
+              placeholder={hasTables ? tableExample(targets) : 'Name,Date\nAbel,18 Sep 2026'} />
+            {hasTables && (
+              <p className="text-xs text-muted-foreground" data-testid="generate-csv-note">
+                A CSV is one flat line per PDF, so it can fill slots but never a table. Use JSON for a table, or for both at once.
+              </p>
+            )}
           </div>
-          {summary && <DataSummary summary={summary} slotNames={slotNames} />}
+          {summary && <DataSummary summary={summary} targets={targets} />}
           {error && <p className="text-xs text-destructive" data-testid="generate-error">{error}</p>}
           <Button size="sm" onClick={() => void submit()} disabled={running || blocked} data-testid="generate-submit">
             {running ? 'Generating…' : 'Generate PDFs'}
@@ -186,28 +198,74 @@ export function GeneratePanel({ apiUrl, fileId, slotNames }: { apiUrl: string; f
 }
 
 /** The live read-out under the box: what the data holds, or the one reason it cannot be used. */
-function DataSummary({ summary, slotNames }: { summary: Summary; slotNames: readonly string[] }) {
+function DataSummary({ summary, targets }: { summary: Summary; targets: FillTargets }) {
   if (summary.kind === 'error') {
     return <p className="text-xs text-destructive" data-testid="generate-summary">{summary.message}</p>
   }
-  const { rows, columns, unknown, missing, suggestions, nothingMatches } = summary
+  const { rows, columns, unknown, missing, suggestions, nothingMatches, tables, wrongKind } = summary
+  const thing = targets.tables.length === 0 ? 'slot' : 'slot or table'
   return (
     <div className="grid gap-0.5 text-xs" data-testid="generate-summary">
       <p className="text-muted-foreground">{`${rows} ${rows === 1 ? 'row' : 'rows'} · columns: ${columns.join(', ')}`}</p>
       {nothingMatches ? (
-        <p className="text-destructive">{noColumnsMatchMessage(slotNames)}</p>
+        <p className="text-destructive">{noColumnsMatchMessage(targets)}</p>
       ) : (
         <>
           {unknown.map((column) => (
             <p key={column} className="text-muted-foreground">
-              {`Ignored: "${column}" matches no slot.${suggestions[column] ? ` Did you mean "${suggestions[column]}"?` : ''}`}
+              {`Ignored: "${column}" matches no ${thing}.${suggestions[column] ? ` Did you mean "${suggestions[column]}"?` : ''}`}
             </p>
           ))}
           {missing.map((name) => (
             <p key={name} className="text-muted-foreground">{`Left blank: "${name}" has no column.`}</p>
           ))}
+          {/* A name that matched but was given the wrong sort of value:
+              worth its own line, because "Ignored: matches no slot" would
+              be a lie and would send the user hunting for a typo. */}
+          {wrongKind.map((note) => (
+            <p key={note} className="text-destructive">{note}</p>
+          ))}
+          {tables.map((table) => (
+            <div key={table.name} className="grid gap-0.5">
+              {table.unknown.map((column) => (
+                <p key={column} className="text-muted-foreground">
+                  {`Ignored: "${column}" matches no column of "${table.name}".${table.suggestions[column] ? ` Did you mean "${table.suggestions[column]}"?` : ''}`}
+                </p>
+              ))}
+              {table.missing.map((column) => (
+                <p key={column} className="text-muted-foreground">{`Left blank: "${table.name}" column "${column}" has no data.`}</p>
+              ))}
+              {table.extraRows > 0 && (
+                <p className="text-destructive" data-testid={`generate-extra-rows-${table.name}`}>
+                  {`"${table.name}" has ${table.extraRows} more ${table.extraRows === 1 ? 'row' : 'rows'} of data than it has rows on the page; ${table.extraRows === 1 ? 'it' : 'they'} will not print. Add rows to the table, or shorten the data.`}
+                </p>
+              )}
+            </div>
+          ))}
         </>
       )}
     </div>
   )
+}
+
+/**
+ * The shape to write, spelled out with this file's own names -- a shorter
+ * road to a working file than any wording of the rule.
+ */
+function tableExample(targets: FillTargets): string {
+  const slot = targets.slotNames[0]
+  const table = targets.tables[0]
+  const row = (table?.columns ?? []).slice(0, 2)
+  const cells = row.length > 0 ? row.map((c, i) => `"${c}": "${i + 1}"`).join(', ') : '"Column 1": "1"'
+  const lines = [
+    '[',
+    '  {',
+    ...(slot ? [`    "${slot}": "…",`] : []),
+    `    "${table?.name ?? 'Table 1'}": [`,
+    `      { ${cells} }`,
+    '    ]',
+    '  }',
+    ']',
+  ]
+  return lines.join('\n')
 }

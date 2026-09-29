@@ -1,8 +1,9 @@
 import { jobStatusSchema, type JobStatus } from '@pdf-slot/contracts'
+import type { JobRecord } from '@pdf-slot/contracts'
 
 const base = (apiUrl: string) => apiUrl.replace(/\/$/, '')
 
-export async function createJob(apiUrl: string, fileId: string, records: Record<string, string>[], apiKey: string): Promise<{ jobId: string } | { error: string }> {
+export async function createJob(apiUrl: string, fileId: string, records: JobRecord[], apiKey: string): Promise<{ jobId: string } | { error: string }> {
   try {
     const res = await fetch(`${base(apiUrl)}/files/${fileId}/jobs`, {
       method: 'POST',

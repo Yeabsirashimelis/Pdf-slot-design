@@ -54,14 +54,17 @@ const doc: EditorDocument = { id: 'file-1', source: new Uint8Array([1, 2, 3]), p
 const newFile: OpenedFile = { doc, name: 'log.pdf', fileId: 'file-1', layout: null, values: null }
 
 /** Draws the first row of a table with the table tool, over the page. */
-async function drawTable(container: HTMLElement) {
+async function drawTable(container: HTMLElement, top = 100) {
+  // Counted rather than assumed to be the first: a second table drawn on
+  // the same page has to wait for one more cell, not for exactly one.
+  const before = container.querySelectorAll('[data-slot-id]').length
   fireEvent.click(screen.getByTestId('table-tool'))
   const layer = await waitFor(() => screen.getByTestId('table-draw-layer'))
   // jsdom reports a zero-sized box, so client px are stage px (points).
-  fireEvent.pointerDown(layer, { pointerId: 1, clientX: 40, clientY: 100 })
-  fireEvent.pointerMove(layer, { pointerId: 1, clientX: 240, clientY: 116 })
+  fireEvent.pointerDown(layer, { pointerId: 1, clientX: 40, clientY: top })
+  fireEvent.pointerMove(layer, { pointerId: 1, clientX: 240, clientY: top + 16 })
   fireEvent.pointerUp(layer, { pointerId: 1 })
-  await waitFor(() => expect(container.querySelectorAll('[data-slot-id]').length).toBe(1))
+  await waitFor(() => expect(container.querySelectorAll('[data-slot-id]').length).toBe(before + 1))
 }
 
 /** The draggable boundaries on the frame -- not the panel's column fields. */
@@ -525,5 +528,46 @@ describe('table row slots', () => {
     expect(drawn.map((s) => s.text)).toEqual(['Row one', ''])
     // Both cells are ordinary slots on the page, at the table's geometry.
     expect(drawn[0]).toMatchObject({ page: 0, x: 40, y: 692, width: 200 })
+  })
+
+  describe('a table has a name, and a data file addresses it by that name', () => {
+    it('is named by position to begin with, shown in the panel, and renamed from the inspector', async () => {
+      const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+      const store = memoryStore()
+      const { container } = render(createElement(TemplateEditor, { opened: newFile, store, onStartOver: vi.fn() }))
+      await drawTable(container)
+      const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+
+      // Addressable from the moment it exists, without anyone naming it.
+      expect(screen.getByTestId(`table-name-${tableId}`).textContent).toContain('Table 1')
+      const field = screen.getByTestId('table-name') as HTMLInputElement
+      expect(field.value).toBe('Table 1')
+
+      fireEvent.change(field, { target: { value: 'Change orders' } })
+      fireEvent.blur(field)
+      await waitFor(() => expect(screen.getByTestId(`table-name-${tableId}`).textContent).toContain('Change orders'))
+
+      // And it is the saved name, which is what the generator matches on.
+      fireEvent.click(screen.getByTestId('panel-save'))
+      await waitFor(() => expect(store.layouts.get(newFile.fileId)?.tables?.[0]?.name).toBe('Change orders'))
+    })
+
+    it('will not let a second table take the first one\'s name', async () => {
+      const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+      const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+      await drawTable(container)
+      const field = screen.getByTestId('table-name') as HTMLInputElement
+      fireEvent.change(field, { target: { value: 'Change orders' } })
+      fireEvent.blur(field)
+      await waitFor(() => expect((screen.getByTestId('table-name') as HTMLInputElement).value).toBe('Change orders'))
+
+      await drawTable(container, 300)
+      const second = screen.getByTestId('table-name') as HTMLInputElement
+      fireEvent.change(second, { target: { value: 'Change orders' } })
+      fireEvent.blur(second)
+      // Two tables of one name could not both be addressed, so the clash is
+      // settled here rather than left for the data file to fall over on.
+      await waitFor(() => expect((screen.getByTestId('table-name') as HTMLInputElement).value).toBe('Change orders 2'))
+    })
   })
 })

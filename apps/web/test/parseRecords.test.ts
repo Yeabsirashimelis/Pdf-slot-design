@@ -18,9 +18,6 @@ describe('parseRecords', () => {
     })
   })
   it('names the row and the key of a value that is not a single piece of text', () => {
-    expect(parseRecords('[{"Name":"Abel"},{"items":["a","b"]}]')).toEqual({
-      error: 'Row 2, "items": expected text, got a list',
-    })
     expect(parseRecords('[{"who":{"first":"Abel"}}]')).toEqual({
       error: 'Row 1, "who": expected text, got an object',
     })
@@ -74,5 +71,36 @@ describe('parseRecords', () => {
   it('refuses more rows than a job can hold', () => {
     const csv = `Name\n${Array.from({ length: MAX_JOB_RECORDS + 1 }, (_, i) => `row ${i}`).join('\n')}\n`
     expect(parseRecords(csv)).toEqual({ error: `${MAX_JOB_RECORDS + 1} rows is more than the limit of ${MAX_JOB_RECORDS}` })
+  })
+})
+
+describe('parseRecords: a list under a key is a table\'s rows', () => {
+  it('keeps the rows, alongside the record\'s own text', () => {
+    const text = '[{"Client":"Abel","Change orders":[{"No":"1"},{"No":"2"}]}]'
+    expect(parseRecords(text)).toEqual({
+      records: [{ Client: 'Abel', 'Change orders': [{ No: '1' }, { No: '2' }] }],
+    })
+  })
+
+  it('reads a cell the same way it reads a slot: numbers and booleans print, null is blank', () => {
+    expect(parseRecords('[{"T":[{"Amount":1200,"Paid":true,"Note":null}]}]')).toEqual({
+      records: [{ T: [{ Amount: '1200', Paid: 'true', Note: '' }] }],
+    })
+  })
+
+  it('names the record, the key and the row when a row is not an object', () => {
+    expect(parseRecords('[{"Name":"Abel"},{"items":["a","b"]}]')).toEqual({
+      error: 'Row 2, "items": row 1 of the table is not an object',
+    })
+  })
+
+  it('names the cell when a cell has an inside of its own', () => {
+    expect(parseRecords('[{"T":[{"No":"1"},{"No":{"deep":1}}]}]')).toEqual({
+      error: 'Row 1, "T": row 2 of the table, "No": expected text, got an object',
+    })
+  })
+
+  it('refuses an empty list, which would fill nothing and say nothing', () => {
+    expect(parseRecords('[{"T":[]}]')).toEqual({ error: 'Row 1, "T": a table needs at least one row' })
   })
 })

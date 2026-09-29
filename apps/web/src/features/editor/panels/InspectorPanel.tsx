@@ -40,6 +40,7 @@ export function InspectorPanel({
   emptySlots,
   onSave,
   table = null,
+  onRenameTable,
   onRenameColumn,
   onResizeColumn,
   onAddColumn,
@@ -65,6 +66,8 @@ export function InspectorPanel({
   onSave(): void
   /** Set when the selection is a table cell: the table's own settings show below. */
   table?: TemplateTable | null
+  /** The name a data file addresses the selected table by. */
+  onRenameTable?(name: string): void
   onRenameColumn?(key: string, name: string): void
   onResizeColumn?(key: string, width: number): void
   onAddColumn?(): void
@@ -272,6 +275,7 @@ export function InspectorPanel({
           <TableInspector
             table={table}
             locked={locked}
+            onRename={(name) => onRenameTable?.(name)}
             onRenameColumn={(key, columnName) => onRenameColumn?.(key, columnName)}
             onResizeColumn={(key, width) => onResizeColumn?.(key, width)}
             onAddColumn={() => onAddColumn?.()}

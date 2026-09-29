@@ -17,6 +17,7 @@ import { NumberField } from '../panels/NumberField'
 export function TableInspector({
   table,
   locked = false,
+  onRename,
   onRenameColumn,
   onResizeColumn,
   onAddColumn,
@@ -24,6 +25,8 @@ export function TableInspector({
 }: {
   table: TemplateTable
   locked?: boolean
+  /** The name a data file addresses this table by. */
+  onRename(name: string): void
   onRenameColumn(key: string, name: string): void
   onResizeColumn(key: string, width: number): void
   /** Splits the last column in two, so the columns already set keep their widths. */
@@ -34,6 +37,19 @@ export function TableInspector({
     <>
       <Separator />
       <section className="flex flex-col gap-2" data-testid="table-inspector">
+        {/* The name first, because it is the one thing about a table that
+            has to be known outside the editor: a data file addresses its
+            rows by it, exactly as it addresses a slot by that slot's name. */}
+        <h2 className="text-xs font-medium text-muted-foreground">Table name</h2>
+        <EditableName
+          key={table.name}
+          label="Table name"
+          name={table.name}
+          disabled={locked}
+          testId="table-name"
+          onRename={onRename}
+        />
+
         <div className="flex items-center gap-1.5">
           <h2 className="flex-1 text-xs font-medium text-muted-foreground">Columns</h2>
           <HintButton
@@ -51,8 +67,9 @@ export function TableInspector({
 
         {table.columns.map((column) => (
           <div key={column.key} className="flex items-center gap-1.5">
-            <ColumnName
+            <EditableName
               key={`${column.key}:${column.name}`}
+              label="Column name"
               name={column.name}
               disabled={locked}
               testId={`table-column-name-${column.key}`}
@@ -87,13 +104,15 @@ export function TableInspector({
   )
 }
 
-/** A column's name: committed on Enter or blur, reverted on Escape. */
-function ColumnName({
+/** A name typed into the panel: committed on Enter or blur, reverted on Escape. */
+function EditableName({
+  label,
   name,
   disabled,
   testId,
   onRename,
 }: {
+  label: string
   name: string
   disabled: boolean
   testId: string
@@ -118,7 +137,7 @@ function ColumnName({
   }
   return (
     <Input
-      aria-label="Column name"
+      aria-label={label}
       data-testid={testId}
       className="h-7 min-w-0 flex-1 text-[0.8rem]"
       value={draft ?? name}

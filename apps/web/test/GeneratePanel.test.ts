@@ -13,8 +13,9 @@ const status = (over: Partial<Record<string, unknown>>) => ({
 // The panel opens shut, so every case starts by opening it -- which is
 // what someone about to generate does, and keeps these cases about the
 // form rather than about the disclosure.
+const slots = (...slotNames: string[]) => ({ slotNames, tables: [] })
 const panel = (slotNames: string[] = ['Name']) => {
-  const rendered = render(createElement(GeneratePanel, { apiUrl: 'http://api.test', fileId, slotNames }))
+  const rendered = render(createElement(GeneratePanel, { apiUrl: 'http://api.test', fileId, targets: slots(...slotNames) }))
   fireEvent.click(screen.getByTestId('generate-toggle'))
   return rendered
 }
@@ -137,5 +138,64 @@ describe('GeneratePanel', () => {
     await waitFor(() => expect(screen.getByTestId('generate-error').textContent).toBe('Could not read that file'))
     expect(records()).toBe('[{"Name":"A"}]')
     expect(screen.queryByTestId('generate-file-name')).toBeNull()
+  })
+})
+
+describe('GeneratePanel: a file with a table', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  beforeEach(() => { vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset(); localStorage.clear() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  const log = {
+    slotNames: ['Client'],
+    tables: [{ name: 'Change orders', columns: ['No', 'Amount'], rowCount: 2 }],
+  }
+  const withTable = () => {
+    const rendered = render(createElement(GeneratePanel, { apiUrl: 'http://api.test', fileId, targets: log }))
+    fireEvent.click(screen.getByTestId('generate-toggle'))
+    return rendered
+  }
+
+  it('says a CSV cannot fill a table, and offers the shape that can', () => {
+    withTable()
+    expect(screen.getByTestId('generate-csv-note').textContent).toContain('never a table')
+    const placeholder = (screen.getByTestId('generate-records') as HTMLTextAreaElement).placeholder
+    expect(placeholder).toContain('"Client"')
+    expect(placeholder).toContain('"Change orders"')
+    expect(placeholder).toContain('"No"')
+  })
+
+  it('generates from rows alone, from text alone, and from both', () => {
+    withTable()
+    const summary = () => screen.getByTestId('generate-summary').textContent ?? ''
+
+    type('[{"Client":"Abel"}]')
+    expect(submit().disabled).toBe(false)
+    expect(summary()).toContain('Left blank: "Change orders" has no column.')
+
+    type('[{"Change orders":[{"No":"1","Amount":"10.00"}]}]')
+    expect(submit().disabled).toBe(false)
+    expect(summary()).toContain('Left blank: "Client" has no column.')
+
+    type('[{"Client":"Abel","Change orders":[{"No":"1","Amount":"10.00"}]}]')
+    expect(submit().disabled).toBe(false)
+    expect(summary()).not.toContain('Left blank')
+  })
+
+  it('warns before generating when the data has more rows than the table has lines', () => {
+    withTable()
+    type('[{"Change orders":[{"No":"1"},{"No":"2"},{"No":"3"},{"No":"4"}]}]')
+    expect(screen.getByTestId('generate-extra-rows-Change orders').textContent)
+      .toContain('2 more rows of data than it has rows on the page')
+    // A warning, not a refusal: the rows that fit still print.
+    expect(submit().disabled).toBe(false)
+  })
+
+  it('refuses when the record names the table but none of its columns', () => {
+    withTable()
+    type('[{"Change orders":[{"Nope":"1"}]}]')
+    expect(screen.getByTestId('generate-summary').textContent)
+      .toContain('None of these columns match your slots or tables (Client, Change orders)')
+    expect(submit().disabled).toBe(true)
   })
 })

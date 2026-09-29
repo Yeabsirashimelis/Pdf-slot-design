@@ -131,6 +131,17 @@ export function TemplateEditor({
   // every render would re-parse the pasted rows each time.
   const slotNames = useMemo(() => Object.values(names), [names])
 
+  // What a data file can fill: the named boxes, and the named tables with
+  // the columns and the number of ruled lines each one has.
+  const fillTargets = useMemo(() => ({
+    slotNames,
+    tables: tables.tables.map((table) => ({
+      name: table.name,
+      columns: table.columns.map((column) => column.name),
+      rowCount: table.rowHeights.length,
+    })),
+  }), [slotNames, tables.tables])
+
   // Debounced safety-net writes of both records; Save writes at once.
   const currentLayout = useMemo(
     () => toLayout(fileId, editor.slots, names, new Date().toISOString(), tables.tables),
@@ -301,7 +312,7 @@ export function TemplateEditor({
           tables.remove(id)
         }}
         onShowShortcuts={() => setShortcutsOpen(true)}
-        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} slotNames={slotNames} /> : undefined}
+        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} targets={fillTargets} /> : undefined}
       />
       <main className="relative min-w-0 flex-1">
         <Editor
@@ -344,6 +355,7 @@ export function TemplateEditor({
           if (selected) slotStore.updateSlot(selected.id, patch)
         }}
         table={selectedTable}
+        onRenameTable={(name) => selectedTable && tables.rename(selectedTable.id, name)}
         onRenameColumn={(key, name) => selectedTable && tables.renameColumn(selectedTable.id, key, name)}
         onResizeColumn={(key, width) => selectedTable && tables.setColumnWidth(selectedTable.id, key, width)}
         onAddColumn={() => selectedTable && tables.addColumn(selectedTable.id)}

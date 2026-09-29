@@ -63,8 +63,15 @@ export function TablePanel({
     <div className="flex flex-col gap-0.5" data-testid={`table-panel-${table.id}`}>
       <div className="flex items-center gap-1.5 px-2 pt-2 pb-1">
         <Rows3 className="size-3.5 shrink-0 opacity-70" aria-hidden />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
-          Table · {table.columns.length} column{table.columns.length === 1 ? '' : 's'}
+        {/* The name, not the word "Table": it is what a data file has to
+            say to fill this table, so it belongs where it can be read
+            without selecting anything. */}
+        <span
+          className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground"
+          data-testid={`table-name-${table.id}`}
+          title={`${table.name} · ${table.columns.length} column${table.columns.length === 1 ? '' : 's'}`}
+        >
+          {table.name} · {table.columns.length} column{table.columns.length === 1 ? '' : 's'}
         </span>
         <HintButton
           hint="Add a row below the last one, at the same spacing"

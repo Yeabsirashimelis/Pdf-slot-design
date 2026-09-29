@@ -1,7 +1,7 @@
 import Papa, { type ParseError } from 'papaparse'
-import { MAX_JOB_RECORDS } from '@pdf-slot/contracts'
+import { MAX_JOB_RECORDS, type JobRecord, type JobTableRows } from '@pdf-slot/contracts'
 
-export type ParsedRecords = { records: Record<string, string>[] } | { error: string }
+export type ParsedRecords = { records: JobRecord[] } | { error: string }
 
 /** A pasted JSON array of objects, or CSV whose header row names the slots. */
 export function parseRecords(text: string): ParsedRecords {
@@ -18,7 +18,7 @@ export function parseRecords(text: string): ParsedRecords {
 }
 
 /** The server refuses a job past this size; refused here too, where the user can still fix the data. */
-function withinLimit(records: Record<string, string>[]): ParsedRecords {
+function withinLimit(records: JobRecord[]): ParsedRecords {
   if (records.length > MAX_JOB_RECORDS) {
     return { error: `${records.length} rows is more than the limit of ${MAX_JOB_RECORDS}` }
   }
@@ -30,11 +30,17 @@ function parseJson(text: string): ParsedRecords {
   try { data = JSON.parse(text) } catch { return { error: 'Not valid JSON' } }
   if (!Array.isArray(data)) return { error: 'Expected a JSON array of objects' }
   if (data.length === 0) return { error: 'The list is empty' }
-  const records: Record<string, string>[] = []
+  const records: JobRecord[] = []
   for (const [i, row] of data.entries()) {
     if (typeof row !== 'object' || row === null || Array.isArray(row)) return { error: `Row ${i + 1} is not an object` }
-    const record: Record<string, string> = {}
+    const record: JobRecord = {}
     for (const [key, value] of Object.entries(row)) {
+      if (Array.isArray(value)) {
+        const rows = asTableRows(value)
+        if (typeof rows === 'string') return { error: `Row ${i + 1}, "${key}": ${rows}` }
+        record[key] = rows
+        continue
+      }
       const printable = asText(value)
       if (printable === null) return { error: `Row ${i + 1}, "${key}": expected text, got ${aKindOf(value)}` }
       record[key] = printable
@@ -42,6 +48,29 @@ function parseJson(text: string): ParsedRecords {
     records.push(record)
   }
   return withinLimit(records)
+}
+
+/**
+ * A list under a key is a table's rows: one object per printed row, keyed
+ * by column name, values read the same way a slot's value is. Returns the
+ * rows, or the one sentence saying what is wrong with them.
+ */
+function asTableRows(value: readonly unknown[]): JobTableRows | string {
+  if (value.length === 0) return 'a table needs at least one row'
+  const rows: JobTableRows = []
+  for (const [i, row] of value.entries()) {
+    if (typeof row !== 'object' || row === null || Array.isArray(row)) {
+      return `row ${i + 1} of the table is not an object`
+    }
+    const cells: Record<string, string> = {}
+    for (const [column, cell] of Object.entries(row)) {
+      const printable = asText(cell)
+      if (printable === null) return `row ${i + 1} of the table, "${column}": expected text, got ${aKindOf(cell)}`
+      cells[column] = printable
+    }
+    rows.push(cells)
+  }
+  return rows
 }
 
 /**
