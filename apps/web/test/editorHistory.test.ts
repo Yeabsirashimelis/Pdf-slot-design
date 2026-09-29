@@ -228,7 +228,7 @@ describe('editorHistory: applyReplace', () => {
 
 describe('editorHistory: tables travel with the slots', () => {
   const table = (id: string, width: number) => ({
-    id, page: 0, x: 40, y: 500,
+    id, name: `Table ${id}`, page: 0, x: 40, y: 500,
     columns: [{ key: 'c1', name: 'No.', width }],
     rowHeights: [20, 20],
     style: { fontId: 'sans' as const, size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left' as const, lineHeight: 1.2 },

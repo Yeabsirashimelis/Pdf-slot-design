@@ -47,7 +47,7 @@ test('layout -> slots -> layout round-trips', () => {
 })
 
 const table: TemplateTable = {
-  id: 't1', page: 0, x: 40, y: 500,
+  id: 't1', name: 'Change orders', page: 0, x: 40, y: 500,
   columns: [{ key: 'c1', name: 'No.', width: 30 }, { key: 'c2', name: 'Date', width: 60 }],
   rowHeights: [20, 20],
   style: { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 },

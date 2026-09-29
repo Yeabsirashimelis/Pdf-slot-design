@@ -146,6 +146,7 @@ test("the exported PDF's line breaks match what the layout engine predicted", as
 function paddedTable(padding: number): TemplateTable {
   return {
     id: 'tbl1',
+    name: 'Change orders',
     page: 0,
     x: 50,
     y: 668,

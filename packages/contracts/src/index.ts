@@ -46,6 +46,8 @@ export const tableStyleSchema = z.object({
  */
 export const templateTableSchema = z.object({
   id: z.string().min(1),
+  /** What a data file calls this table; a record's rows are addressed by it. */
+  name: z.string().min(1),
   page: z.number().int().min(0),
   x: z.number(),
   y: z.number(),
@@ -98,7 +100,17 @@ export const storedFileSummarySchema = z.object({
 export type StoredFileSummary = z.infer<typeof storedFileSummarySchema>
 
 /** One record per PDF: slot name -> text. Unknown keys are ignored, missing slots are left blank. */
-export const jobRecordSchema = z.record(z.string(), z.string())
+/**
+ * One record: one PDF.
+ *
+ * A key holding text names a slot. A key holding a list of rows names a
+ * *table*, and the rows go down it -- which is why a record cannot be a
+ * flat grid, and why a table can only be filled from JSON. A record may
+ * carry either kind or both, and whatever matches the file is printed.
+ */
+export const jobTableRowsSchema = z.array(z.record(z.string(), z.string()))
+export const jobRecordSchema = z.record(z.string(), z.union([z.string(), jobTableRowsSchema]))
+export type JobTableRows = z.infer<typeof jobTableRowsSchema>
 export type JobRecord = z.infer<typeof jobRecordSchema>
 
 export const createJobRequestSchema = z.object({

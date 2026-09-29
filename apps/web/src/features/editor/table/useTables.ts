@@ -8,9 +8,11 @@ import {
   resizeColumnBoundary,
   applyRowRemoval,
   cellId,
+  defaultTableName,
   removeTableRow,
   resizeColumn,
   tableIdOfCell,
+  uniqueTableName,
   type Slot,
   type TableStyle,
   type TemplateTable,
@@ -62,6 +64,9 @@ export function useTables(store: {
     create(row: DrawnRow, style: TableStyle): TemplateTable {
       const table: TemplateTable = {
         id: `tbl${randomId()}`,
+        // Named after its position to begin with, like a slot is: it has
+        // to be addressable by a data file from the moment it exists.
+        name: uniqueTableName(defaultTableName(tables.length), tables.map((t) => t.name)),
         page: row.page,
         x: row.x,
         y: row.y,
@@ -97,6 +102,14 @@ export function useTables(store: {
 
     setColumnWidth(id: string, key: string, width: number) {
       update(id, (table) => resizeColumn(table, key, width))
+    },
+
+    /** The name a data file addresses this table by; kept apart from every other table's. */
+    rename(id: string, name: string) {
+      update(id, (table) => ({
+        ...table,
+        name: uniqueTableName(name, tables.filter((t) => t.id !== id).map((t) => t.name)),
+      }))
     },
 
     renameColumn(id: string, key: string, name: string) {

@@ -4,8 +4,11 @@ import {
   applyRowRemoval,
   cellId,
   cellName,
+  defaultTableName,
   columnLeft,
   removeTableRow,
+  tableCellValues,
+  uniqueTableName,
   resizeColumn,
   tableCells,
   tableHeight,
@@ -29,6 +32,7 @@ const rows = (n: number, height = 22) => Array.from({ length: n }, () => height)
 function makeTable(overrides: Partial<TemplateTable> = {}): TemplateTable {
   return {
     id: 't1',
+    name: 'Change orders',
     page: 0,
     x: 40,
     y: 500,
@@ -291,5 +295,63 @@ describe('a table\'s style is typography and nothing else', () => {
     const table = tableFromStored(poisoned)
     expect(Object.keys(table.style).sort()).toEqual(['align', 'color', 'fontId', 'lineHeight', 'size'])
     expect(tableCells(table).slice(0, 4).map((c) => c.width)).toEqual([30, 60, 260, 80])
+  })
+})
+
+describe('a table is filled from a data file by name', () => {
+  const rowsOf = (n: number) => Array.from({ length: n }, (_, i) => ({
+    'No.': String(i + 1), Date: `03/1${i}`, Description: `Item ${i + 1}`, Amount: `${i + 1}00.00`,
+  }))
+
+  it('puts each row of the data down the table, keyed by column name', () => {
+    const table = makeTable()
+    const { values, extraRows } = tableCellValues(table, rowsOf(2))
+
+    expect(extraRows).toBe(0)
+    expect(values[cellId('t1', 0, 'c1')]).toBe('1')
+    expect(values[cellId('t1', 0, 'c3')]).toBe('Item 1')
+    expect(values[cellId('t1', 1, 'c4')]).toBe('200.00')
+    // Row three of the table was not in the data, so it stays as it is.
+    expect(values[cellId('t1', 2, 'c1')]).toBeUndefined()
+  })
+
+  it('leaves a column no row mentions blank and ignores a key naming no column', () => {
+    const table = makeTable()
+    const { values } = tableCellValues(table, [{ 'No.': '1', Nonsense: 'ignored' }])
+
+    expect(values[cellId('t1', 0, 'c1')]).toBe('1')
+    expect(Object.values(values)).not.toContain('ignored')
+    expect(values[cellId('t1', 0, 'c2')]).toBeUndefined()
+  })
+
+  it('counts the rows that do not fit rather than printing where there is no line', () => {
+    // makeTable is ten rows; twelve rows of data is two too many.
+    const { values, extraRows } = tableCellValues(makeTable(), rowsOf(12))
+
+    expect(extraRows).toBe(2)
+    expect(values[cellId('t1', 9, 'c1')]).toBe('10')
+    expect(values[cellId('t1', 10, 'c1')]).toBeUndefined()
+  })
+})
+
+describe('table names', () => {
+  it('numbers a table by its position until it is renamed', () => {
+    expect(defaultTableName(0)).toBe('Table 1')
+    expect(defaultTableName(2)).toBe('Table 3')
+  })
+
+  it('will not hand out a name another table already has', () => {
+    expect(uniqueTableName('Change orders', [])).toBe('Change orders')
+    expect(uniqueTableName('Change orders', ['Change orders'])).toBe('Change orders 2')
+    expect(uniqueTableName('Change orders', ['Change orders', 'Change orders 2'])).toBe('Change orders 3')
+    // A name that is only spaces is no name at all.
+    expect(uniqueTableName('   ', ['Table 1'])).toBe('Table 2')
+  })
+
+  it('names a table that was saved before tables had names', () => {
+    const stored = { ...makeTable(), name: undefined }
+    expect(tableFromStored(stored, 1).name).toBe('Table 2')
+    // And leaves a name that is already there alone.
+    expect(tableFromStored(makeTable(), 1).name).toBe('Change orders')
   })
 })

@@ -4,6 +4,7 @@ import { cellsWithText, isCell, textsOfCells } from '@/features/editor/table/tab
 
 const table: TemplateTable = {
   id: 't1',
+  name: 'Change orders',
   page: 0,
   x: 40,
   y: 500,

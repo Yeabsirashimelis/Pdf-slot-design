@@ -42,6 +42,16 @@ export type TableStyle = {
 
 export type TemplateTable = {
   id: string
+  /**
+   * What a data file calls this table.
+   *
+   * A slot's name is how a record says which box a value goes in; a
+   * table needs the same, because a record has to be able to say which
+   * table its rows are for. Named rather than derived from its position
+   * so that moving a table, or adding one before it, does not silently
+   * point every data file at a different table.
+   */
+  name: string
   page: number
   /** Left edge of the first column, PDF points. */
   x: number
@@ -152,6 +162,33 @@ export function tableCells(table: TemplateTable): Slot[] {
     }
   })
   return cells
+}
+
+/**
+ * A data file's rows, turned into the text of this table's cells.
+ *
+ * A row object is keyed by column *name*, the way a record is keyed by
+ * slot name; the cell it fills is found by the column's key, which is
+ * what survives a rename. Both lists are allowed to be the wrong length:
+ * a column no row mentions prints blank, a key naming no column prints
+ * nowhere, and rows past the last one the table has print nowhere either
+ * -- there is no ruled line under them to print on. `extraRows` says how
+ * many were left over so the caller can say so before generating rather
+ * than after.
+ */
+export function tableCellValues(
+  table: TemplateTable,
+  rows: readonly Record<string, string>[],
+): { values: Record<string, string>; extraRows: number } {
+  const values: Record<string, string> = {}
+  const fits = Math.min(rows.length, table.rowHeights.length)
+  for (let row = 0; row < fits; row++) {
+    for (const column of table.columns) {
+      const text = rows[row]![column.name]
+      if (text !== undefined && text !== '') values[cellId(table.id, row, column.key)] = text
+    }
+  }
+  return { values, extraRows: rows.length - fits }
 }
 
 /** The same table with one column a different width; the columns after it shift along. */
@@ -308,18 +345,24 @@ export function setTableHeight(table: TemplateTable, height: number): TemplateTa
  * pitch: the rows close up, but every row's top stays where it was and
  * text sits at the top of its box, so nothing printed moves.
  */
-type LegacyTable = Omit<TemplateTable, 'rowHeights'> &
-  Partial<Pick<TemplateTable, 'rowHeights'>> & {
+type LegacyTable = Omit<TemplateTable, 'rowHeights' | 'name'> &
+  Partial<Pick<TemplateTable, 'rowHeights' | 'name'>> & {
     rowHeight?: number
     rowPitch?: number
     rowCount?: number
   }
 
-export function tableFromStored(stored: LegacyTable): TemplateTable {
+export function tableFromStored(stored: LegacyTable, index = 0): TemplateTable {
   const { rowHeight, rowPitch, rowCount, ...rest } = stored
   // A style that swallowed a slot's geometry is cleaned out here, so a
   // table saved while that was possible lays itself out properly again.
-  const table = { ...rest, style: { ...tableStyle(stored.style), ...stored.style } as TableStyle }
+  const table = {
+    ...rest,
+    // Saved before tables had names. Named by position now so it can be
+    // addressed at all; the user renames it to whatever their data calls it.
+    name: stored.name && stored.name.trim() !== '' ? stored.name : defaultTableName(index),
+    style: { ...tableStyle(stored.style), ...stored.style } as TableStyle,
+  }
   table.style = tableStyle(table.style) as TableStyle
   if (stored.rowHeights && stored.rowHeights.length > 0) {
     return { ...table, rowHeights: stored.rowHeights }
@@ -327,4 +370,23 @@ export function tableFromStored(stored: LegacyTable): TemplateTable {
   const count = Math.max(1, Math.round(rowCount ?? 1))
   const height = Math.max(MIN_ROW_MEASURE, rowPitch ?? rowHeight ?? MIN_ROW_MEASURE)
   return { ...table, rowHeights: Array.from({ length: count }, () => height) }
+}
+
+/** What the nth table on a file is called until someone says otherwise. */
+export const defaultTableName = (index: number) => `Table ${index + 1}`
+
+/**
+ * A name no other table on the file already has.
+ *
+ * Two tables of one name cannot both be addressed, and a record naming
+ * that name would have to pick one, so a clash is settled when the table
+ * is made rather than left for the data file to fall over.
+ */
+export function uniqueTableName(wanted: string, taken: readonly string[]): string {
+  const trimmed = wanted.trim() === '' ? defaultTableName(taken.length) : wanted.trim()
+  if (!taken.includes(trimmed)) return trimmed
+  for (let n = 2; ; n++) {
+    const candidate = `${trimmed} ${n}`
+    if (!taken.includes(candidate)) return candidate
+  }
 }
