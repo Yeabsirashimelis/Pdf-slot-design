@@ -345,6 +345,15 @@ export function setTableHeight(table: TemplateTable, height: number): TemplateTa
  * pitch: the rows close up, but every row's top stays where it was and
  * text sits at the top of its box, so nothing printed moves.
  */
+/**
+ * A table as it may arrive from storage: everything a table is, except
+ * that one saved before tables had names has none. Nothing inside the
+ * app holds one of these -- a name is put on at the boundary -- but the
+ * wire format has to accept them, or every file saved before today
+ * stops opening.
+ */
+export type StoredTable = Omit<TemplateTable, 'name'> & { name?: string }
+
 type LegacyTable = Omit<TemplateTable, 'rowHeights' | 'name'> &
   Partial<Pick<TemplateTable, 'rowHeights' | 'name'>> & {
     rowHeight?: number

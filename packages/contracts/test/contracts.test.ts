@@ -47,3 +47,38 @@ describe('contracts', () => {
     expect(storedFileSummarySchema.parse({ fileId: hash, name: 'a.pdf', pageCount: 2, slotCount: 3, updatedAt: 't' }).slotCount).toBe(3)
   })
 })
+
+describe('a layout saved before tables had names still opens', () => {
+  const style = { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 }
+  const table = (over = {}) => ({
+    id: 't1', page: 0, x: 40, y: 500,
+    columns: [{ key: 'c1', name: 'No', width: 40 }],
+    rowHeights: [22],
+    style,
+    ...over,
+  })
+  const layout = (tables: unknown[]) => templateLayoutSchema.parse({
+    fileId: hash, slots: [slot], tables, updatedAt: '2026-09-29T00:00:00.000Z',
+  })
+
+  it('parses a table with no name, and names it by position', () => {
+    // The regression: making the name required stopped every file saved
+    // before today from opening at all.
+    expect(layout([table()]).tables?.[0]?.name).toBe('Table 1')
+    expect(layout([table(), table({ id: 't2' })]).tables?.map((t) => t.name)).toEqual(['Table 1', 'Table 2'])
+  })
+
+  it('leaves a name that is already there alone', () => {
+    expect(layout([table({ name: 'Change orders' })]).tables?.[0]?.name).toBe('Change orders')
+  })
+
+  it('will not hand two tables the same name, however they were saved', () => {
+    // An old table numbered into a name a named table already has.
+    expect(layout([table({ name: 'Table 2' }), table({ id: 't2' })]).tables?.map((t) => t.name))
+      .toEqual(['Table 2', 'Table 2 2'])
+  })
+
+  it('still refuses a name that is there but empty', () => {
+    expect(() => layout([table({ name: '' })])).toThrow()
+  })
+})

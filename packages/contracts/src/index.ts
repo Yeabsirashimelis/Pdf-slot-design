@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import type { FileId, PageSize, StoredFile, TableStyle, TemplateLayout, TemplateSlot, TemplateTable, TemplateValues } from '@pdf-slot/core'
+import { defaultTableName, uniqueTableName } from '@pdf-slot/core'
+import type { FileId, PageSize, StoredFile, StoredTable, TableStyle, TemplateLayout, TemplateSlot, TemplateValues } from '@pdf-slot/core'
 
 /** Request/response shapes shared by the API and the web client -- one source of truth, validated on both sides. */
 
@@ -46,8 +47,15 @@ export const tableStyleSchema = z.object({
  */
 export const templateTableSchema = z.object({
   id: z.string().min(1),
-  /** What a data file calls this table; a record's rows are addressed by it. */
-  name: z.string().min(1),
+  /**
+   * What a data file calls this table; a record's rows are addressed by it.
+   *
+   * Optional on the way in because every table saved before tables had
+   * names has none, and a layout that will not parse is a file that will
+   * not open. `templateLayoutSchema` names those, so everything past
+   * validation has one.
+   */
+  name: z.string().min(1).optional(),
   page: z.number().int().min(0),
   x: z.number(),
   y: z.number(),
@@ -58,12 +66,28 @@ export const templateTableSchema = z.object({
   })).min(1),
   rowHeights: z.array(z.number().positive()).min(1),
   style: tableStyleSchema,
-}) satisfies z.ZodType<TemplateTable>
+  // StoredTable, not TemplateTable: this is the shape on the wire, which
+  // may predate names. templateLayoutSchema is where one is put on.
+}) satisfies z.ZodType<StoredTable>
 
 export const templateLayoutSchema = z.object({
   fileId: fileIdSchema,
   slots: z.array(templateSlotSchema),
-  tables: z.array(templateTableSchema).optional(),
+  // Named here rather than anywhere further in: a table with no name
+  // cannot be addressed by a data file at all, and a name shared with
+  // another table could not be addressed unambiguously. Doing it at the
+  // boundary means nothing downstream -- editor, renderer or job -- has
+  // to carry the possibility of a table without a name.
+  tables: z.array(templateTableSchema)
+    .transform((tables) => {
+      const taken: string[] = []
+      return tables.map((table, index) => {
+        const name = uniqueTableName(table.name ?? defaultTableName(index), taken)
+        taken.push(name)
+        return { ...table, name }
+      })
+    })
+    .optional(),
   updatedAt: z.iso.datetime(),
 }) satisfies z.ZodType<TemplateLayout>
 
