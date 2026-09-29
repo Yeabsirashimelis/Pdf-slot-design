@@ -3,7 +3,7 @@ import { JOB_BATCH_SIZE } from '@pdf-slot/contracts'
 import { FatalError } from 'workflow'
 import { readAll } from '../blob/blobStore.js'
 import { getFileMeta } from '../db/files.js'
-import { getLayout } from '../db/layouts.js'
+import { getLayout, getValues } from '../db/layouts.js'
 import { getJobItems, getJobRow, listDoneItemPaths, markItem, setJobStatus } from '../db/jobs.js'
 import { getJobContext } from './context.js'
 import { itemFileName, itemPath, recordToValues, zipPath } from './records.js'
@@ -31,7 +31,7 @@ export async function loadJob(jobId: string): Promise<{ batches: number[][] }> {
   return { batches }
 }
 
-async function loadTemplate(jobId: string): Promise<{ doc: EditorDocument; layout: TemplateLayout }> {
+async function loadTemplate(jobId: string): Promise<{ doc: EditorDocument; layout: TemplateLayout; template: Record<string, string> }> {
   const { db, blobs } = await getJobContext()
   const row = await getJobRow(db, jobId)
   if (!row) throw new FatalError(`Job ${jobId} does not exist`)
@@ -39,19 +39,26 @@ async function loadTemplate(jobId: string): Promise<{ doc: EditorDocument; layou
   if (!file || !layout) throw new FatalError(`File or layout for job ${jobId} is gone`)
   const object = await blobs.get(file.blobPath)
   if (!object) throw new FatalError(`Source bytes for ${row.fileId} are gone`)
-  return { doc: await normalizePdf(await readAll(object.stream), row.fileId), layout }
+  // What was typed into the boxes in the editor, if this job asked for it
+  // to stand in where a record says nothing. Read once per batch, not per
+  // record, and left empty otherwise so nothing prints that was not asked for.
+  const template = row.fillFromTemplate ? (await getValues(db, row.fileId))?.values ?? {} : {}
+  return { doc: await normalizePdf(await readAll(object.stream), row.fileId), layout, template }
 }
 
 export async function renderBatch(jobId: string, indices: number[]): Promise<void> {
   'use step'
   const ctx = await getJobContext()
-  const [{ doc, layout }, fonts, items] = await Promise.all([loadTemplate(jobId), ctx.fonts(), getJobItems(ctx.db, jobId, indices)])
+  const [{ doc, layout, template }, fonts, items] = await Promise.all([loadTemplate(jobId), ctx.fonts(), getJobItems(ctx.db, jobId, indices)])
   const metrics = metricsFor(fonts)
   for (const { index, record, status } of items) {
     // A Workflow retry re-runs renderBatch from the top with the same indices; items this call (or an
     // earlier attempt at it) already finished must not be re-rendered or re-marked.
     if (status !== 'pending') continue
-    const slots = toSlots(layout, { fileId: layout.fileId, updatedAt: layout.updatedAt, values: recordToValues(layout, record) })
+    // The record wins wherever it says anything; the template fills the
+    // rest, which is nothing at all unless this job asked for it.
+    const values = { ...template, ...recordToValues(layout, record) }
+    const slots = toSlots(layout, { fileId: layout.fileId, updatedAt: layout.updatedAt, values })
     const unsupported = findUnsupportedSlots(slots, metrics)
     if (unsupported.length > 0) {
       const names = unsupported.map((u) => `${layout.slots.find((s) => s.id === u.slotId)?.name ?? u.slotId}: ${describeUnsupportedCharacters(u.characters)}`)

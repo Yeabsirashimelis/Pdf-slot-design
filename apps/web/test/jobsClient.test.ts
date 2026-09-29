@@ -15,7 +15,9 @@ describe('jobsClient', () => {
     const [url, init] = fetchMock.mock.calls[0]!
     expect(String(url)).toBe(`http://api.test/files/${fileId}/jobs`)
     expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer k')
-    expect(JSON.parse(String(init?.body))).toEqual({ records: [{ Name: 'A' }] })
+    // The choice rides along with the records: blank unless asked, so a
+    // caller that says nothing gets one PDF per record and nothing else.
+    expect(JSON.parse(String(init?.body))).toEqual({ records: [{ Name: 'A' }], fillFromTemplate: false })
   })
 
   it('a 202 without a job id is an error, not a job with an undefined id', async () => {

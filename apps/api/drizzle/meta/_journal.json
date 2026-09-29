@@ -15,6 +15,13 @@
       "when": 1790602148066,
       "tag": "0001_layout_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790690450776,
+      "tag": "0002_job_fill_from_template",
+      "breakpoints": true
     }
   ]
 }

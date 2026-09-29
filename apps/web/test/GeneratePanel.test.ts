@@ -42,7 +42,7 @@ describe('GeneratePanel', () => {
     const [url, init] = fetchMock.mock.calls[0]!
     expect(String(url)).toBe(`http://api.test/files/${fileId}/jobs`)
     expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer k')
-    expect(JSON.parse(String(init?.body))).toEqual({ records: [{ Name: 'A' }, { Name: 'B' }] })
+    expect(JSON.parse(String(init?.body))).toEqual({ records: [{ Name: 'A' }, { Name: 'B' }], fillFromTemplate: false })
     await waitFor(() => expect(screen.getByTestId('generate-progress').textContent).toContain('1 / 2'))
     await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
     await waitFor(() => expect(screen.getByTestId('generate-zip').getAttribute('href')).toBe('http://api.test/jobs/j1/zip'))
@@ -209,5 +209,94 @@ describe('GeneratePanel: a file with a table', () => {
     expect(screen.getByTestId('generate-summary').textContent)
       .toContain('None of these columns match your slots or tables (Client, Change orders)')
     expect(submit().disabled).toBe(true)
+  })
+})
+
+describe('GeneratePanel: what happens to the boxes the data leaves out', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  beforeEach(() => { vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset(); localStorage.clear() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  const open = (props: Record<string, unknown> = {}) => {
+    render(createElement(GeneratePanel, {
+      apiUrl: 'http://api.test', fileId, targets: { slotNames: ['Name', 'Company'], tables: [] }, ...props,
+    }))
+    if (screen.queryByTestId('generate-panel') === null) fireEvent.click(screen.getByTestId('generate-toggle'))
+  }
+  const body = () => JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))
+
+  it('asks, and prints what was typed when that is the answer', async () => {
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    open({ filledIn: ['Company'] })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+
+    // The data says nothing about Company, which the user filled in.
+    expect(screen.getByTestId('generate-template-dialog').textContent).toContain('Company')
+    fireEvent.click(screen.getByTestId('generate-keep-typed'))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(body().fillFromTemplate).toBe(true)
+  })
+
+  it('and leaves them blank when that is the answer', async () => {
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    open({ filledIn: ['Company'] })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+    fireEvent.click(screen.getByTestId('generate-leave-blank'))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(body().fillFromTemplate).toBe(false)
+  })
+
+  it('does not ask when the data covers everything that was typed in', async () => {
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    open({ filledIn: ['Name'] })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+
+    // Both answers would print the same thing, so there is nothing to ask.
+    expect(screen.queryByTestId('generate-template-dialog')).toBeNull()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(body().fillFromTemplate).toBe(false)
+  })
+
+  it('does not ask when nothing was typed in at all', async () => {
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    open()
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+    expect(screen.queryByTestId('generate-template-dialog')).toBeNull()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+  })
+
+  it('saves the layout before the job, and refuses to start if that fails', async () => {
+    // A job renders from the SAVED layout, and the editor's own writes are
+    // debounced: without this, a change made in the last second before
+    // Generate is not the one that prints.
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    const order: string[] = []
+    const onSaveNow = vi.fn(async () => { order.push('save') })
+    fetchMock.mockImplementation(async () => { order.push('job'); return okJson({ jobId: 'j1' }, 202) })
+
+    open({ filledIn: [], onSaveNow })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+    await waitFor(() => expect(order).toEqual(['save', 'job']))
+
+    // And a save that fails stops the job rather than printing the old layout.
+    cleanup()
+    order.length = 0
+    const failing = vi.fn(async () => { throw new Error('offline') })
+    open({ filledIn: [], onSaveNow: failing })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+    await waitFor(() => expect(screen.getByTestId('generate-error').textContent).toContain('Could not save the layout'))
+    expect(order).toEqual([])
   })
 })

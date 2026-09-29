@@ -145,6 +145,12 @@ export type JobRecord = z.infer<typeof jobRecordSchema>
 
 export const createJobRequestSchema = z.object({
   records: z.array(jobRecordSchema).min(1).max(MAX_JOB_RECORDS),
+  /**
+   * What happens to a slot the record does not mention: print what was
+   * typed into it in the editor, or print blank. Blank unless asked, so
+   * a caller that says nothing gets one PDF per record and nothing else.
+   */
+  fillFromTemplate: z.boolean().optional(),
 })
 export type CreateJobRequest = z.infer<typeof createJobRequestSchema>
 

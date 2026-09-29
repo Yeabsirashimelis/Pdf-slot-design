@@ -3,12 +3,12 @@ import type { JobRecord } from '@pdf-slot/contracts'
 
 const base = (apiUrl: string) => apiUrl.replace(/\/$/, '')
 
-export async function createJob(apiUrl: string, fileId: string, records: JobRecord[], apiKey: string): Promise<{ jobId: string } | { error: string }> {
+export async function createJob(apiUrl: string, fileId: string, records: JobRecord[], apiKey: string, fillFromTemplate = false): Promise<{ jobId: string } | { error: string }> {
   try {
     const res = await fetch(`${base(apiUrl)}/files/${fileId}/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ records }),
+      body: JSON.stringify({ records, fillFromTemplate }),
     })
     const body = (await res.json()) as { jobId?: unknown; error?: { message?: string } }
     if (!res.ok) return { error: res.status === 401 ? 'The API key was refused' : body.error?.message ?? `Request failed (${res.status})` }

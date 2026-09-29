@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
+import { boolean, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
 import type { TemplateTable, PageSize, TemplateSlot } from '@pdf-slot/core'
 import type { JobRecord } from '@pdf-slot/contracts'
 
@@ -39,6 +39,13 @@ export const jobs = pgTable('jobs', {
   error: text('error'),
   zipPath: text('zip_path'),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
+  /**
+   * Whether a slot the record leaves out prints what was typed into it in
+   * the editor, or prints blank. Kept on the job, not read from a setting
+   * at render time: a job that starts today must print the same thing if
+   * a step is retried tomorrow.
+   */
+  fillFromTemplate: boolean('fill_from_template').notNull().default(false),
   ...timestamps,
 })
 

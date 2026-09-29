@@ -12,11 +12,14 @@ export async function listJobBlobPathsForFile(db: Db, fileId: string): Promise<s
   return Array.from(paths)
 }
 
-export async function createJob(db: Db, input: { id: string; fileId: string; records: JobRecord[] }): Promise<void> {
+export async function createJob(db: Db, input: { id: string; fileId: string; records: JobRecord[]; fillFromTemplate?: boolean }): Promise<void> {
   // Transactional: without it, a failure partway through the chunk loop would leave a job row whose
   // item count never reaches `total`, and nothing would ever retry the missing chunks.
   await db.transaction(async (tx) => {
-    await tx.insert(jobs).values({ id: input.id, fileId: input.fileId, status: 'queued', total: input.records.length })
+    await tx.insert(jobs).values({
+      id: input.id, fileId: input.fileId, status: 'queued', total: input.records.length,
+      fillFromTemplate: input.fillFromTemplate ?? false,
+    })
     // Chunked: a single statement with 5000 rows is fine for Postgres but not for every driver's parameter limit.
     for (let i = 0; i < input.records.length; i += 500) {
       await tx.insert(jobItems).values(input.records.slice(i, i + 500).map((record, j) => ({ jobId: input.id, index: i + j, record })))
@@ -25,7 +28,7 @@ export async function createJob(db: Db, input: { id: string; fileId: string; rec
 }
 
 export async function getJobRow(db: Db, id: string) {
-  const [r] = await db.select({ id: jobs.id, fileId: jobs.fileId, status: jobs.status, total: jobs.total, zipPath: jobs.zipPath }).from(jobs).where(eq(jobs.id, id)).limit(1)
+  const [r] = await db.select({ id: jobs.id, fileId: jobs.fileId, status: jobs.status, total: jobs.total, zipPath: jobs.zipPath, fillFromTemplate: jobs.fillFromTemplate }).from(jobs).where(eq(jobs.id, id)).limit(1)
   return r ?? null
 }
 

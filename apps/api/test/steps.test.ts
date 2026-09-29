@@ -5,7 +5,7 @@ import { createTestDb } from './helpers/db.js'
 import { createMemoryBlobStore } from '../src/blob/memoryBlobStore.js'
 import { readAll } from '../src/blob/blobStore.js'
 import { upsertFile } from '../src/db/files.js'
-import { putLayout } from '../src/db/layouts.js'
+import { putLayout, putValues } from '../src/db/layouts.js'
 import { createJob, getJob } from '../src/db/jobs.js'
 import { setJobContext } from '../src/jobs/context.js'
 import { finishJob, loadJob, renderBatch } from '../src/jobs/steps.js'
@@ -15,7 +15,7 @@ import { requireContentStreamText } from '../../../packages/core/test/helpers/co
 
 const fonts = coreFonts()
 
-async function setup(records: Record<string, string>[]) {
+async function setup(records: Record<string, string>[], options: { fillFromTemplate?: boolean; typedIn?: Record<string, string> } = {}) {
   const db = await createTestDb()
   const blobs = createMemoryBlobStore()
   const bytes = await twoPagePdf()
@@ -23,7 +23,10 @@ async function setup(records: Record<string, string>[]) {
   await upsertFile(db, { fileId: FILE_ID, name: 'form.pdf', pages: [{ width: 612, height: 792 }, { width: 612, height: 792 }], blobPath: `files/${FILE_ID}.pdf`, createdAt: '2026-09-19T00:00:00.000Z' })
   const layout = { fileId: FILE_ID, updatedAt: '2026-09-19T00:00:00.000Z', slots: [slot(), slot({ id: 's2', name: 'Date', order: 1, page: 1, fontId: 'mono' })] } as never
   await putLayout(db, layout)
-  await createJob(db, { id: 'j1', fileId: FILE_ID, records })
+  if (options.typedIn) {
+    await putValues(db, { fileId: FILE_ID, values: options.typedIn, updatedAt: '2026-09-19T00:00:00.000Z' })
+  }
+  await createJob(db, { id: 'j1', fileId: FILE_ID, records, fillFromTemplate: options.fillFromTemplate })
   setJobContext({ db, blobs, fonts: async () => fonts })
   return { db, blobs, bytes, layout }
 }
@@ -77,5 +80,55 @@ describe('generation steps', () => {
     expect([job.done, job.failed]).toEqual([jobAfterFirst.done, jobAfterFirst.failed])
     expect([job.done, job.failed]).toEqual([2, 0])
     expect(blobs.paths().slice().sort()).toEqual(pathsAfterFirst)
+  })
+})
+
+describe('the boxes a record says nothing about', () => {
+  /**
+   * What the job actually drew, against what the renderer draws for a
+   * given set of values. Compared as content streams rather than searched
+   * for words: the glyphs are encoded against a subset font, so the words
+   * are not in the bytes to find.
+   */
+  const drawnFor = async (
+    blobs: ReturnType<typeof createMemoryBlobStore>,
+    bytes: Uint8Array,
+    layout: unknown,
+    values: Record<string, string>,
+  ) => {
+    const generated = await readAll((await blobs.get(itemPath('j1', 0)))!.stream)
+    const doc = await normalizePdf(bytes, FILE_ID)
+    const expected = await renderPdf(doc, toSlots(layout as never, { fileId: FILE_ID, updatedAt: 't', values }), fonts)
+    return [requireContentStreamText(generated), requireContentStreamText(expected)] as const
+  }
+
+  it('print blank by default, whatever was typed into them here', async () => {
+    // One PDF per record and nothing else: a caller that asks for nothing
+    // gets exactly what its data carries.
+    const { blobs, bytes, layout } = await setup([{ Name: 'Abel' }], { typedIn: { s2: 'Head office' } })
+    await renderBatch('j1', [0])
+    const [drawn, onlyTheRecord] = await drawnFor(blobs, bytes, layout, { s1: 'Abel' })
+    expect(drawn).toBe(onlyTheRecord)
+
+    const [, withTyped] = await drawnFor(blobs, bytes, layout, { s1: 'Abel', s2: 'Head office' })
+    expect(drawn).not.toBe(withTyped)
+  })
+
+  it('print what was typed into them when the job asked for it', async () => {
+    const { blobs, bytes, layout } = await setup([{ Name: 'Abel' }], { typedIn: { s2: 'Head office' }, fillFromTemplate: true })
+    await renderBatch('j1', [0])
+    const [drawn, expected] = await drawnFor(blobs, bytes, layout, { s1: 'Abel', s2: 'Head office' })
+    expect(drawn).toBe(expected)
+  })
+
+  it('and the record still wins wherever it says anything', async () => {
+    // The typed value is a fallback, never an override: a record that
+    // names the slot is the one that prints.
+    const { blobs, bytes, layout } = await setup([{ Name: 'Abel', Date: '18 Sep' }], {
+      typedIn: { s1: 'Someone else', s2: 'Head office' }, fillFromTemplate: true,
+    })
+    await renderBatch('j1', [0])
+    const [drawn, expected] = await drawnFor(blobs, bytes, layout, { s1: 'Abel', s2: '18 Sep' })
+    expect(drawn).toBe(expected)
   })
 })

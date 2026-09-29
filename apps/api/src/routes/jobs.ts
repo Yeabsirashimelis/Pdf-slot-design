@@ -31,7 +31,8 @@ jobsRoutes.post(
       throw new ApiError(400, 'no_layout', 'Lay out at least one slot or table before generating')
     }
     const id = crypto.randomUUID()
-    await createJob(db, { id, fileId, records: c.req.valid('json').records })
+    const { records, fillFromTemplate } = c.req.valid('json')
+    await createJob(db, { id, fileId, records, fillFromTemplate })
     try {
       await startJob(id)
     } catch (err) {

@@ -131,6 +131,23 @@ export function TemplateEditor({
   // every render would re-parse the pasted rows each time.
   const slotNames = useMemo(() => Object.values(names), [names])
 
+  /**
+   * The names of the boxes that have something typed into them, as a data
+   * file would have to name them: a plain slot by its own name, a table by
+   * the table's. What the generate panel offers to print on every PDF when
+   * the data file says nothing about them.
+   */
+  const filledIn = useMemo(() => {
+    const filled = new Set<string>()
+    for (const slot of editor.slots) if (slot.text.trim() !== '') filled.add(names[slot.id] ?? slot.id)
+    for (const cell of tables.cells) {
+      if (cell.text.trim() === '') continue
+      const table = tables.tableOf(cell.id)
+      if (table) filled.add(table.name)
+    }
+    return [...filled]
+  }, [editor.slots, tables, names])
+
   // What a data file can fill: the named boxes, and the named tables with
   // the columns and the number of ruled lines each one has.
   const fillTargets = useMemo(() => ({
@@ -233,10 +250,18 @@ export function TemplateEditor({
       }
     : null
 
+  /**
+   * Write what is on screen, now, and wait for it.
+   *
+   * The debounced writes above catch up a second after the last change;
+   * anything that reads this file back from the server sooner than that
+   * -- a generation job, which renders from the *saved* layout -- would
+   * otherwise render the state before the change.
+   */
+  const saveNow = () => Promise.all([store.putLayout(currentLayout), store.putValues(currentValues)])
+
   const handleSave = () => {
-    void Promise.all([store.putLayout(currentLayout), store.putValues(currentValues)]).then(() =>
-      toast.success('Saved'),
-    )
+    void saveNow().then(() => toast.success('Saved'))
   }
 
   const handleStartOver = () => {
@@ -312,7 +337,7 @@ export function TemplateEditor({
           tables.remove(id)
         }}
         onShowShortcuts={() => setShortcutsOpen(true)}
-        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} targets={fillTargets} /> : undefined}
+        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} targets={fillTargets} filledIn={filledIn} onSaveNow={saveNow} /> : undefined}
       />
       <main className="relative min-w-0 flex-1">
         <Editor

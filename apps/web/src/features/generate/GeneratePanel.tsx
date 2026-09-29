@@ -1,6 +1,16 @@
 'use client'
 import { ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
@@ -36,13 +46,31 @@ type Summary =
   | (ColumnCheck & { kind: 'data'; rows: number; nothingMatches: boolean })
 
 /** Step 2: paste or import a list of records, get one PDF per record from the server, download the zip. */
-export function GeneratePanel({ apiUrl, fileId, targets }: { apiUrl: string; fileId: string; targets: FillTargets }) {
+export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNow }: {
+  apiUrl: string
+  fileId: string
+  targets: FillTargets
+  /**
+   * The boxes that have something typed into them, by name -- what the
+   * user would see printed if they downloaded this one page. Offered as a
+   * choice when the data leaves any of them out.
+   */
+  filledIn?: readonly string[]
+  /**
+   * Writes the layout as it stands and waits for it. A job renders from
+   * the *saved* layout, and the editor's own writes are debounced, so
+   * without this a change made in the last second before Generate is not
+   * the one that prints.
+   */
+  onSaveNow?: () => Promise<unknown>
+}) {
   const [apiKey, setApiKey] = useState(readKey)
   const [open, setOpen] = useState(readOpen)
   const [text, setText] = useState('')
   const [fileName, setFileName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
+  const [asking, setAsking] = useState(false)
   const job = useJobPolling(apiUrl, jobId)
   const running = job?.status === 'queued' || job?.status === 'running' || (jobId !== null && job === null)
 
@@ -75,14 +103,36 @@ export function GeneratePanel({ apiUrl, fileId, targets }: { apiUrl: string; fil
     setJobId(null)
   }
 
-  const submit = async () => {
+  /**
+   * Boxes the user has filled in that this data file says nothing about.
+   * Only these make the question worth asking: with none, both answers
+   * print exactly the same thing.
+   */
+  const unanswered = useMemo(() => {
+    const parsed = parseRecords(text)
+    if ('error' in parsed) return []
+    const named = new Set<string>()
+    for (const record of parsed.records) for (const key of Object.keys(record)) named.add(key)
+    return filledIn.filter((name) => !named.has(name))
+  }, [text, filledIn])
+
+  const submit = async (fillFromTemplate: boolean) => {
     setError(null)
     // The `disabled` prop on the button is a convenience, not the guard: this is the function that
     // actually calls the API, so it refuses on its own rather than trusting the button was disabled.
     const validated = validateBeforeSubmit({ text, targets, apiKey })
     if ('error' in validated) { setError(validated.error); return }
     saveKey(apiKey)
-    const result = await createJob(apiUrl, fileId, validated.records, apiKey)
+    // Before the job, not after: it reads the layout from the server.
+    if (onSaveNow) {
+      try {
+        await onSaveNow()
+      } catch {
+        setError('Could not save the layout, so generating was stopped -- what printed would not have been what you see')
+        return
+      }
+    }
+    const result = await createJob(apiUrl, fileId, validated.records, apiKey, fillFromTemplate)
     if ('error' in result) { setError(result.error); return }
     setJobId(result.jobId)
   }
@@ -173,9 +223,47 @@ export function GeneratePanel({ apiUrl, fileId, targets }: { apiUrl: string; fil
           </div>
           {summary && <DataSummary summary={summary} targets={targets} />}
           {error && <p className="text-xs text-destructive" data-testid="generate-error">{error}</p>}
-          <Button size="sm" onClick={() => void submit()} disabled={running || blocked} data-testid="generate-submit">
+          <Button
+        size="sm"
+        onClick={() => { if (unanswered.length > 0) setAsking(true); else void submit(false) }}
+        disabled={running || blocked}
+        data-testid="generate-submit"
+      >
             {running ? 'Generating…' : 'Generate PDFs'}
           </Button>
+
+          {/* Asked only when the answer changes what prints: boxes filled
+              in here that the data file says nothing about. With none, both
+              answers produce the same PDFs and there is nothing to ask. */}
+          <AlertDialog open={asking} onOpenChange={(open) => { if (!open) setAsking(false) }}>
+            <AlertDialogContent data-testid="generate-template-dialog">
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {unanswered.length === 1
+                    ? `Your data says nothing about "${unanswered[0]}".`
+                    : `Your data says nothing about ${unanswered.length} of the boxes you filled in.`}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {`${unanswered.slice(0, 6).join(', ')}${unanswered.length > 6 ? `, and ${unanswered.length - 6} more` : ''}. ` +
+                    'Print what you typed into them on every PDF, or leave them blank and fill them from the data alone?'}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel
+                  data-testid="generate-leave-blank"
+                  onClick={() => { setAsking(false); void submit(false) }}
+                >
+                  Leave them blank
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  data-testid="generate-keep-typed"
+                  onClick={() => { setAsking(false); void submit(true) }}
+                >
+                  Print what I typed
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           {job && (
             <div className="grid gap-2">
               <Progress value={job.total === 0 ? 0 : ((job.done + job.failed) / job.total) * 100} />
