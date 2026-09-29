@@ -10,8 +10,14 @@ const status = (over: Partial<Record<string, unknown>>) => ({
   items: [{ index: 0, status: 'done', error: null }, { index: 1, status: 'pending', error: null }], ...over,
 })
 
-const panel = (slotNames: string[] = ['Name']) =>
-  render(createElement(GeneratePanel, { apiUrl: 'http://api.test', fileId, slotNames }))
+// The panel opens shut, so every case starts by opening it -- which is
+// what someone about to generate does, and keeps these cases about the
+// form rather than about the disclosure.
+const panel = (slotNames: string[] = ['Name']) => {
+  const rendered = render(createElement(GeneratePanel, { apiUrl: 'http://api.test', fileId, slotNames }))
+  fireEvent.click(screen.getByTestId('generate-toggle'))
+  return rendered
+}
 const type = (value: string) => fireEvent.change(screen.getByTestId('generate-records'), { target: { value } })
 const pick = (file: File) => fireEvent.change(screen.getByTestId('generate-file'), { target: { files: [file] } })
 const records = () => (screen.getByTestId('generate-records') as HTMLTextAreaElement).value

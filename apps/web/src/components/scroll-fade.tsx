@@ -5,7 +5,7 @@
 // direction to reach. See CLAUDE.md.
 'use client'
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
@@ -23,6 +23,7 @@ const EDGE_SLOP_PX = 2
 export function ScrollFade({
   children,
   className,
+  style,
   'data-testid': testId,
 }: {
   children?: ReactNode
@@ -33,6 +34,8 @@ export function ScrollFade({
    * the list scrolls inside and the box the fades are drawn over.
    */
   className?: string
+  /** For a cap that is computed rather than a Tailwind class, e.g. an exact number of rows. */
+  style?: CSSProperties
   'data-testid'?: string
 }) {
   const root = useRef<HTMLDivElement>(null)
@@ -84,7 +87,7 @@ export function ScrollFade({
        below it. A flex column with a flex-1 child caps the scroller
        against a parent whose own height is a max-height or a flex share,
        neither of which `height: 100%` can resolve against. */
-    <div ref={root} className={cn('relative flex min-h-0 flex-col', className)} data-testid={testId}>
+    <div ref={root} className={cn('relative flex min-h-0 flex-col', className)} style={style} data-testid={testId}>
       <ScrollArea className="min-h-0 flex-1">{children}</ScrollArea>
       <div
         aria-hidden

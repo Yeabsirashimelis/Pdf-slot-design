@@ -177,12 +177,17 @@ describe('table row slots', () => {
     // Six rows still fit, so nothing is capped.
     for (let i = 0; i < 5; i++) fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
     await waitFor(() => expect(cellBoxes(container)).toHaveLength(6))
-    expect(rows()!.className).not.toContain('max-h')
+    expect(rows().style.maxHeight).toBe('')
+    expect(rows().className).not.toContain('border')
 
-    // The seventh is where it starts to take the panel over.
+    // The seventh is where it starts to take the panel over. The cap is
+    // an exact six rows and their gaps plus the hairline, never a round
+    // number that would slice the sixth row across the middle.
     fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
     await waitFor(() => expect(cellBoxes(container)).toHaveLength(7))
-    expect(rows()!.className).toContain('max-h')
+    expect(rows().style.maxHeight).toBe(`${6 * 28 + 5 * 2 + 2}px`)
+    // And it says it is its own pane, so which list the wheel will move is visible.
+    expect(rows().className).toContain('border')
     // Every row is still listed -- capped, not cut.
     expect(screen.getByTestId(`table-row-${tableId}-6`)).not.toBeNull()
   })

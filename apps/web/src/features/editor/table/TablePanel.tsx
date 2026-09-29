@@ -19,6 +19,20 @@ import { cn } from '@/lib/utils'
  */
 const ROWS_BEFORE_SCROLL = 6
 
+/**
+ * A row's height, and the gap between two, in pixels -- `h-7` and
+ * `gap-0.5` below, written here as numbers so the cap can be worked out
+ * from them.
+ *
+ * The cap has to be an exact number of rows. Left as a round figure it
+ * lands mid-row, and a row sliced across the middle reads as a drawing
+ * fault rather than as "there is more below" -- which is the one thing
+ * the cap exists to say.
+ */
+const ROW_HEIGHT_PX = 28
+const ROW_GAP_PX = 2
+const SCROLL_CAP_PX = ROWS_BEFORE_SCROLL * ROW_HEIGHT_PX + (ROWS_BEFORE_SCROLL - 1) * ROW_GAP_PX
+
 export function TablePanel({
   table,
   texts,
@@ -76,8 +90,15 @@ export function TablePanel({
         </HintButton>
       </div>
 
+      {/* While it scrolls it is a pane of its own, and says so with a
+          hairline and an inset: without one, a list that scrolls inside a
+          list that also scrolls gives no clue which of the two the wheel
+          is about to move. */}
       <ScrollFade
-        className={scrolls ? 'max-h-[10.5rem]' : undefined}
+        className={cn(scrolls && 'rounded-md border border-border')}
+        // +2 for the hairline top and bottom, so the cap stays an exact
+        // number of rows rather than six rows minus the border.
+        style={scrolls ? { maxHeight: SCROLL_CAP_PX + 2 } : undefined}
         data-testid={`table-rows-${table.id}`}
       >
         <div className="flex flex-col gap-0.5">
@@ -103,7 +124,8 @@ export function TablePanel({
               }
             }}
             className={cn(
-              'group/row flex items-center gap-1.5 rounded-md px-2 py-1 text-sm outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring',
+              // A fixed height, because the cap above is worked out from it.
+              'group/row flex h-7 items-center gap-1.5 rounded-md px-2 text-sm outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring',
               isSelected && 'bg-accent text-accent-foreground hover:bg-accent',
             )}
           >
