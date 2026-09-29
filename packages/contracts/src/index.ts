@@ -27,6 +27,9 @@ export const templateSlotSchema = z.object({
   color: z.object({ r: z.number().min(0).max(1), g: z.number().min(0).max(1), b: z.number().min(0).max(1) }),
   align: z.enum(['left', 'center', 'right']),
   lineHeight: z.number().positive(),
+  paddingLeft: z.number().min(0).optional(),
+  paddingTop: z.number().min(0).optional(),
+  /** Both at once; still read so files saved before the two existed still open. */
   padding: z.number().min(0).optional(),
 }) satisfies z.ZodType<TemplateSlot>
 
@@ -37,6 +40,9 @@ export const tableStyleSchema = z.object({
   color: z.object({ r: z.number().min(0).max(1), g: z.number().min(0).max(1), b: z.number().min(0).max(1) }),
   align: z.enum(['left', 'center', 'right']),
   lineHeight: z.number().positive(),
+  paddingLeft: z.number().min(0).optional(),
+  paddingTop: z.number().min(0).optional(),
+  /** Both at once; still read so files saved before the two existed still open. */
   padding: z.number().min(0).optional(),
 }) satisfies z.ZodType<TableStyle>
 

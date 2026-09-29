@@ -33,10 +33,14 @@ export type TableStyle = {
   align: Align
   lineHeight: number
   /**
-   * Space kept clear inside every cell. Shared, because a table whose
-   * columns are padded differently looks like a mistake -- and because
-   * setting it once is the only bearable way to pad forty cells.
+   * Space kept clear inside every cell, left and top set apart. Shared,
+   * because a table whose columns are padded differently looks like a
+   * mistake -- and because setting it once is the only bearable way to
+   * pad forty cells.
    */
+  paddingLeft?: number
+  paddingTop?: number
+  /** @deprecated Both at once; kept so tables saved before the two existed still read. */
   padding?: number
 }
 
@@ -76,7 +80,7 @@ export type TemplateTable = {
  * typography, and a table that has swallowed an `x` or a `width` lays
  * every one of its cells out on top of the first (see `tableCells`).
  */
-export const TABLE_STYLE_KEYS = ['fontId', 'size', 'color', 'align', 'lineHeight', 'padding'] as const
+export const TABLE_STYLE_KEYS = ['fontId', 'size', 'color', 'align', 'lineHeight', 'paddingLeft', 'paddingTop', 'padding'] as const
 
 /** Just the typography out of whatever was handed over. */
 export function tableStyle(patch: Record<string, unknown>): Partial<TableStyle> {

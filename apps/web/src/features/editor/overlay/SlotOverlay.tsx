@@ -215,7 +215,11 @@ export function SlotOverlay({
   // the caret stands a padding away from the letters it belongs to. Padding
   // also narrows its content box to the width the lines were wrapped at, so
   // the row the caret lands on is the row the reader sees.
-  const insetPx = toScreenLength(slotInset(slot, metrics), viewport)
+  const inset = slotInset(slot, metrics)
+  const insetPx = {
+    left: toScreenLength(inset.left, viewport),
+    top: toScreenLength(inset.top, viewport),
+  }
 
   return (
     <div
@@ -378,7 +382,10 @@ export function SlotOverlay({
             border: 'none',
             outline: 'none',
             boxSizing: 'border-box',
-            padding: insetPx,
+            paddingLeft: insetPx.left,
+            paddingRight: insetPx.left,
+            paddingTop: insetPx.top,
+            paddingBottom: 0,
             margin: 0,
             background: 'transparent',
             color: 'transparent',

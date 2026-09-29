@@ -196,20 +196,36 @@ export function InspectorPanel({
             </Hint>
           </div>
 
+          {/* Left and top apart, because a printed form rarely wants the
+              same on both: a cell is nudged a couple of points off the
+              rule to its left and dropped further from the rule above it.
+              On a table cell these reach the table's shared style, so one
+              number pads every cell at once -- the only bearable way to
+              pad forty of them. */}
           <div className="grid grid-cols-2 gap-2">
-            {/* On a table cell this reaches the table's shared style, so
-                one number pads every cell at once -- which is the only
-                bearable way to pad forty of them. */}
-            <Hint label={isCell ? 'Padding, every cell (points)' : 'Padding (points)'}>
+            <Hint label={isCell ? 'Space inside the left and right edges, every cell (points)' : 'Space inside the left and right edges (points). Both, so right-aligned text is held off the right edge too.'}>
               <NumberField
-                aria-label="Padding"
-                data-testid="padding-input"
+                aria-label="Padding left"
+                data-testid="padding-left-input"
                 className="h-7 text-[0.8rem] tabular-nums"
-                value={selected?.padding ?? 0}
+                value={selected?.paddingLeft ?? selected?.padding ?? 0}
                 min={0}
                 max={72}
-                onCommit={(padding) => applyPatch({ padding })}
-                onPreview={previewPatch && ((padding) => previewPatch({ padding }))}
+                onCommit={(paddingLeft) => applyPatch({ paddingLeft })}
+                onPreview={previewPatch && ((paddingLeft) => previewPatch({ paddingLeft }))}
+                disabled={disabled}
+              />
+            </Hint>
+            <Hint label={isCell ? 'Space above the text, every cell (points)' : 'Space above the text (points)'}>
+              <NumberField
+                aria-label="Padding top"
+                data-testid="padding-top-input"
+                className="h-7 text-[0.8rem] tabular-nums"
+                value={selected?.paddingTop ?? selected?.padding ?? 0}
+                min={0}
+                max={72}
+                onCommit={(paddingTop) => applyPatch({ paddingTop })}
+                onPreview={previewPatch && ((paddingTop) => previewPatch({ paddingTop }))}
                 disabled={disabled}
               />
             </Hint>

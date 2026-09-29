@@ -119,30 +119,40 @@ export function slotLayout(slot: Slot, text: string, metrics?: FontMetrics): Lay
   return {
     text,
     size: slot.size,
-    width: slot.width - inset * 2,
+    width: slot.width - inset.left * 2,
     align: slot.align,
     lineHeight: slot.lineHeight,
-    originX: slot.x + inset,
+    originX: slot.x + inset.left,
     // PDF y grows upward, so insetting from the top means going down.
-    originY: slot.y - inset,
+    originY: slot.y - inset.top,
   }
 }
 
 /**
- * The padding actually applied: never more than the box can spare.
+ * The padding actually applied, each axis against what the box can spare.
  *
- * Two limits, and the tighter one wins. Across, the text must stay wide
+ * `left` is kept clear on the left *and* the right. Only the left edge is
+ * what a user is usually nudging text off, which is what it is called
+ * after -- but text can be right-aligned, and then it is the right edge
+ * that needs holding off the rule. One number for both is what lets a
+ * column of amounts sit inside its cell whichever way it is aligned.
+ *
+ * `top` is the top alone: there is nothing below the last line that a
+ * bottom padding would hold it off, since a box grows downward to fit.
+ *
+ * Both are clamped by what is left. Across, the text must stay wide
  * enough to be a line rather than a column of single letters. Down, a box
  * with a height of its own -- a table's cell, which owns its row -- must
- * still hold one line inside its padding, or the text would push the box
+ * still hold one line below its padding, or the text would push the box
  * past the row it belongs to and the table would come apart.
  */
-export function slotInset(slot: Slot, metrics?: FontMetrics): number {
-  const wanted = Math.max(0, slot.padding ?? 0)
+export function slotInset(slot: Slot, metrics?: FontMetrics): { left: number; top: number } {
+  const wantedLeft = Math.max(0, slot.paddingLeft ?? slot.padding ?? 0)
+  const wantedTop = Math.max(0, slot.paddingTop ?? slot.padding ?? 0)
   const across = Math.max(0, (slot.width - MIN_TEXT_WIDTH) / 2)
   const line = metrics ? metrics.ascender(slot.size) - metrics.descender(slot.size) : 0
-  const down = slot.height === undefined ? Infinity : Math.max(0, (slot.height - line) / 2)
-  return Math.min(wanted, across, down)
+  const down = slot.height === undefined ? Infinity : Math.max(0, slot.height - line)
+  return { left: Math.min(wantedLeft, across), top: Math.min(wantedTop, down) }
 }
 
 export function layoutText(input: LayoutInput, metrics: FontMetrics): PositionedLine[] {

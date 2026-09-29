@@ -154,4 +154,32 @@ describe('InspectorPanel', () => {
     fireEvent.click(download)
     expect(p.render).not.toHaveBeenCalled()
   })
+
+  it('sets the left and the top padding apart', () => {
+    // A printed form rarely wants the same on both: a couple of points off
+    // the rule to the left, a good deal further from the rule above.
+    const { applyPatch } = renderPanel()
+
+    fireEvent.change(screen.getByTestId('padding-left-input'), { target: { value: '3' } })
+    fireEvent.keyDown(screen.getByTestId('padding-left-input'), { key: 'Enter' })
+    expect(applyPatch).toHaveBeenCalledWith({ paddingLeft: 3 })
+
+    fireEvent.change(screen.getByTestId('padding-top-input'), { target: { value: '9' } })
+    fireEvent.keyDown(screen.getByTestId('padding-top-input'), { key: 'Enter' })
+    expect(applyPatch).toHaveBeenCalledWith({ paddingTop: 9 })
+  })
+
+  it('shows the one old padding in both boxes until either is set', () => {
+    // A file saved before the two existed carries a single number, and it
+    // stands in for whichever of the two has not been given its own.
+    cleanup()
+    renderPanel({ selected: { ...slot, padding: 5 } })
+    expect((screen.getByTestId('padding-left-input') as HTMLInputElement).value).toBe('5')
+    expect((screen.getByTestId('padding-top-input') as HTMLInputElement).value).toBe('5')
+
+    cleanup()
+    renderPanel({ selected: { ...slot, padding: 5, paddingTop: 12 } })
+    expect((screen.getByTestId('padding-left-input') as HTMLInputElement).value).toBe('5')
+    expect((screen.getByTestId('padding-top-input') as HTMLInputElement).value).toBe('12')
+  })
 })

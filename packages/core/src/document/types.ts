@@ -31,12 +31,21 @@ export type Slot = {
   height?: number
   text: string
   /**
-   * Space kept clear inside the box, PDF points, on every side.
+   * Space kept clear inside the box, PDF points.
    *
    * Text laid out hard against a ruled cell reads as if it is falling out
-   * of it. This insets the text without moving the box, so a slot lined
+   * of it. These inset the text without moving the box, so a slot lined
    * up with something printed stays lined up.
+   *
+   * The two are set apart because a printed form rarely wants the same
+   * on both: a cell is usually nudged off the rule to its left by a
+   * couple of points and dropped a good deal further from the rule above
+   * it. `padding` is what a file saved before that was possible carries,
+   * and stands in for either that is not set.
    */
+  paddingLeft?: number
+  paddingTop?: number
+  /** @deprecated Both at once; kept so files saved before the two existed still read. */
   padding?: number
   fontId: FontId
   size: number

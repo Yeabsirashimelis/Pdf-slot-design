@@ -34,6 +34,6 @@ export function layoutSlot(
   // dragged it (slot.height, a minimum) -- whichever is more.
   // The box has to hold the padding as well as the glyphs, or text
   // inset from the top would push out through the bottom.
-  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight, metrics) + slotInset(slot, metrics) * 2
+  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight, metrics) + slotInset(slot, metrics).top
   return { lines, boxHeight: Math.max(textHeight, slot.height ?? 0), placeholder }
 }

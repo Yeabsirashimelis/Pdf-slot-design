@@ -372,10 +372,15 @@ describe('SlotOverlay name and size', () => {
     // decided by a wrap width the reader never sees.
     const padded = { ...makeSlot(), padding: 6 }
     const { textarea } = renderOverlay(true, { slot: padded })
-    const expected = toScreenLength(slotInset(padded, metrics), { zoom: 1, pageHeight: 792 })
+    const inset = slotInset(padded, metrics)
+    const px = (pt: number) => toScreenLength(pt, { zoom: 1, pageHeight: 792 })
 
-    expect(expected).toBeGreaterThan(0)
-    expect(parseFloat(String(textarea.style.padding))).toBeCloseTo(expected, 5)
+    expect(inset.left).toBeGreaterThan(0)
+    expect(parseFloat(textarea.style.paddingLeft)).toBeCloseTo(px(inset.left), 5)
+    expect(parseFloat(textarea.style.paddingTop)).toBeCloseTo(px(inset.top), 5)
+    // Held off the right edge as well, so right-aligned text wraps and
+    // sits where the drawn line does.
+    expect(parseFloat(textarea.style.paddingRight)).toBeCloseTo(px(inset.left), 5)
     // Border-box, or the padding would widen the element past the slot and
     // undo the very alignment it was added for.
     expect(textarea.style.boxSizing).toBe('border-box')
@@ -383,6 +388,16 @@ describe('SlotOverlay name and size', () => {
 
   it('an unpadded slot keeps the textarea flush with the box', () => {
     const { textarea } = renderOverlay(true)
-    expect(parseFloat(String(textarea.style.padding))).toBe(0)
+    expect(parseFloat(textarea.style.paddingLeft)).toBe(0)
+    expect(parseFloat(textarea.style.paddingTop)).toBe(0)
+  })
+
+  it('left and top reach the textarea apart', () => {
+    const slot = { ...makeSlot(), paddingLeft: 3, paddingTop: 9 }
+    const { textarea } = renderOverlay(true, { slot })
+    const px = (pt: number) => toScreenLength(pt, { zoom: 1, pageHeight: 792 })
+
+    expect(parseFloat(textarea.style.paddingLeft)).toBeCloseTo(px(3), 5)
+    expect(parseFloat(textarea.style.paddingTop)).toBeCloseTo(px(9), 5)
   })
 })

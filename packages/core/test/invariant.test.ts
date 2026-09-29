@@ -6,7 +6,7 @@ import { renderPdf } from '../src/render/pdf.js'
 import { normalizePdf } from '../src/document/normalize.js'
 import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { createFontMetrics } from '../src/layout/metrics.js'
-import { layoutText, slotInset, slotLayout } from '../src/layout/wrap.js'
+import { MIN_TEXT_WIDTH, layoutText, slotInset, slotLayout } from '../src/layout/wrap.js'
 import { tableCells, tableFromStored, type TemplateTable } from '../src/document/table.js'
 import type { Slot } from '../src/document/types.js'
 import { requireContentStreamText } from './helpers/content-stream.js'
@@ -226,19 +226,26 @@ test('the padding is really in the exported page, not just in the preview', asyn
   // 10pt text has only so much to give, and `slotInset` is what decides
   // -- the same function the overlay measures with.
   const inset = slotInset(filledCells(6)[0]!, metrics)
-  expect(inset).toBeGreaterThan(0)
+  expect(inset.left).toBeGreaterThan(0)
+  expect(inset.top).toBeGreaterThan(0)
 
   // Left-aligned text: every line starts one inset further right, and one
   // inset lower down the page (PDF y grows upward).
   plain.forEach((line, i) => {
-    expect(padded[i]!.x - line.x).toBeCloseTo(inset, 3)
-    expect(line.y - padded[i]!.y).toBeCloseTo(inset, 3)
+    expect(padded[i]!.x - line.x).toBeCloseTo(inset.left, 3)
+    expect(line.y - padded[i]!.y).toBeCloseTo(inset.top, 3)
   })
+  // Left and top are the same number here (filledCells passes one
+  // `padding`), which is exactly what a file saved before the two were
+  // set apart carries.
+  expect(inset.left).toBeCloseTo(inset.top, 6)
 
-  // And asking for more than the row can spare changes nothing further:
-  // the text stays inside the row instead of growing the box out of it.
-  expect(slotInset(filledCells(50)[0]!, metrics)).toBeCloseTo(inset, 3)
-  expect(metrics.ascender(10) - metrics.descender(10) + inset * 2).toBeLessThanOrEqual(22.001)
+  // And asking for more than the cell can spare gives what it can spare,
+  // each way against its own edge: the column's width across, the row's
+  // height down. Neither grows the box out of the table.
+  const greedy = slotInset(filledCells(50)[0]!, metrics)
+  expect(greedy.left).toBeCloseTo((filledCells(50)[0]!.width - MIN_TEXT_WIDTH) / 2, 6)
+  expect(metrics.ascender(10) - metrics.descender(10) + greedy.top).toBeLessThanOrEqual(22.001)
 })
 
 test('a table saved in the old shape still prints where it always did', async () => {

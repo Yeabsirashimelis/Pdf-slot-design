@@ -130,7 +130,7 @@ test('padding insets every side, and does not move the box', () => {
 test('padding never squeezes a line down to single letters', () => {
   const narrow = { ...padded, width: 40, padding: 50 }
   expect(slotLayout(narrow, narrow.text).width).toBe(MIN_TEXT_WIDTH)
-  expect(slotInset(narrow)).toBe((40 - MIN_TEXT_WIDTH) / 2)
+  expect(slotInset(narrow).left).toBe((40 - MIN_TEXT_WIDTH) / 2)
 })
 
 test('a box with a height of its own keeps room for a line inside the padding', () => {
@@ -138,24 +138,27 @@ test('a box with a height of its own keeps room for a line inside the padding', 
   // row's height the box would grow and the table would come apart.
   // `fixed` makes a line exactly `size` tall (0.75 up, 0.25 down).
   const cell = { ...padded, width: 200, height: 22, padding: 50 }
-  expect(slotInset(cell, fixed)).toBe((22 - 10) / 2)
+  // All of the slack can go above the line, since nothing is kept clear
+  // below it: 22 for the row less the 10 the line itself takes.
+  expect(slotInset(cell, fixed).top).toBe(22 - 10)
   // Without a height there is nothing below to protect: the padding is
   // taken as asked, since 50 a side still leaves a line's worth across.
   const free = { ...padded, width: 200, height: undefined, padding: 50 }
-  expect(slotInset(free, fixed)).toBe(50)
+  expect(slotInset(free, fixed).left).toBe(50)
   // Only a box too narrow for it pulls the number down.
-  expect(slotInset({ ...free, width: 80 }, fixed)).toBe((80 - MIN_TEXT_WIDTH) / 2)
+  expect(slotInset({ ...free, width: 80 }, fixed).left).toBe((80 - MIN_TEXT_WIDTH) / 2)
 })
 
 test('the text still fits the row it was given', () => {
   const cell = { ...padded, width: 200, height: 22, size: 10, padding: 50 }
   const inset = slotInset(cell, fixed)
   const line = fixed.ascender(10) - fixed.descender(10)
-  expect(line + inset * 2).toBeLessThanOrEqual(22)
+  // Only the top is inset, so that is what the row has to hold above the line.
+  expect(line + inset.top).toBeLessThanOrEqual(22)
 })
 
 test('a negative padding is no padding', () => {
-  expect(slotInset({ ...padded, padding: -8 })).toBe(0)
+  expect(slotInset({ ...padded, padding: -8 })).toEqual({ left: 0, top: 0 })
 })
 
 test('right-aligned text is held off the right edge by the padding', () => {
@@ -169,4 +172,36 @@ test('padding pushes the first baseline down, not the box', () => {
   const plain = layoutText(slotLayout(padded, 'hi'), fixed)
   const inset = layoutText(slotLayout({ ...padded, padding: 5 }, 'hi'), fixed)
   expect(plain[0]!.baselineY - inset[0]!.baselineY).toBeCloseTo(5)
+})
+
+
+test('left and top are set apart, and either falls back to the old single padding', () => {
+  // A file saved before the two existed carries one number, and it has to
+  // go on reading as it always did -- on both axes.
+  expect(slotInset({ ...padded, padding: 6 }, fixed)).toEqual({ left: 6, top: 6 })
+
+  // Either on its own overrides that number for its own axis alone.
+  expect(slotInset({ ...padded, padding: 6, paddingLeft: 2 }, fixed)).toEqual({ left: 2, top: 6 })
+  expect(slotInset({ ...padded, padding: 6, paddingTop: 9 }, fixed)).toEqual({ left: 6, top: 9 })
+
+  // And with no old number at all, an unset axis is simply no padding.
+  expect(slotInset({ ...padded, paddingTop: 9 }, fixed)).toEqual({ left: 0, top: 9 })
+})
+
+test('the text moves by the left padding across and the top padding down', () => {
+  const slot = { ...padded, paddingLeft: 4, paddingTop: 11, align: 'left' as const }
+  const [line] = layoutText(slotLayout(slot, 'hi'), fixed)
+  const [plain] = layoutText(slotLayout({ ...padded, align: 'left' as const }, 'hi'), fixed)
+
+  expect(line!.x - plain!.x).toBeCloseTo(4)
+  // PDF y grows upward, so a top padding moves the line down the page.
+  expect(plain!.baselineY - line!.baselineY).toBeCloseTo(11)
+})
+
+test('the left padding holds right-aligned text off the right edge too', () => {
+  // Named after the left edge because that is the one usually being
+  // nudged, but a column of right-aligned amounts needs the same room on
+  // the other side or it prints against the rule.
+  const lines = layoutText(slotLayout({ ...padded, align: 'right', paddingLeft: 6 }, 'hi'), fixed)
+  expect(lines[0]!.x + 20).toBeCloseTo(294)
 })
