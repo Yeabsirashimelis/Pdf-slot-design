@@ -1,6 +1,6 @@
 'use client'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,7 +93,9 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
     const nothingMatches = noColumnsMatch(check, targets)
     return { kind: 'data', rows: parsed.records.length, nothingMatches, ...check }
   }, [text, targets])
-  const blocked = summary === null || summary.kind === 'error' || summary.nothingMatches
+  /** Nothing has been laid out, so there is nowhere for a record to go. */
+  const nothingLaidOut = targets.slotNames.length === 0 && targets.tables.length === 0
+  const blocked = nothingLaidOut || summary === null || summary.kind === 'error' || summary.nothingMatches
 
   /** The records as parsed, or none if the box does not hold usable data. */
   const records = useMemo(() => {
@@ -103,16 +105,54 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
   }, [text])
 
   /**
+   * Which row is actually on the page.
+   *
+   * Worked out from the data rather than remembered alongside it: the
+   * data can be edited after a row was chosen, and a remembered index
+   * then outlives the row it pointed at -- "showing row 3 of 1". Cutting
+   * the data short falls back to the last row there is.
+   */
+  const shown = previewing === null || records.length === 0
+    ? null
+    : Math.min(previewing, records.length - 1)
+
+  /**
    * Puts a record on the page. Every box it names is filled and every box
    * it does not is emptied, so what is on the document is that record and
    * nothing else -- which is what generating it would produce.
    */
   const showRecord = (index: number) => {
     const record = records[index]
-    if (!record || !onPreviewRecord) return
+    if (!record || !onPreviewRecord || nothingLaidOut) return
     onPreviewRecord(record)
     setPreviewing(index)
   }
+
+  // Held in a ref, not a dependency: the callback is rebuilt every time
+  // the layout changes, and putting a record on the page changes the
+  // layout -- so depending on it would re-run the effect below for ever.
+  const putOnPage = useRef(onPreviewRecord)
+  useEffect(() => {
+    putOnPage.current = onPreviewRecord
+  })
+
+  /**
+   * Once a row is on the page, keep it in step with the data: editing the
+   * data re-reads that row onto the document. Without this the page goes
+   * on showing a row the data no longer has, which is the one thing a
+   * preview must never do.
+   *
+   * Only once a row is being shown -- typing into the box a letter at a
+   * time must not take the page over -- and on a delay, so it follows the
+   * typing rather than fighting it.
+   */
+  useEffect(() => {
+    if (shown === null || nothingLaidOut) return
+    const record = records[shown]
+    if (!record) return
+    const timer = setTimeout(() => putOnPage.current?.(record), 400)
+    return () => clearTimeout(timer)
+  }, [records, shown, nothingLaidOut])
 
   const importFile = async (file: File | undefined) => {
     if (!file) return
@@ -130,7 +170,9 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
     // On the page immediately: a summary says how many rows there are, but
     // only the document itself says what one of them will look like.
     const parsed = parseRecords(contents)
-    if (!('error' in parsed) && parsed.records[0] && onPreviewRecord) {
+    // Nothing laid out means nowhere to put it: claiming to show a row
+    // while the page stays empty is worse than saying nothing.
+    if (!('error' in parsed) && parsed.records[0] && onPreviewRecord && !nothingLaidOut) {
       onPreviewRecord(parsed.records[0])
       setPreviewing(0)
     } else {
@@ -258,28 +300,28 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
               </p>
             )}
           </div>
-          {records.length > 0 && onPreviewRecord && (
+          {records.length > 0 && onPreviewRecord && !nothingLaidOut && (
             <div className="flex items-center gap-1.5" data-testid="generate-preview">
               <Button
                 variant="outline"
                 size="xs"
-                disabled={previewing === null || previewing <= 0}
-                onClick={() => showRecord((previewing ?? 0) - 1)}
+                disabled={shown === null || shown <= 0}
+                onClick={() => showRecord((shown ?? 0) - 1)}
                 aria-label="Show the row before"
                 data-testid="generate-preview-prev"
               >
                 <ChevronLeft />
               </Button>
               <span className="min-w-0 flex-1 truncate text-center text-xs text-muted-foreground" data-testid="generate-preview-label">
-                {previewing === null
+                {shown === null
                   ? `${records.length} ${records.length === 1 ? 'row' : 'rows'} · show one on the page`
-                  : `Showing row ${previewing + 1} of ${records.length}`}
+                  : `Showing row ${shown + 1} of ${records.length}`}
               </span>
               <Button
                 variant="outline"
                 size="xs"
-                disabled={previewing !== null && previewing >= records.length - 1}
-                onClick={() => showRecord(previewing === null ? 0 : previewing + 1)}
+                disabled={shown !== null && shown >= records.length - 1}
+                onClick={() => showRecord(shown === null ? 0 : shown + 1)}
                 aria-label="Show the next row"
                 data-testid="generate-preview-next"
               >
@@ -287,7 +329,12 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
               </Button>
             </div>
           )}
-          {summary && <DataSummary summary={summary} targets={targets} />}
+          {nothingLaidOut && (
+            <p className="text-xs text-destructive" data-testid="generate-nothing-laid-out">
+              Lay out at least one slot or table before generating. A data file has nowhere to go until then.
+            </p>
+          )}
+          {summary && !nothingLaidOut && <DataSummary summary={summary} targets={targets} />}
           {error && <p className="text-xs text-destructive" data-testid="generate-error">{error}</p>}
           <Button
         size="sm"

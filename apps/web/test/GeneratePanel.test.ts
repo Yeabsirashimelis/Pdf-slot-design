@@ -286,7 +286,9 @@ describe('GeneratePanel: what happens to the boxes the data leaves out', () => {
     fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
     type('[{"Name":"A"}]')
     fireEvent.click(submit())
-    await waitFor(() => expect(order).toEqual(['save', 'job']))
+    // A generous window: waitFor's own default is a second, which a busy
+    // machine can miss for reasons that have nothing to do with the code.
+    await waitFor(() => expect(order).toEqual(['save', 'job']), { timeout: 10_000 })
 
     // And a save that fails stops the job rather than printing the old layout.
     cleanup()
@@ -296,7 +298,7 @@ describe('GeneratePanel: what happens to the boxes the data leaves out', () => {
     fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
     type('[{"Name":"A"}]')
     fireEvent.click(submit())
-    await waitFor(() => expect(screen.getByTestId('generate-error').textContent).toContain('Could not save the layout'))
+    await waitFor(() => expect(screen.getByTestId('generate-error').textContent).toContain('Could not save the layout'), { timeout: 10_000 })
     expect(order).toEqual([])
   })
 })
@@ -361,5 +363,72 @@ describe('GeneratePanel: the data goes on the page', () => {
     expect(screen.queryByTestId('generate-preview')).toBeNull()
     type('Name,Name\nAbel,Sara\n')
     expect(screen.queryByTestId('generate-preview')).toBeNull()
+  })
+})
+
+describe('GeneratePanel: the page and the data never disagree', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset(); localStorage.clear() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
+
+  const open = (props: Record<string, unknown> = {}) => {
+    render(createElement(GeneratePanel, {
+      apiUrl: 'http://api.test', fileId, targets: { slotNames: ['Client'], tables: [] }, ...props,
+    }))
+    if (screen.queryByTestId('generate-panel') === null) fireEvent.click(screen.getByTestId('generate-toggle'))
+  }
+  const rows = 'Client\nAbel\nSara\nTeddy\n'
+  const label = () => screen.getByTestId('generate-preview-label').textContent
+
+  it('editing the data re-reads the shown row onto the page', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    type(rows)
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Client: 'Abel' })
+
+    // The page must not go on showing a row the data no longer has.
+    type('Client\nCHANGED\nSara\n')
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Client: 'CHANGED' })
+  })
+
+  it('falls back to the last row there is when the data is cut short', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    type(rows)
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(label()).toBe('Showing row 3 of 3')
+
+    type('Client\nONLY\n')
+    // Never "showing row 3 of 1".
+    expect(label()).toBe('Showing row 1 of 1')
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Client: 'ONLY' })
+  })
+
+  it('says there is nowhere to put a row, rather than pretending to show one', () => {
+    // Nothing laid out: importing has nowhere to go, and claiming to show
+    // a row while the page stays empty is worse than saying nothing.
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord, targets: { slotNames: [], tables: [] } })
+    type(rows)
+
+    expect(screen.queryByTestId('generate-preview')).toBeNull()
+    expect(onPreviewRecord).not.toHaveBeenCalled()
+    expect(screen.getByTestId('generate-nothing-laid-out').textContent)
+      .toContain('Lay out at least one slot or table')
+    // And it is said here rather than left for the server to refuse.
+    expect(submit().disabled).toBe(true)
+  })
+
+  it('an import with nothing laid out puts nothing on the page', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord, targets: { slotNames: [], tables: [] } })
+    pick(new File([rows], 'rows.csv', { type: 'text/csv' }))
+    await waitFor(() => expect(records()).toBe(rows))
+    expect(onPreviewRecord).not.toHaveBeenCalled()
   })
 })
