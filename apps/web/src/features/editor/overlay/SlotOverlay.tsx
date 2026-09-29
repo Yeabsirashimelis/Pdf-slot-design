@@ -10,6 +10,7 @@ import {
   FONT_CSS_FAMILY,
   PDF_APPLIES_KERNING,
   rgbToCss,
+  slotInset,
   toScreenLength,
   toScreenPoint,
   type FontMetrics,
@@ -208,6 +209,13 @@ export function SlotOverlay({
     lineHeight: slot.lineHeight,
     fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
   }
+  // The same inset layoutText was given, in screen px. The textarea is
+  // invisible, but its caret is not, and its caret sits against *its* text
+  // -- so if it starts at the box edge while the glyphs start a padding in,
+  // the caret stands a padding away from the letters it belongs to. Padding
+  // also narrows its content box to the width the lines were wrapped at, so
+  // the row the caret lands on is the row the reader sees.
+  const insetPx = toScreenLength(slotInset(slot, metrics), viewport)
 
   return (
     <div
@@ -369,7 +377,8 @@ export function SlotOverlay({
             resize: 'none',
             border: 'none',
             outline: 'none',
-            padding: 0,
+            boxSizing: 'border-box',
+            padding: insetPx,
             margin: 0,
             background: 'transparent',
             color: 'transparent',

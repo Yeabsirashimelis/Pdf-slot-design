@@ -3,7 +3,7 @@ import path from 'node:path'
 import { createElement } from 'react'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createFontMetrics, type Slot } from '@pdf-slot/core'
+import { createFontMetrics, slotInset, toScreenLength, type Slot } from '@pdf-slot/core'
 import { SlotOverlay } from '@/features/editor/overlay/SlotOverlay'
 
 // jsdom doesn't implement the Pointer Capture API used by SlotOverlay's
@@ -362,5 +362,27 @@ describe('SlotOverlay name and size', () => {
   it('the text box stays selectable even though the stage around it is not', () => {
     const { textarea } = renderOverlay(true)
     expect(textarea.style.userSelect).toBe('text')
+  })
+
+  it('the caret sits on the letters once the slot is padded', () => {
+    // The textarea is invisible, but its caret is not, and a caret sits
+    // against that element's own text. Leave its padding at zero while the
+    // glyphs are drawn a padding in and the caret stands a padding away
+    // from the word it is in the middle of -- and the row it lands on is
+    // decided by a wrap width the reader never sees.
+    const padded = { ...makeSlot(), padding: 6 }
+    const { textarea } = renderOverlay(true, { slot: padded })
+    const expected = toScreenLength(slotInset(padded, metrics), { zoom: 1, pageHeight: 792 })
+
+    expect(expected).toBeGreaterThan(0)
+    expect(parseFloat(String(textarea.style.padding))).toBeCloseTo(expected, 5)
+    // Border-box, or the padding would widen the element past the slot and
+    // undo the very alignment it was added for.
+    expect(textarea.style.boxSizing).toBe('border-box')
+  })
+
+  it('an unpadded slot keeps the textarea flush with the box', () => {
+    const { textarea } = renderOverlay(true)
+    expect(parseFloat(String(textarea.style.padding))).toBe(0)
   })
 })
