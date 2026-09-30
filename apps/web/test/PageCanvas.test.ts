@@ -66,7 +66,7 @@ describe('PageCanvas painting', () => {
     const bytes = new Uint8Array([1, 2, 3])
 
     const { container } = render(
-      createElement(PageCanvas, { bytes, pageIndex: 0, screenScale: 1, onCanvasClick: vi.fn(), onRendered }),
+      createElement(PageCanvas, { bytes, showing: 'document', pageIndex: 0, screenScale: 1, onCanvasClick: vi.fn(), onRendered }),
     )
     const visible = container.querySelector('canvas') as HTMLCanvasElement
 
@@ -105,7 +105,7 @@ describe('PageCanvas painting', () => {
         destroy: vi.fn(),
       }))
       const bytes = new Uint8Array([1])
-      const props = { bytes, pageIndex: 0, onCanvasClick: vi.fn() }
+      const props = { bytes, showing: 'document' as const, pageIndex: 0, onCanvasClick: vi.fn() }
 
       const { rerender } = render(createElement(PageCanvas, { ...props, screenScale: 1 }))
       await act(async () => {
@@ -138,7 +138,7 @@ describe('PageCanvas painting', () => {
     const { PageCanvas } = await import('../src/features/editor/canvas/PageCanvas')
     const onCanvasClick = vi.fn()
     const { container } = render(
-      createElement(PageCanvas, { bytes: new Uint8Array([1]), pageIndex: 0, screenScale: 2, onCanvasClick }),
+      createElement(PageCanvas, { bytes: new Uint8Array([1]), showing: 'document', pageIndex: 0, screenScale: 2, onCanvasClick }),
     )
     const canvas = container.querySelector('canvas') as HTMLCanvasElement
     vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 10, top: 20 } as DOMRect)

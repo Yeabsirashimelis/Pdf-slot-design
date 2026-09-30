@@ -351,6 +351,7 @@ export function Editor({
               */}
               <PageCanvas
                 bytes={pipeline.bytes ?? doc.source}
+                showing={pipeline.bytes ? 'rendered' : 'document'}
                 pageIndex={pageIndex}
                 screenScale={view.zoom}
                 onCanvasClick={handleCanvasClick}

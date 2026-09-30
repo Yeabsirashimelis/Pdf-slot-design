@@ -180,6 +180,26 @@ export function useEditorPipeline(
     setPaintedSlots(null)
   }
 
+  /**
+   * Whether the rendered page is still a picture of what is on the page now.
+   *
+   * A render bakes the text into the canvas, and the overlay then hides
+   * its own copy of that text so the two are not drawn twice. That holds
+   * only while the slots are the ones that were rendered. Change any of
+   * them -- move one, type in one, put a row of a data file on the page --
+   * and the picture keeps the old text while the overlay draws the new:
+   * two copies, a few points apart.
+   *
+   * So the moment anything differs, the canvas goes back to the document
+   * itself and every slot draws its own text again. Compared by identity,
+   * the same way `isSlotCommitted` does it, because a slot object is only
+   * replaced when its content changes.
+   */
+  const renderIsCurrent =
+    renderedSlots !== null &&
+    renderedSlots.length === store.slots.length &&
+    store.slots.every((slot) => renderedSlots.find((s) => s.id === slot.id) === slot)
+
   // Per-slot, not a single page-wide flag: `renderPdf` always re-renders
   // every slot on the page, so gating on "is *a* render in flight" would
   // hide-then-reshow every OTHER already-committed slot's DOM text (over
@@ -190,13 +210,17 @@ export function useEditorPipeline(
   // is actually *showing* tells each slot, independently, whether its own
   // current content is what's painted.
   const isSlotCommitted = (slot: Slot): boolean => {
-    if (!paintedSlots) return false
+    if (!paintedSlots || !renderIsCurrent) return false
     return paintedSlots.find((s) => s.id === slot.id) === slot
   }
 
   return {
     fontMetrics,
-    bytes,
+    // Only while it is still a picture of these slots. Shown past that,
+    // it holds text that has since changed while the overlay draws the
+    // new text over the top, and the page shows both at once -- which is
+    // what a download followed by any edit used to look like.
+    bytes: renderIsCurrent ? bytes : null,
     isRendering,
     render,
     commit,

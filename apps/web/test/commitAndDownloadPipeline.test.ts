@@ -1,5 +1,5 @@
 import { createElement, useMemo, useState } from 'react'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorDocument, Slot } from '@pdf-slot/core'
 import { TooltipProvider } from '../src/components/ui/tooltip'
@@ -220,5 +220,42 @@ describe('commit -> preview -> download pipeline', () => {
     expect((capturedBlobParts as unknown[])[0]).not.toBe(doc.source)
     expect(renderPdfMock).toHaveBeenCalledTimes(1)
     expect(renderPdfIncrementalMock).not.toHaveBeenCalled()
+  })
+
+  it('the picture is dropped the moment it stops matching the slots', async () => {
+    // A render bakes every slot's text into the canvas, and the overlay
+    // hides its own copy so the words are not drawn twice. That only holds
+    // while the slots are the ones that were rendered. Change any of them
+    // -- move one, type in one, put a row of a data file on the page --
+    // and the picture keeps the old text while the overlay draws the new,
+    // which is two copies of the words a few points apart.
+    const { useEditorPipeline } = await import('../src/features/editor/useEditorPipeline')
+
+    renderPdfMock.mockResolvedValue(new Uint8Array([42, 43]))
+    const doc = makeDoc()
+    let pipeline!: ReturnType<typeof useEditorPipeline>
+    let setText!: (text: string) => void
+
+    function Harness() {
+      const [text, state] = useState('hi')
+      setText = state
+      const slots = useMemo(() => [{ ...makeSlot(), text }], [text])
+      const store = useMemo(() => ({ slots }), [slots]) as never
+      pipeline = useEditorPipeline(doc, store)
+      return createElement('span', { 'data-testid': 'showing' }, pipeline.bytes ? 'rendered' : 'document')
+    }
+
+    const { getByTestId } = render(createElement(Harness))
+    expect(getByTestId('showing').textContent).toBe('document')
+
+    // Render, and report the paint: now the picture is of these slots.
+    await act(async () => { await pipeline.render() })
+    act(() => { pipeline.handlePainted() })
+    await waitFor(() => expect(getByTestId('showing').textContent).toBe('rendered'))
+    expect(pipeline.isSlotCommitted({ ...makeSlot(), text: 'hi' })).toBe(false)
+
+    // Change the text: the picture is now of something else.
+    await act(async () => { setText('a different row') })
+    expect(getByTestId('showing').textContent).toBe('document')
   })
 })

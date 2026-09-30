@@ -21,12 +21,21 @@ const SETTLE_MS = 150
  */
 export function PageCanvas({
   bytes,
+  showing,
   pageIndex,
   screenScale,
   onCanvasClick,
   onRendered,
 }: {
   bytes: Uint8Array
+  /**
+   * Which of the two the picture is of: the file as it would be saved
+   * (every slot's text baked in, overlay silent), or the document as it
+   * was opened (nothing baked in, overlay drawing every slot). Reported
+   * on the element because getting that pair out of step is what put two
+   * copies of the same words on the page.
+   */
+  showing: 'rendered' | 'document'
   pageIndex: number
   /** The CSS scale the stage is currently shown at. */
   screenScale: number
@@ -116,6 +125,8 @@ export function PageCanvas({
   return (
     <canvas
       ref={canvasRef}
+      data-testid="page-canvas"
+      data-showing={showing}
       onClick={handleClick}
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
     />
