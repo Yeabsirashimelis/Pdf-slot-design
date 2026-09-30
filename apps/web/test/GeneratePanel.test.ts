@@ -419,7 +419,7 @@ describe('GeneratePanel: the page and the data never disagree', () => {
     expect(screen.queryByTestId('generate-preview')).toBeNull()
     expect(onPreviewRecord).not.toHaveBeenCalled()
     expect(screen.getByTestId('generate-nothing-laid-out').textContent)
-      .toContain('Lay out at least one slot or table')
+      .toContain('This data has nowhere to go')
     // And it is said here rather than left for the server to refuse.
     expect(submit().disabled).toBe(true)
   })
@@ -430,5 +430,26 @@ describe('GeneratePanel: the page and the data never disagree', () => {
     pick(new File([rows], 'rows.csv', { type: 'text/csv' }))
     await waitFor(() => expect(records()).toBe(rows))
     expect(onPreviewRecord).not.toHaveBeenCalled()
+  })
+
+  it('says nothing until there is data to say it about', () => {
+    // Shown the moment the panel opens it reads as something already gone
+    // wrong, when the user has not done anything yet.
+    open({ onPreviewRecord: vi.fn(), targets: { slotNames: [], tables: [] } })
+    expect(screen.queryByTestId('generate-nothing-laid-out')).toBeNull()
+
+    type(rows)
+    expect(screen.getByTestId('generate-nothing-laid-out')).toBeTruthy()
+  })
+
+  it('lets the API key be read back, since a key typed blind is a key mistyped', () => {
+    open({ onPreviewRecord: vi.fn() })
+    const field = () => screen.getByTestId('generate-key') as HTMLInputElement
+    expect(field().type).toBe('password')
+
+    fireEvent.click(screen.getByTestId('generate-key-reveal'))
+    expect(field().type).toBe('text')
+    fireEvent.click(screen.getByTestId('generate-key-reveal'))
+    expect(field().type).toBe('password')
   })
 })

@@ -1,5 +1,5 @@
 'use client'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertDialog,
@@ -78,6 +78,7 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [asking, setAsking] = useState(false)
+  const [keyShown, setKeyShown] = useState(false)
   /** Which record of the data the page is showing, or null for none. */
   const [previewing, setPreviewing] = useState<number | null>(null)
   const job = useJobPolling(apiUrl, jobId)
@@ -249,7 +250,32 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
           </p>
           <div className="grid gap-1.5">
             <Label htmlFor="generate-key" className="text-xs">API key</Label>
-            <Input id="generate-key" className="text-xs md:text-xs" data-testid="generate-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
+            {/* Hidden by default, because it is a key -- but a key typed
+                blind is a key mistyped, and the error for a wrong one
+                comes back only after a job is refused. */}
+            <div className="relative">
+              <Input
+                id="generate-key"
+                className="pr-7 text-xs md:text-xs"
+                data-testid="generate-key"
+                type={keyShown ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                autoComplete="off"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="absolute inset-y-0 right-0.5 my-auto text-muted-foreground"
+                aria-label={keyShown ? 'Hide the API key' : 'Show the API key'}
+                aria-pressed={keyShown}
+                data-testid="generate-key-reveal"
+                onClick={() => setKeyShown((was) => !was)}
+              >
+                {keyShown ? <EyeOff /> : <Eye />}
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground">
               Set on the server that generates the PDFs; ask whoever runs it. Remembered in this browser.
             </p>
@@ -329,9 +355,13 @@ export function GeneratePanel({ apiUrl, fileId, targets, filledIn = [], onSaveNo
               </Button>
             </div>
           )}
-          {nothingLaidOut && (
+          {/* Only once there is data to say it about. Shown the moment the
+              panel opens it reads as something already gone wrong, when
+              in fact the user has not done anything yet -- and what it
+              asks for is on the page behind the panel, not in it. */}
+          {nothingLaidOut && records.length > 0 && (
             <p className="text-xs text-destructive" data-testid="generate-nothing-laid-out">
-              Lay out at least one slot or table before generating. A data file has nowhere to go until then.
+              This data has nowhere to go: the page has no slots or tables yet. Add one, then come back.
             </p>
           )}
           {summary && !nothingLaidOut && <DataSummary summary={summary} targets={targets} />}
