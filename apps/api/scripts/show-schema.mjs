@@ -3,6 +3,10 @@
 // production to see whether a migration has landed.
 //
 // Usage: DATABASE_URL=... node scripts/show-schema.mjs
+//
+// On a network where Node's HTTP client cannot reach the database host
+// but curl can, use scripts/neon-sql.sh instead -- same endpoint, a
+// client that gets through.
 import { neon } from '@neondatabase/serverless'
 
 const url = process.env.DATABASE_URL
