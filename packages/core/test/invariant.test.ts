@@ -142,6 +142,58 @@ test("the exported PDF's line breaks match what the layout engine predicted", as
 })
 
 /**
+ * The sans face shapes, and the export has to shape identically.
+ *
+ * Inter ships no `liga`, so the ligature words that used to stand for
+ * "shaping happens" exercise nothing in it. What it ships is a `calt` that
+ * rewrites `->` into a single arrow glyph, which makes the run measurably
+ * narrower than its characters. That is a real divergence risk and it is
+ * specific to this typeface: if the layout engine shaped and the writer did
+ * not (or the reverse), a right-aligned line would be computed at one width
+ * and drawn at another, and the text would sit visibly off its edge.
+ *
+ * Right-aligned deliberately, for the reason the wrap test above explains:
+ * it makes each line's drawn x a function of what that line measures as, so
+ * the comparison is a fingerprint of the shaping and not just of the count.
+ * Both weights, because both are new.
+ */
+test.each(['sans', 'sans-bold'] as const)(
+  "%s: text the face shapes prints exactly where the layout engine put it",
+  async (fontId) => {
+    const slot: Slot = {
+      // 140pt wraps this into two lines that each *end* in an arrow, so
+      // every line's right-aligned x depends on a collapsed glyph.
+      id: 'shaped', page: 0, x: 40, y: 760, width: 140,
+      text: 'draft -> review -> approved -> filed',
+      fontId, size: 13, color: { r: 0, g: 0, b: 0 },
+      align: 'right', lineHeight: 1.2,
+    }
+
+    const metrics = createFontMetrics(fonts[slot.fontId])
+
+    // The shaping is really happening: measured whole, the text is narrower
+    // than the sum of its characters, because each `->` collapses to one
+    // glyph. Without this the test below would still pass on a face that
+    // shaped nothing, and would be proving nothing about Inter.
+    const whole = metrics.widthOfText(slot.text, slot.size)
+    const perCharacter = [...slot.text].reduce((t, c) => t + metrics.widthOfText(c, slot.size), 0)
+    expect(whole).toBeLessThan(perCharacter)
+
+    const predicted = layoutText(slotLayout(slot, slot.text, metrics), metrics)
+    expect(predicted.length).toBeGreaterThanOrEqual(2)
+
+    const out = await renderPdf(await doc(), [slot], fonts)
+    const drawn = extractDrawnPositions(requireContentStreamText(out))
+
+    expect(drawn).toHaveLength(predicted.length)
+    predicted.forEach((line, i) => {
+      expect(drawn[i]?.x).toBeCloseTo(line.x, 3)
+      expect(drawn[i]?.y).toBeCloseTo(line.baselineY, 3)
+    })
+  },
+)
+
+/**
  * A change-order log's first three rows: four columns lined up with a
  * printed form, padded so the text is held off the rules.
  */
