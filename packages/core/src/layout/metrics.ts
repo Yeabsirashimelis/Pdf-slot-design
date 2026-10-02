@@ -42,13 +42,19 @@ declare module 'fontkit' {
  *   on one glyph-code string, never a `TJ` array with numeric offsets (see
  *   metrics-characterization.test.ts). So `false`, and the overlay must set
  *   `font-kerning: none` (Task 15) to match.
- * - **Shaping (GSUB substitution, e.g. `liga`)** — pdf-lib *does* apply it,
- *   because `font.layout()` runs the default feature set. PT Sans and PT
- *   Serif both ship `liga`, so `office` draws as `of·fi·ce` with an `fi`
- *   ligature and is genuinely narrower than the sum of its per-character
- *   advances. `widthOfText` below therefore measures via `layout()` too,
- *   and the overlay must NOT set `font-variant-ligatures: none` — doing so
- *   made the browser deliberately disagree with the exporter.
+ * - **Shaping (GSUB substitution)** — pdf-lib *does* apply it, because
+ *   `font.layout()` runs the default feature set. Which features that
+ *   reaches differs by face, and every bundled face has some:
+ *   PT Serif ships `liga`, so `office` draws as `of·fi·ce` with an `fi`
+ *   ligature; Inter (the sans face) ships no `liga` at all but does ship
+ *   `calt`, which collapses `->` into a single `arrowright` glyph. Either
+ *   way the drawn string is genuinely narrower than the sum of its
+ *   per-character advances. `widthOfText` below therefore measures via
+ *   `layout()` too, and the overlay must NOT turn substitution off — not
+ *   `font-variant-ligatures: none`, and not `font-feature-settings:
+ *   "calt" 0` — because doing so makes the browser deliberately disagree
+ *   with the exporter. Both are on by default in CSS, so the overlay gets
+ *   this right by saying nothing; the trap is *adding* a reset.
  *
  * This constant governs only the first bullet. Measurement is not
  * parameterised on it: shaping is always applied, kerning never is, because
@@ -89,15 +95,17 @@ export function createFontMetrics(ttf: Uint8Array): FontMetrics {
 
   const scale = (units: number, size: number) => (units / font.unitsPerEm) * size
 
+
   return {
     widthOfText(text, size) {
       if (text.length === 0) return 0
       // `layout()`, not `glyphsForString()`: this must reproduce pdf-lib's
       // own arithmetic exactly, and pdf-lib measures (widthOfTextAtSize) and
       // encodes (CustomFontEmbedder.encodeText) through `font.layout(text)`.
-      // That applies GSUB shaping — `office` becomes 5 glyphs, not 6 — while
-      // still excluding GPOS kerning, which lives in `positions[].xAdvance`
-      // and is never read here. See PDF_APPLIES_KERNING's comment above.
+      // That applies GSUB shaping — `office` becomes 5 glyphs in PT Serif,
+      // `a->b` 3 in Inter — while still excluding GPOS kerning, which lives
+      // in `positions[].xAdvance` and is never read here. See
+      // PDF_APPLIES_KERNING's comment above.
       const glyphs = font.layout(text).glyphs
       let units = 0
       for (const glyph of glyphs) units += glyph.advanceWidth

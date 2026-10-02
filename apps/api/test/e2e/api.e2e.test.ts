@@ -9,7 +9,7 @@ const UPDATED_AT = '2026-09-19T00:00:00.000Z'
 const jsonHeaders = { 'Content-Type': 'application/json' }
 const authHeaders = { ...jsonHeaders, Authorization: `Bearer ${API_KEY}` }
 
-/** `Name` on page one in PT Sans, `Date` on page two in the mono face -- two pages, two fonts, one layout. */
+/** `Name` on page one in the sans face, `Date` on page two in the mono face -- two pages, two fonts, one layout. */
 const twoSlotLayout = (): TemplateLayout => ({
   fileId: FILE_ID,
   updatedAt: UPDATED_AT,
@@ -87,7 +87,7 @@ describe('API end to end: upload -> layout -> values -> job -> generation -> zip
   it('a record the font cannot draw fails only its own item; the zip holds the rest', async () => {
     const api = await bootApi()
     await seedTemplate(api)
-    // `Name` is PT Sans, which has no CJK glyphs.
+    // `Name` is the sans face (Inter), which has no CJK glyphs.
     const created = await postJob(api, [{ Name: 'ok' }, { Name: '中文' }])
     expect(created.status).toBe(202)
     const { jobId } = (await created.json()) as { jobId: string }

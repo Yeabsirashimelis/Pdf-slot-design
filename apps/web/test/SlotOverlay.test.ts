@@ -27,7 +27,7 @@ HTMLElement.prototype.setPointerCapture ??= () => {}
  */
 
 const metrics = createFontMetrics(
-  readFileSync(path.resolve(__dirname, '../public/fonts/PT_Sans-Web-Regular.ttf')),
+  readFileSync(path.resolve(__dirname, '../public/fonts/Inter-Regular.ttf')),
 )
 
 function makeSlot(): Slot {

@@ -29,9 +29,11 @@ export type LayoutInput = {
  * line boxes (`lineCount * size * lineHeight`, which leaves the usual
  * leading under the last line) and the glyphs themselves -- from the
  * first line's ascender, down `lineCount - 1` steps, to the last line's
- * descender. The second term is what keeps a tight line height (below
- * ~1.3, where PT Sans's ascender + descender exceed the step) from
- * drawing a box the text hangs out of. Preview-only: the export places
+ * descender. The second term is what keeps a tight line height from
+ * drawing a box the text hangs out of: a face's ascender + descender can
+ * exceed one step of `size * lineHeight`, and for every face bundled here
+ * it does at the line heights people actually pick -- Inter (sans) spans
+ * 1.21 em, PT Serif 1.33, IBM Plex Mono 1.30. Preview-only: the export places
  * text by baseline and never reads this.
  */
 export function layoutHeight(lineCount: number, size: number, lineHeight: number, metrics: FontMetrics): number {

@@ -4,7 +4,7 @@ import { expect, test } from 'vitest'
 import { createFontMetrics } from '../src/layout/metrics.js'
 
 const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
-const sans = createFontMetrics(readFileSync(dir + 'PT_Sans-Web-Regular.ttf'))
+const sans = createFontMetrics(readFileSync(dir + 'Inter-Regular.ttf'))
 
 test('width scales linearly with size', () => {
   const at10 = sans.widthOfText('Hamburgefonstiv', 10)

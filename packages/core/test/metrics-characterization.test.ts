@@ -18,15 +18,18 @@ const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
 test('pdf-lib width measurement is stable for kerning-sensitive pairs', async () => {
   const doc = await PDFDocument.create()
   doc.registerFontkit(fontkit)
-  const font = await doc.embedFont(readFileSync(dir + 'PT_Sans-Web-Regular.ttf'))
+  const font = await doc.embedFont(readFileSync(dir + 'Inter-Regular.ttf'))
 
-  // Values printed by packages/core/spike/kerning-probe.ts (deleted after
-  // this task). They pin the library's behaviour so an upgrade that changes
-  // measurement is caught: pdf-lib does not apply GPOS kerning here, so
-  // these equal the naive sum of each glyph's raw advance width. Identical
-  // under both @pdf-lib/fontkit@1.1.1 and fontkit@2.0.4.
-  expect(font.widthOfTextAtSize('AV', 100)).toBeCloseTo(115.3, 3)
-  expect(font.widthOfTextAtSize('iiiii', 100)).toBeCloseTo(134.0, 3)
+  // These pin the library's behaviour so an upgrade that changes measurement
+  // is caught: pdf-lib does not apply GPOS kerning here, so they equal the
+  // naive sum of each glyph's raw advance width. The numbers are the sans
+  // face's own -- Inter 4.1 Regular, 2048 units/em -- and Inter does carry a
+  // GPOS kern pair for `AV` (-140 units, which is 6.84pt at this size), so
+  // the day pdf-lib starts honouring kerning, this is the assertion that
+  // fails. `iiiii` is the control: no kern pair, so it moves only if plain
+  // advance-width measurement changes.
+  expect(font.widthOfTextAtSize('AV', 100)).toBeCloseTo(137.98828125, 3)
+  expect(font.widthOfTextAtSize('iiiii', 100)).toBeCloseTo(121.09375, 3)
 })
 
 test('embedFont with subset:true saves without throwing', async () => {
@@ -39,7 +42,7 @@ test('embedFont with subset:true saves without throwing', async () => {
   // every render; without it each embedded face adds ~235KB per download).
   const doc = await PDFDocument.create()
   doc.registerFontkit(fontkit)
-  const font = await doc.embedFont(readFileSync(dir + 'PT_Sans-Web-Regular.ttf'), {
+  const font = await doc.embedFont(readFileSync(dir + 'Inter-Regular.ttf'), {
     subset: true,
   })
   const page = doc.addPage([200, 200])
@@ -61,7 +64,7 @@ test('written content stream shows text with Tj, never a kerning TJ array', asyn
   // metrics-pdflib-crosscheck.test.ts instead.
   const doc = await PDFDocument.create()
   doc.registerFontkit(fontkit)
-  const font = await doc.embedFont(readFileSync(dir + 'PT_Sans-Web-Regular.ttf'), {
+  const font = await doc.embedFont(readFileSync(dir + 'Inter-Regular.ttf'), {
     subset: true,
   })
   const page = doc.addPage([200, 200])

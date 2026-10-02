@@ -20,10 +20,14 @@ import {
  * `fontKerning` is set to match exactly how pdf-lib measures and draws
  * text (see PDF_APPLIES_KERNING's doc comment in packages/core): pdf-lib
  * ignores GPOS kerning, so the browser must too, or advance widths would
- * disagree and preview would drift from download. Ligatures are the
- * opposite case and are deliberately NOT disabled here: pdf-lib runs
- * `font.layout()`, which applies GSUB `liga`, so the exported page really
- * does carry ligature glyphs and the overlay has to show the same ones.
+ * disagree and preview would drift from download. GSUB substitution is the
+ * opposite case and is deliberately NOT disabled here: pdf-lib runs
+ * `font.layout()`, which applies the default feature set, so the exported
+ * page really does carry the substituted glyphs and the overlay has to show
+ * the same ones. For the sans face that means `calt` -- Inter has no `liga`,
+ * but it rewrites `->` to a single arrow -- and for the serif face `liga`.
+ * Both are on by default in CSS, so the rule is simply to add no reset:
+ * neither `font-variant-ligatures` nor `font-feature-settings` belongs here.
  *
  * `left`/`top` are offsets relative to the slot's own top-left corner
  * (`slot.x`, `slot.y`) -- the caller (SlotOverlay) is expected to render

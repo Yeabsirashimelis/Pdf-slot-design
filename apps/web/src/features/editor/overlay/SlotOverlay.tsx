@@ -344,9 +344,10 @@ export function SlotOverlay({
         `@font-face` bytes, not the page's inherited Geist Sans),
         fontSize, fontKerning (must match PDF_APPLIES_KERNING for the same
         reason `layoutText`'s width measurement does -- see
-        packages/core/src/layout/metrics.ts; ligature substitution is
-        deliberately left at its default, because pdf-lib applies GSUB and
-        so must the browser), and
+        packages/core/src/layout/metrics.ts; GSUB substitution --
+        `calt` for Inter, `liga` for the serif face -- is deliberately left
+        at its CSS default, because pdf-lib applies it and so must the
+        browser), and
         lineHeight as a unitless multiplier (`slot.lineHeight`), which -- since
         fontSize here is already toScreenLength(slot.size, viewport) --
         yields exactly toScreenLength(slot.size * slot.lineHeight, viewport)
