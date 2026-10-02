@@ -88,6 +88,13 @@ function firstFont(parsed: ParsedFont): Extract<ParsedFont, { unitsPerEm: number
   return parsed
 }
 
+/**
+ * How many measured strings one face remembers (see `createFontMetrics`).
+ * Large enough that a page of slots re-wrapping on every keystroke always
+ * hits, small enough to stay a rounding error against the parsed font.
+ */
+const WIDTH_CACHE_LIMIT = 4096
+
 export function createFontMetrics(ttf: Uint8Array): FontMetrics {
   // No Buffer.from() here: this must run in the browser (see the module
   // augmentation above), where the Node `Buffer` global does not exist.
@@ -95,20 +102,49 @@ export function createFontMetrics(ttf: Uint8Array): FontMetrics {
 
   const scale = (units: number, size: number) => (units / font.unitsPerEm) * size
 
+  /**
+   * Advance-width sums already measured, keyed by the string, per face.
+   *
+   * Shaping is not cheap, and how expensive depends on the face: Inter's
+   * `calt` alone carries 61 contextual subtables, and `font.layout()` on a
+   * 56-character line costs ~1ms against PT Serif's ~0.15ms. `breakParagraph`
+   * measures a growing prefix once per word and then each finished line
+   * again, every slot, on every keystroke, so the same strings are measured
+   * over and over -- without this, moving the sans face to Inter made the
+   * editor's re-wrap about seven times more expensive.
+   *
+   * What is cached is advance *units*, never points: the sum is an integer
+   * that does not depend on the font size, and `scale()` is applied afterwards
+   * exactly as it was before. A hit therefore returns the identical number,
+   * bit for bit, to what measuring again would -- which is what makes this an
+   * optimisation and not a risk to preview-equals-download.
+   *
+   * Bounded, and dropped whole rather than evicted one by one: the API holds
+   * one FontMetrics per face for the life of the process and streams
+   * unbounded distinct text through it during a bulk job. Dropping is free of
+   * consequence precisely because the function is pure -- the cost of a miss
+   * is one measurement.
+   */
+  const widthUnits = new Map<string, number>()
 
   return {
     widthOfText(text, size) {
       if (text.length === 0) return 0
-      // `layout()`, not `glyphsForString()`: this must reproduce pdf-lib's
-      // own arithmetic exactly, and pdf-lib measures (widthOfTextAtSize) and
-      // encodes (CustomFontEmbedder.encodeText) through `font.layout(text)`.
-      // That applies GSUB shaping — `office` becomes 5 glyphs in PT Serif,
-      // `a->b` 3 in Inter — while still excluding GPOS kerning, which lives
-      // in `positions[].xAdvance` and is never read here. See
-      // PDF_APPLIES_KERNING's comment above.
-      const glyphs = font.layout(text).glyphs
-      let units = 0
-      for (const glyph of glyphs) units += glyph.advanceWidth
+      let units = widthUnits.get(text)
+      if (units === undefined) {
+        // `layout()`, not `glyphsForString()`: this must reproduce pdf-lib's
+        // own arithmetic exactly, and pdf-lib measures (widthOfTextAtSize) and
+        // encodes (CustomFontEmbedder.encodeText) through `font.layout(text)`.
+        // That applies GSUB shaping — `office` becomes 5 glyphs in PT Serif,
+        // `a->b` 3 in Inter — while still excluding GPOS kerning, which lives
+        // in `positions[].xAdvance` and is never read here. See
+        // PDF_APPLIES_KERNING's comment above.
+        const glyphs = font.layout(text).glyphs
+        units = 0
+        for (const glyph of glyphs) units += glyph.advanceWidth
+        if (widthUnits.size >= WIDTH_CACHE_LIMIT) widthUnits.clear()
+        widthUnits.set(text, units)
+      }
       return scale(units, size)
     },
     ascender(size) {
