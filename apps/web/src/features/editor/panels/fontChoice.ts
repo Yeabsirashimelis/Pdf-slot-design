@@ -9,10 +9,17 @@ import type { FontId } from '@pdf-slot/core'
 export type FontFamily = 'sans' | 'serif' | 'mono'
 export type FontWeight = 'regular' | 'bold'
 
+/**
+ * Named after the typeface, not the role it plays. "Sans" tells a user
+ * nothing about what will be printed, and someone asked for a particular
+ * face has no way to see they got it. The stored `FontId` is still
+ * `sans`/`serif`/`mono`, so what a document records does not change when
+ * one of these is swapped for another -- only what the menu says.
+ */
 export const FONT_FAMILIES: readonly { value: FontFamily; label: string }[] = [
-  { value: 'sans', label: 'Sans' },
-  { value: 'serif', label: 'Serif' },
-  { value: 'mono', label: 'Mono' },
+  { value: 'sans', label: 'Inter' },
+  { value: 'serif', label: 'PT Serif' },
+  { value: 'mono', label: 'IBM Plex Mono' },
 ]
 
 export const FONT_WEIGHTS: readonly { value: FontWeight; label: string }[] = [

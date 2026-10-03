@@ -29,12 +29,18 @@ export const FONT_FILES: Record<FontId, string> = {
   mono: 'IBMPlexMono-Regular.ttf',
 }
 
+/**
+ * What each face is called where one is named in full. The id stays the
+ * role (`sans`), so a document records which slot it used rather than
+ * which typeface was in it -- swapping the typeface then leaves every
+ * saved file readable.
+ */
 export const FONT_LABELS: Record<FontId, string> = {
-  sans: 'Sans',
-  'sans-bold': 'Sans Bold',
-  serif: 'Serif',
-  'serif-bold': 'Serif Bold',
-  mono: 'Mono',
+  sans: 'Inter',
+  'sans-bold': 'Inter Bold',
+  serif: 'PT Serif',
+  'serif-bold': 'PT Serif Bold',
+  mono: 'IBM Plex Mono',
 }
 
 /**
