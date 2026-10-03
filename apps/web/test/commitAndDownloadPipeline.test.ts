@@ -250,7 +250,9 @@ describe('commit -> preview -> download pipeline', () => {
 
     // Render, and report the paint: now the picture is of these slots.
     await act(async () => { await pipeline.render() })
-    act(() => { pipeline.handlePainted() })
+    // The canvas reports the bytes it painted; the pipeline looks up the
+    // slots those bytes came from.
+    act(() => { pipeline.handlePainted(pipeline.bytes!) })
     await waitFor(() => expect(getByTestId('showing').textContent).toBe('rendered'))
     expect(pipeline.isSlotCommitted({ ...makeSlot(), text: 'hi' })).toBe(false)
 

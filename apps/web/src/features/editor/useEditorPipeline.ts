@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
   FONT_IDS,
@@ -76,7 +76,7 @@ export type EditorPipeline = SlotCommands & {
   /** Non-null while a slot holds characters no bundled face can draw; Download is blocked with this reason. */
   downloadBlockedReason: string | null
   /** For PageCanvas's onRendered: records which slots the canvas now shows. */
-  handlePainted(): void
+  handlePainted(bytes: Uint8Array): void
   /** Whether the canvas is showing this exact slot (so its DOM text can hide). */
   isSlotCommitted(slot: Slot): boolean
 }
@@ -94,7 +94,7 @@ export function useEditorPipeline(
   { renderOnCommit = RENDER_ON_COMMIT }: { renderOnCommit?: boolean } = {},
 ): EditorPipeline {
   const fontMetrics = useFontMetrics()
-  const { bytes, isRendering, renderedSlots, error, commit, render } = useCommitRender(doc, store.slots, {
+  const { bytes, isRendering, renderedSlots, error, commit, render, slotsFor } = useCommitRender(doc, store.slots, {
     renderOnCommit,
   })
 
@@ -154,21 +154,19 @@ export function useEditorPipeline(
   // (renderPdf resolving) and painting (pdf.js loading + drawing that
   // page) are two separate async stages, so `bytes`/`renderedSlots` having
   // advanced is not by itself proof the canvas shows them yet. Recorded
-  // when PageCanvas reports the paint done: at that moment the painted
-  // bytes are still the current ones (PageCanvas cancels a paint the
-  // instant its bytes are superseded, and never reports a cancelled one),
-  // so `renderedSlots` is exactly the array those bytes came from. Read
-  // through a ref so `handlePainted` stays referentially stable -- it is
-  // in PageCanvas's effect deps, and a fresh identity per render would
-  // re-run that effect (and repaint the page) on every keystroke.
+  // when PageCanvas reports the paint done, and matched on the bytes it
+  // reports painting -- so the slots taken as painted are the ones those
+  // exact bytes came from, whenever the report arrives.
   const [paintedSlots, setPaintedSlots] = useState<Slot[] | null>(null)
-  const renderedSlotsRef = useRef(renderedSlots)
-  useEffect(() => {
-    renderedSlotsRef.current = renderedSlots
-  })
-  const handlePainted = useCallback(() => {
-    setPaintedSlots(renderedSlotsRef.current)
-  }, [])
+  // The canvas says which bytes it painted, and those bytes name the
+  // slots they came from. Reading a ref that an effect kept in step
+  // instead left a window where a paint could report before the effect
+  // had run: the slots recorded as painted were then the ones from the
+  // render *before* it, so a slot that had just been drawn into the
+  // canvas went on showing its own copy of the text over the top.
+  const handlePainted = useCallback((painted: Uint8Array) => {
+    setPaintedSlots(slotsFor(painted))
+  }, [slotsFor])
 
   // A new document invalidates `paintedSlots`: it belonged to the old
   // doc's canvas. Adjusted synchronously during render (React's documented
