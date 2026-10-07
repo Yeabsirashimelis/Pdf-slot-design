@@ -20,10 +20,14 @@ import {
  * `fontKerning` is set to match exactly how pdf-lib measures and draws
  * text (see PDF_APPLIES_KERNING's doc comment in packages/core): pdf-lib
  * ignores GPOS kerning, so the browser must too, or advance widths would
- * disagree and preview would drift from download. Ligatures are the
- * opposite case and are deliberately NOT disabled here: pdf-lib runs
- * `font.layout()`, which applies GSUB `liga`, so the exported page really
- * does carry ligature glyphs and the overlay has to show the same ones.
+ * disagree and preview would drift from download. GSUB substitution is the
+ * opposite case and is deliberately NOT disabled here: pdf-lib runs
+ * `font.layout()`, which applies the default feature set, so the exported
+ * page really does carry the substituted glyphs and the overlay has to show
+ * the same ones. For the sans face that means `calt` -- Inter has no `liga`,
+ * but it rewrites `->` to a single arrow -- and for the serif face `liga`.
+ * Both are on by default in CSS, so the rule is simply to add no reset:
+ * neither `font-variant-ligatures` nor `font-feature-settings` belongs here.
  *
  * `left`/`top` are offsets relative to the slot's own top-left corner
  * (`slot.x`, `slot.y`) -- the caller (SlotOverlay) is expected to render
@@ -34,17 +38,25 @@ export function SlotLines({
   lines,
   viewport,
   metrics,
+  color,
+  placeholder = false,
 }: {
   slot: Slot
   lines: PositionedLine[]
   viewport: Viewport
   metrics: FontMetrics
+  /** CSS colour override -- the slot's own colour otherwise. The name placeholder uses it to read as a hint, not as text. */
+  color?: string
+  /** Marks the spans as the placeholder (the slot's name), for tests and styling hooks. */
+  placeholder?: boolean
 }) {
   return (
     <>
       {lines.map((line, i) => (
         <span
           key={i}
+          data-slot-line
+          data-placeholder={placeholder ? true : undefined}
           style={{
             position: 'absolute',
             left: toScreenLength(line.x - slot.x, viewport),
@@ -53,7 +65,9 @@ export function SlotLines({
             fontSize: toScreenLength(slot.size, viewport),
             whiteSpace: 'pre',
             fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
-            color: rgbToCss(slot.color),
+            color: color ?? rgbToCss(slot.color),
+            // Pointer events go to the box (and its textarea) below.
+            pointerEvents: 'none',
           }}
         >
           {line.text}

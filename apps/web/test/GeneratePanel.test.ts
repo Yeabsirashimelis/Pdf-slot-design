@@ -1,0 +1,455 @@
+import { createElement } from 'react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { GeneratePanel } from '@/features/generate/GeneratePanel'
+
+const fileId = 'a'.repeat(64)
+const okJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+const status = (over: Partial<Record<string, unknown>>) => ({
+  id: 'j1', fileId, status: 'running', total: 2, done: 1, failed: 0, error: null, createdAt: '2026-09-19T00:00:00.000Z', finishedAt: null,
+  items: [{ index: 0, status: 'done', error: null }, { index: 1, status: 'pending', error: null }], ...over,
+})
+
+// The panel opens shut, so every case starts by opening it -- which is
+// what someone about to generate does, and keeps these cases about the
+// form rather than about the disclosure.
+const slots = (...slotNames: string[]) => ({ slotNames, tables: [] })
+const panel = (slotNames: string[] = ['Name']) => {
+  const rendered = render(createElement(GeneratePanel, { apiUrl: 'http://api.test', fileId, targets: slots(...slotNames) }))
+  fireEvent.click(screen.getByTestId('generate-toggle'))
+  return rendered
+}
+const type = (value: string) => fireEvent.change(screen.getByTestId('generate-records'), { target: { value } })
+const pick = (file: File) => fireEvent.change(screen.getByTestId('generate-file'), { target: { files: [file] } })
+const records = () => (screen.getByTestId('generate-records') as HTMLTextAreaElement).value
+const submit = () => screen.getByTestId('generate-submit') as HTMLButtonElement
+
+describe('GeneratePanel', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset(); localStorage.clear() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
+
+  it('submits records with the key, shows progress, then the zip link and failed rows', async () => {
+    fetchMock
+      .mockResolvedValueOnce(okJson({ jobId: 'j1' }, 202))
+      .mockResolvedValueOnce(okJson(status({})))
+      .mockResolvedValueOnce(okJson(status({ status: 'done', done: 1, failed: 1, finishedAt: 't2', items: [{ index: 0, status: 'done', error: null }, { index: 1, status: 'failed', error: 'bad char' }] })))
+    panel()
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"},{"Name":"B"}]')
+    fireEvent.click(submit())
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(String(url)).toBe(`http://api.test/files/${fileId}/jobs`)
+    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer k')
+    expect(JSON.parse(String(init?.body))).toEqual({ records: [{ Name: 'A' }, { Name: 'B' }], fillFromTemplate: false })
+    await waitFor(() => expect(screen.getByTestId('generate-progress').textContent).toContain('1 / 2'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    await waitFor(() => expect(screen.getByTestId('generate-zip').getAttribute('href')).toBe('http://api.test/jobs/j1/zip'))
+    expect(screen.getByTestId('generate-failures').textContent).toContain('Row 2: bad char')
+    expect(localStorage.getItem('pdf-slot-api-key')).toBe('k')
+  })
+
+  it('shows a parse error and refuses to generate at all', () => {
+    panel()
+    type('Name,Name\nAbel,Sara\n')
+    expect(screen.getByTestId('generate-summary').textContent).toBe('Two columns are named "Name"')
+    expect(submit().disabled).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses a blank API key without overwriting the previously-saved one', () => {
+    localStorage.setItem('pdf-slot-api-key', 'saved')
+    panel()
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: '' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+    expect(screen.getByTestId('generate-error').textContent).toBe('Enter your API key')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(localStorage.getItem('pdf-slot-api-key')).toBe('saved')
+  })
+
+  it('summarises how many rows and which columns the data has', () => {
+    panel(['Name', 'Date'])
+    type('Name,Date\nAbel,18 Sep\nSara,19 Sep\n')
+    expect(screen.getByTestId('generate-summary').textContent).toContain('2 rows · columns: Name, Date')
+    expect(submit().disabled).toBe(false)
+  })
+
+  it('imports a .csv file into the box, shows its name, and clears the last error', async () => {
+    panel(['Name', 'Date'])
+    pick(new File(['x'], 'notes.txt', { type: 'text/plain' }))
+    await waitFor(() => expect(screen.getByTestId('generate-error')).toBeTruthy())
+    const csv = 'Name,Date\nAbel,18 Sep\n'
+    pick(new File([csv], 'rows.csv', { type: 'text/csv' }))
+    await waitFor(() => expect(records()).toBe(csv))
+    expect(screen.getByTestId('generate-file-name').textContent).toBe('rows.csv')
+    expect(screen.queryByTestId('generate-error')).toBeNull()
+    expect(screen.getByTestId('generate-summary').textContent).toContain('1 row · columns: Name, Date')
+  })
+
+  it('refuses a file that is neither .csv nor .json, and leaves the pasted text alone', async () => {
+    panel()
+    type('[{"Name":"A"}]')
+    pick(new File(['Name\nAbel\n'], 'rows.txt', { type: 'text/plain' }))
+    await waitFor(() => expect(screen.getByTestId('generate-error').textContent).toBe('Choose a .csv or .json file'))
+    expect(records()).toBe('[{"Name":"A"}]')
+    expect(screen.queryByTestId('generate-file-name')).toBeNull()
+  })
+
+  it('refuses a file over 5 MB, naming its size, and leaves the pasted text alone', async () => {
+    panel()
+    type('[{"Name":"A"}]')
+    pick(new File(['x'.repeat(6 * 1024 * 1024)], 'huge.csv', { type: 'text/csv' }))
+    await waitFor(() => expect(screen.getByTestId('generate-error').textContent).toBe('That file is 6.0 MB; the limit is 5 MB'))
+    expect(records()).toBe('[{"Name":"A"}]')
+  })
+
+  it('warns about a column that matches no slot and a slot no column fills, but still generates', () => {
+    panel(['Name', 'Date'])
+    type('Nmae,Date\nAbel,18 Sep\n')
+    const summary = screen.getByTestId('generate-summary').textContent ?? ''
+    expect(summary).toContain('Ignored: "Nmae" matches no slot. Did you mean "Name"?')
+    expect(summary).toContain('Left blank: "Name" has no column.')
+    expect(submit().disabled).toBe(false)
+  })
+
+  it('leaves out the guess when an unknown column resembles no slot', () => {
+    panel(['Name', 'Date'])
+    type('Name,Invoice reference\nAbel,7\n')
+    expect(screen.getByTestId('generate-summary').textContent).toContain('Ignored: "Invoice reference" matches no slot.')
+    expect(screen.getByTestId('generate-summary').textContent).not.toContain('Did you mean')
+    expect(submit().disabled).toBe(false)
+  })
+
+  it('refuses to generate when not one column matches a slot', () => {
+    panel(['Name', 'Date'])
+    type('Full name,Day\nAbel,18 Sep\n')
+    expect(screen.getByTestId('generate-summary').textContent).toContain('None of these columns match your slots (Name, Date)')
+    expect(submit().disabled).toBe(true)
+  })
+
+  it('shows an error when the file cannot be read, and leaves the pasted text alone', async () => {
+    panel()
+    type('[{"Name":"A"}]')
+    const file = new File(['x'], 'rows.csv', { type: 'text/csv' })
+    Object.defineProperty(file, 'text', { value: () => Promise.reject(new Error('boom')) })
+    pick(file)
+    await waitFor(() => expect(screen.getByTestId('generate-error').textContent).toBe('Could not read that file'))
+    expect(records()).toBe('[{"Name":"A"}]')
+    expect(screen.queryByTestId('generate-file-name')).toBeNull()
+  })
+})
+
+describe('GeneratePanel: a file with a table', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  beforeEach(() => { vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset(); localStorage.clear() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  const log = {
+    slotNames: ['Client'],
+    tables: [{ name: 'Change orders', columns: ['No', 'Amount'], rowCount: 2 }],
+  }
+  const withTable = () => {
+    const rendered = render(createElement(GeneratePanel, { apiUrl: 'http://api.test', fileId, targets: log }))
+    fireEvent.click(screen.getByTestId('generate-toggle'))
+    return rendered
+  }
+
+  it('says a CSV cannot fill a table, and offers the shape that can', () => {
+    withTable()
+    expect(screen.getByTestId('generate-csv-note').textContent).toContain('never a table')
+    // The label still offers CSV: it fills the slots even here, and saying
+    // "JSON array" would tell the user their spreadsheet is refused.
+    expect(screen.getByLabelText('Records (JSON array or CSV)')).toBeTruthy()
+    const placeholder = (screen.getByTestId('generate-records') as HTMLTextAreaElement).placeholder
+    expect(placeholder).toContain('"Client"')
+    expect(placeholder).toContain('"Change orders"')
+    expect(placeholder).toContain('"No"')
+  })
+
+  it('generates from rows alone, from text alone, and from both', () => {
+    withTable()
+    const summary = () => screen.getByTestId('generate-summary').textContent ?? ''
+
+    type('[{"Client":"Abel"}]')
+    expect(submit().disabled).toBe(false)
+    expect(summary()).toContain('Left blank: "Change orders" has no column.')
+
+    type('[{"Change orders":[{"No":"1","Amount":"10.00"}]}]')
+    expect(submit().disabled).toBe(false)
+    expect(summary()).toContain('Left blank: "Client" has no column.')
+
+    type('[{"Client":"Abel","Change orders":[{"No":"1","Amount":"10.00"}]}]')
+    expect(submit().disabled).toBe(false)
+    expect(summary()).not.toContain('Left blank')
+  })
+
+  it('warns before generating when the data has more rows than the table has lines', () => {
+    withTable()
+    type('[{"Change orders":[{"No":"1"},{"No":"2"},{"No":"3"},{"No":"4"}]}]')
+    expect(screen.getByTestId('generate-extra-rows-Change orders').textContent)
+      .toContain('2 more rows of data than it has rows on the page')
+    // A warning, not a refusal: the rows that fit still print.
+    expect(submit().disabled).toBe(false)
+  })
+
+  it('still takes a pasted CSV, which fills the slots and leaves the table blank', () => {
+    withTable()
+    type('Client\nAbel\nSara\n')
+    const summary = screen.getByTestId('generate-summary').textContent ?? ''
+    expect(summary).toContain('2 rows')
+    expect(summary).toContain('Left blank: "Change orders" has no column.')
+    expect(submit().disabled).toBe(false)
+  })
+
+  it('refuses when the record names the table but none of its columns', () => {
+    withTable()
+    type('[{"Change orders":[{"Nope":"1"}]}]')
+    expect(screen.getByTestId('generate-summary').textContent)
+      .toContain('None of these columns match your slots or tables (Client, Change orders)')
+    expect(submit().disabled).toBe(true)
+  })
+})
+
+describe('GeneratePanel: what happens to the boxes the data leaves out', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  beforeEach(() => { vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset(); localStorage.clear() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  const open = (props: Record<string, unknown> = {}) => {
+    render(createElement(GeneratePanel, {
+      apiUrl: 'http://api.test', fileId, targets: { slotNames: ['Name', 'Company'], tables: [] }, ...props,
+    }))
+    if (screen.queryByTestId('generate-panel') === null) fireEvent.click(screen.getByTestId('generate-toggle'))
+  }
+  const body = () => JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))
+
+  it('asks, and prints what was typed when that is the answer', async () => {
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    open({ filledIn: ['Company'] })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+
+    // The data says nothing about Company, which the user filled in.
+    expect(screen.getByTestId('generate-template-dialog').textContent).toContain('Company')
+    fireEvent.click(screen.getByTestId('generate-keep-typed'))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(body().fillFromTemplate).toBe(true)
+  })
+
+  it('and leaves them blank when that is the answer', async () => {
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    open({ filledIn: ['Company'] })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+    fireEvent.click(screen.getByTestId('generate-leave-blank'))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(body().fillFromTemplate).toBe(false)
+  })
+
+  it('does not ask when the data covers everything that was typed in', async () => {
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    open({ filledIn: ['Name'] })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+
+    // Both answers would print the same thing, so there is nothing to ask.
+    expect(screen.queryByTestId('generate-template-dialog')).toBeNull()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(body().fillFromTemplate).toBe(false)
+  })
+
+  it('does not ask when nothing was typed in at all', async () => {
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    open()
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+    expect(screen.queryByTestId('generate-template-dialog')).toBeNull()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+  })
+
+  it('saves the layout before the job, and refuses to start if that fails', async () => {
+    // A job renders from the SAVED layout, and the editor's own writes are
+    // debounced: without this, a change made in the last second before
+    // Generate is not the one that prints.
+    fetchMock.mockResolvedValue(okJson({ jobId: 'j1' }, 202))
+    const order: string[] = []
+    const onSaveNow = vi.fn(async () => { order.push('save') })
+    fetchMock.mockImplementation(async () => { order.push('job'); return okJson({ jobId: 'j1' }, 202) })
+
+    open({ filledIn: [], onSaveNow })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+    // A generous window: waitFor's own default is a second, which a busy
+    // machine can miss for reasons that have nothing to do with the code.
+    await waitFor(() => expect(order).toEqual(['save', 'job']), { timeout: 10_000 })
+
+    // And a save that fails stops the job rather than printing the old layout.
+    cleanup()
+    order.length = 0
+    const failing = vi.fn(async () => { throw new Error('offline') })
+    open({ filledIn: [], onSaveNow: failing })
+    fireEvent.change(screen.getByTestId('generate-key'), { target: { value: 'k' } })
+    type('[{"Name":"A"}]')
+    fireEvent.click(submit())
+    await waitFor(() => expect(screen.getByTestId('generate-error').textContent).toContain('Could not save the layout'), { timeout: 10_000 })
+    expect(order).toEqual([])
+  })
+})
+
+describe('GeneratePanel: the data goes on the page', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  beforeEach(() => { vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset(); localStorage.clear() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  const open = (props: Record<string, unknown> = {}) => {
+    render(createElement(GeneratePanel, {
+      apiUrl: 'http://api.test', fileId, targets: { slotNames: ['Name'], tables: [] }, ...props,
+    }))
+    if (screen.queryByTestId('generate-panel') === null) fireEvent.click(screen.getByTestId('generate-toggle'))
+  }
+  const rows = 'Name\nAbel\nSara\nTeddy\n'
+
+  it('puts the first row on the page the moment a file is imported', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    pick(new File([rows], 'rows.csv', { type: 'text/csv' }))
+
+    await waitFor(() => expect(onPreviewRecord).toHaveBeenCalledWith({ Name: 'Abel' }))
+    expect(screen.getByTestId('generate-preview-label').textContent).toBe('Showing row 1 of 3')
+  })
+
+  it('steps through the rows, and stops at each end', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    pick(new File([rows], 'rows.csv', { type: 'text/csv' }))
+    await waitFor(() => expect(screen.getByTestId('generate-preview-label').textContent).toBe('Showing row 1 of 3'))
+
+    // Nothing before the first.
+    expect((screen.getByTestId('generate-preview-prev') as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Name: 'Sara' })
+    expect(screen.getByTestId('generate-preview-label').textContent).toBe('Showing row 2 of 3')
+
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Name: 'Teddy' })
+    // And nothing after the last.
+    expect((screen.getByTestId('generate-preview-next') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('offers to show a row for data that was pasted rather than imported', () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    type(rows)
+
+    // Pasting does not take the page over -- it is typed a letter at a
+    // time, and a page rewritten on every keystroke is unusable.
+    expect(onPreviewRecord).not.toHaveBeenCalled()
+    expect(screen.getByTestId('generate-preview-label').textContent).toBe('3 rows · show one on the page')
+
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(onPreviewRecord).toHaveBeenCalledWith({ Name: 'Abel' })
+  })
+
+  it('has nothing to show when the box is empty or the data is unusable', () => {
+    open({ onPreviewRecord: vi.fn() })
+    expect(screen.queryByTestId('generate-preview')).toBeNull()
+    type('Name,Name\nAbel,Sara\n')
+    expect(screen.queryByTestId('generate-preview')).toBeNull()
+  })
+})
+
+describe('GeneratePanel: the page and the data never disagree', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); vi.stubGlobal('fetch', fetchMock); fetchMock.mockReset(); localStorage.clear() })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
+
+  const open = (props: Record<string, unknown> = {}) => {
+    render(createElement(GeneratePanel, {
+      apiUrl: 'http://api.test', fileId, targets: { slotNames: ['Client'], tables: [] }, ...props,
+    }))
+    if (screen.queryByTestId('generate-panel') === null) fireEvent.click(screen.getByTestId('generate-toggle'))
+  }
+  const rows = 'Client\nAbel\nSara\nTeddy\n'
+  const label = () => screen.getByTestId('generate-preview-label').textContent
+
+  it('editing the data re-reads the shown row onto the page', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    type(rows)
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Client: 'Abel' })
+
+    // The page must not go on showing a row the data no longer has.
+    type('Client\nCHANGED\nSara\n')
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Client: 'CHANGED' })
+  })
+
+  it('falls back to the last row there is when the data is cut short', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord })
+    type(rows)
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    fireEvent.click(screen.getByTestId('generate-preview-next'))
+    expect(label()).toBe('Showing row 3 of 3')
+
+    type('Client\nONLY\n')
+    // Never "showing row 3 of 1".
+    expect(label()).toBe('Showing row 1 of 1')
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(onPreviewRecord).toHaveBeenLastCalledWith({ Client: 'ONLY' })
+  })
+
+  it('says there is nowhere to put a row, rather than pretending to show one', () => {
+    // Nothing laid out: importing has nowhere to go, and claiming to show
+    // a row while the page stays empty is worse than saying nothing.
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord, targets: { slotNames: [], tables: [] } })
+    type(rows)
+
+    expect(screen.queryByTestId('generate-preview')).toBeNull()
+    expect(onPreviewRecord).not.toHaveBeenCalled()
+    expect(screen.getByTestId('generate-nothing-laid-out').textContent)
+      .toContain('This data has nowhere to go')
+    // And it is said here rather than left for the server to refuse.
+    expect(submit().disabled).toBe(true)
+  })
+
+  it('an import with nothing laid out puts nothing on the page', async () => {
+    const onPreviewRecord = vi.fn()
+    open({ onPreviewRecord, targets: { slotNames: [], tables: [] } })
+    pick(new File([rows], 'rows.csv', { type: 'text/csv' }))
+    await waitFor(() => expect(records()).toBe(rows))
+    expect(onPreviewRecord).not.toHaveBeenCalled()
+  })
+
+  it('says nothing until there is data to say it about', () => {
+    // Shown the moment the panel opens it reads as something already gone
+    // wrong, when the user has not done anything yet.
+    open({ onPreviewRecord: vi.fn(), targets: { slotNames: [], tables: [] } })
+    expect(screen.queryByTestId('generate-nothing-laid-out')).toBeNull()
+
+    type(rows)
+    expect(screen.getByTestId('generate-nothing-laid-out')).toBeTruthy()
+  })
+
+  it('lets the API key be read back, since a key typed blind is a key mistyped', () => {
+    open({ onPreviewRecord: vi.fn() })
+    const field = () => screen.getByTestId('generate-key') as HTMLInputElement
+    expect(field().type).toBe('password')
+
+    fireEvent.click(screen.getByTestId('generate-key-reveal'))
+    expect(field().type).toBe('text')
+    fireEvent.click(screen.getByTestId('generate-key-reveal'))
+    expect(field().type).toBe('password')
+  })
+})

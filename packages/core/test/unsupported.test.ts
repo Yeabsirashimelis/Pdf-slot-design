@@ -32,7 +32,7 @@ test('clean Latin text reports nothing', () => {
   expect(findUnsupportedSlots([slot()], metrics)).toEqual([])
 })
 
-test('Cyrillic is supported by PT Sans and reports nothing', () => {
+test('Cyrillic is supported by the sans face and reports nothing', () => {
   expect(findUnsupportedSlots([slot({ text: 'Привет мир' })], metrics)).toEqual([])
 })
 
@@ -58,7 +58,7 @@ test('newlines are NOT reported, though their glyph id is also 0', () => {
 })
 
 test('the answer depends on the slot\'s own face, not the text alone', () => {
-  // Ω (U+03A9) is in PT Sans's character set but not IBM Plex Mono's, so
+  // Ω (U+03A9) is in Inter's character set but not IBM Plex Mono's, so
   // the same string is safe in one face and not the other. This is why the
   // check is per slot with that slot's own fontId, never per string.
   expect(findUnsupportedSlots([slot({ text: 'Ω' })], metrics)).toEqual([])

@@ -2,30 +2,35 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { toLayout, toSlots, toValues, type Point } from '@pdf-slot/core'
-import type { SessionStore, Step, TemplateStore } from '@/lib/persistence/templateStore'
-import { Editor } from '@/features/editor/Editor'
+import { cellName, recordToValues, tableIdOfCell, tableStyle, toLayout, toSlots, toValues, type DataRecord, type Point, type Slot, type TableStyle } from '@pdf-slot/core'
+import { apiUrl } from '@/lib/persistence'
+import type { SessionStore, TemplateStore } from '@/lib/persistence/templateStore'
+import { Editor, type NamingState } from '@/features/editor/Editor'
+import { useEditorPipeline } from '@/features/editor/useEditorPipeline'
 import { useEditorStore } from '@/features/editor/state/useEditorStore'
+import type { PasteTarget } from '@/features/editor/useSlotClipboard'
+import { isCell, textsOfCells } from '@/features/editor/table/tableSlots'
+import { useTables, type DrawnRow } from '@/features/editor/table/useTables'
+import { InspectorPanel } from '@/features/editor/panels/InspectorPanel'
+import { SlotsPanel } from '@/features/editor/panels/SlotsPanel'
+import { GeneratePanel } from '@/features/generate/GeneratePanel'
+import { ShortcutsDialog } from '@/features/editor/panels/ShortcutsDialog'
 import { copyName } from './copyName'
-import { NameSlotDialog } from './NameSlotDialog'
-import { SlotPanel } from './SlotPanel'
 import { useDebouncedWrite } from './useTemplatePersistence'
 import type { OpenedFile } from './openFile'
 
-type Pending =
-  | { kind: 'place'; atPdf: Point; page: number }
-  | { kind: 'rename'; id: string }
-  | null
+/** A slot being named in place: `isNew` means an empty name discards it, as Figma discards an empty text box. */
+type Naming = { id: string; value: string; isNew: boolean }
 
 /**
- * The two-step shell around the editor.
- *
- * Step 1 (layout): place, name, move, style, delete slots. Step 2 (write):
- * the same slots, locked, with a form beside them. The editor works on
- * Slot[] throughout; names live here and meet the slots only at the
- * persistence boundary (toLayout / toSlots). Entering a step replaces the
- * slot list (a boundary undo must not cross); step 1 has no text entry,
- * and step 2's typed text is kept across Back/Next.
+ * The one-screen shell around the workspace: the slots panel on the
+ * left (list and form in one), the canvas in the middle, the inspector
+ * on the right. Owns what the store does not: slot names, the slot
+ * being named in place, the layout lock, and persistence. The editor
+ * works on Slot[] throughout; names meet the slots only at the
+ * persistence boundary (toLayout / toSlots), where the layout (geometry,
+ * typography, names) and the values (text) are two records -- lay out
+ * once, fill in any number of times.
  */
 export function TemplateEditor({
   opened, store, onStartOver,
@@ -35,81 +40,247 @@ export function TemplateEditor({
   onStartOver(): void
 }) {
   const { doc, name: fileName, fileId, layout, values } = opened
-  const [step, setStep] = useState<Step>(opened.step)
   const [names, setNames] = useState<Record<string, string>>(() =>
     Object.fromEntries((layout?.slots ?? []).map((s) => [s.id, s.name])),
   )
-  const editor = useEditorStore(layout ? toSlots(layout, opened.step === 'write' ? values : null) : [])
-  const [pending, setPending] = useState<Pending>(null)
-  // Lifted out of Editor so the panel can jump to a slot's page.
-  const [pageIndex, setPageIndex] = useState(0)
-
-  // Record which file/step is open, so a reload lands here again. An
-  // effect, not a render-time write: a store write is a side effect React
-  // may repeat if it re-runs the render.
-  useEffect(() => {
-    void store.put({ fileId, step })
-  }, [fileId, step, store])
-
-  // Debounced safety-net writes; Next/Save/Back write immediately below.
-  const currentLayout = useMemo(
-    () => toLayout(fileId, editor.slots, names, new Date().toISOString()),
-    [fileId, editor.slots, names],
+  /** The table tool: armed by the panel, spent on the next drag over the page. */
+  const [drawingTable, setDrawingTable] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  // The store holds the hand-placed slots only. A table's cells are
+  // derived from the table (see useTables), so keeping them here as well
+  // would leave two copies of the same geometry to drift apart -- and an
+  // undo could put a cell back where its table no longer says it is.
+  // One history for the page: the hand-placed slots, the tables and what
+  // is typed in their cells, so a single Ctrl+Z takes back whichever of
+  // them was last touched -- and a cell can never be restored to a place
+  // its table no longer claims.
+  const editor = useEditorStore(
+    layout
+      ? {
+          slots: toSlots({ ...layout, tables: [] }, values),
+          tables: layout.tables ?? [],
+          texts: textsOfCells(toSlots(layout, values)),
+        }
+      : {},
   )
-  const currentValues = useMemo(() => toValues(fileId, editor.slots, new Date().toISOString()), [fileId, editor.slots])
-  useDebouncedWrite(step === 'layout' ? currentLayout : null, async (l) => { if (l) await store.putLayout(l) })
-  useDebouncedWrite(step === 'write' ? currentValues : null, async (v) => { if (v) await store.putValues(v) })
+  const tables = useTables(editor)
+  // What the rest of the editor sees: both kinds of slot, and a store
+  // that knows which is which. A cell's text belongs to its table, and a
+  // cell cannot be moved, duplicated or deleted on its own -- the table
+  // lays it out.
+  const allSlots = useMemo(() => [...editor.slots, ...tables.cells], [editor.slots, tables.cells])
+  const slotStore = useMemo(
+    () => ({
+      ...editor,
+      slots: allSlots,
+      updateSlot(id: string, patch: Partial<Slot>) {
+        if (!isCell(id)) {
+          editor.updateSlot(id, patch)
+          return
+        }
+        if (patch.text !== undefined) tables.setCellText(id, patch.text)
+        // Only the typography reaches the table, which shares it across
+        // every cell. A cell is a slot, so a patch meant for one can also
+        // carry where it is and how wide it is -- and a table's style is
+        // no place for that: it would lay every cell out on top of the
+        // first. The table owns a cell's geometry; nothing else may set it.
+        const style = tableStyle(patch as Record<string, unknown>)
+        const table = tables.tableOf(id)
+        if (table && Object.keys(style).length > 0) tables.setStyle(table.id, style)
+      },
+      removeSlot(id: string) {
+        if (!isCell(id)) editor.removeSlot(id)
+      },
+      duplicateSlot(id: string) {
+        return isCell(id) ? null : editor.duplicateSlot(id)
+      },
+      nudgeSlot(id: string, dx: number, dy: number) {
+        if (!isCell(id)) editor.nudgeSlot(id, dx, dy)
+      },
+    }),
+    [editor, allSlots, tables],
+  )
+  const pipeline = useEditorPipeline(doc, slotStore)
+  const [pageIndex, setPageIndex] = useState(0)
+  const [locked, setLocked] = useState(false)
+  const [naming, setNaming] = useState<Naming | null>(null)
+  // Mirrors `naming` for the handlers: Enter commits and the input's blur
+  // follows in the same tick, before React has re-rendered with the
+  // cleared state, so the second call must see it already cleared.
+  const namingRef = useRef<Naming | null>(null)
+  const updateNaming = (next: Naming | null) => {
+    namingRef.current = next
+    setNaming(next)
+  }
+  // The slot whose text box should take the caret next: naming a slot ends
+  // by focusing it, so the very next thing typed is the slot's *text* and
+  // not another name. Without it the box sits there showing its name as a
+  // placeholder, which reads exactly like content that would be exported --
+  // and is not.
+  const [focusSlotId, setFocusSlotId] = useState<string | null>(null)
 
-  // Text typed in step 2, kept so Back -> Next restores it. Only ever
-  // touched inside event handlers (Back writes, Next reads), so a ref
-  // rather than state.
-  const writtenRef = useRef<Record<string, string>>({})
+  // Record which file is open, so a reload lands here again. An effect,
+  // not a render-time write: a store write is a side effect React may
+  // repeat if it re-runs the render.
+  useEffect(() => {
+    void store.put({ fileId })
+  }, [fileId, store])
 
-  const handlePlaceSlot = useCallback((atPdf: Point, page: number) => {
-    setPending({ kind: 'place', atPdf, page })
-  }, [])
+  // The slot names the generate panel checks a data file's columns
+  // against. Memoised because it is the panel's memo key: a fresh array
+  // every render would re-parse the pasted rows each time.
+  const slotNames = useMemo(() => Object.values(names), [names])
 
-  const handleNameSubmit = (name: string) => {
-    if (!pending) return
-    if (pending.kind === 'place') {
-      const id = editor.addSlot(pending.atPdf, pending.page)
-      setNames((n) => ({ ...n, [id]: name }))
-    } else {
-      setNames((n) => ({ ...n, [pending.id]: name }))
+  /**
+   * The names of the boxes that have something typed into them, as a data
+   * file would have to name them: a plain slot by its own name, a table by
+   * the table's. What the generate panel offers to print on every PDF when
+   * the data file says nothing about them.
+   */
+  const filledIn = useMemo(() => {
+    const filled = new Set<string>()
+    for (const slot of editor.slots) if (slot.text.trim() !== '') filled.add(names[slot.id] ?? slot.id)
+    for (const cell of tables.cells) {
+      if (cell.text.trim() === '') continue
+      const table = tables.tableOf(cell.id)
+      if (table) filled.add(table.name)
     }
-    setPending(null)
+    return [...filled]
+  }, [editor.slots, tables, names])
+
+  // What a data file can fill: the named boxes, and the named tables with
+  // the columns and the number of ruled lines each one has.
+  const fillTargets = useMemo(() => ({
+    slotNames,
+    tables: tables.tables.map((table) => ({
+      name: table.name,
+      columns: table.columns.map((column) => column.name),
+      rowCount: table.rowHeights.length,
+    })),
+  }), [slotNames, tables.tables])
+
+  // Debounced safety-net writes of both records; Save writes at once.
+  const currentLayout = useMemo(
+    () => toLayout(fileId, editor.slots, names, new Date().toISOString(), tables.tables),
+    [fileId, editor.slots, names, tables.tables],
+  )
+  const currentValues = useMemo(() => toValues(fileId, allSlots, new Date().toISOString()), [fileId, allSlots])
+
+  /**
+   * Pours one record of a data file into the boxes on the page, so what a
+   * file will produce can be read off the document itself before a job is
+   * ever started.
+   *
+   * Every box the record names is set and every box it does not is
+   * emptied: what is on the page is then that record and nothing else,
+   * which is what the generated PDF will be. It is one undo step, so the
+   * work it writes over is one Ctrl+Z away.
+   */
+  const previewRecord = useCallback((record: DataRecord) => {
+    const values = recordToValues(currentLayout, record)
+    const texts: Record<string, string> = {}
+    for (const cell of tables.cells) texts[cell.id] = values[cell.id] ?? ''
+    tables.setTexts(texts)
+    for (const slot of editor.slots) editor.updateSlot(slot.id, { text: values[slot.id] ?? '' })
+    editor.commitEdit()
+  }, [currentLayout, editor, tables])
+  useDebouncedWrite(currentLayout, (l) => store.putLayout(l))
+  useDebouncedWrite(currentValues, (v) => store.putValues(v))
+
+  const handlePlaceSlot = (atPdf: Point, page: number) => {
+    // A click on the page while naming another slot lands after that
+    // input's blur, which has already committed it.
+    const id = editor.addSlot(atPdf, page)
+    updateNaming({ id, value: '', isNew: true })
+  }
+
+  const handleRemove = (id: string) => {
+    pipeline.removeSlotAndCommit(id)
+    setNames((n) => Object.fromEntries(Object.entries(n).filter(([key]) => key !== id)))
+  }
+
+  const handleRename = (id: string, name: string) => {
+    setNames((n) => ({ ...n, [id]: name }))
   }
 
   const handleDuplicate = (id: string) => {
-    const copyId = editor.duplicateSlot(id)
+    const copyId = pipeline.duplicateSlotAndCommit(id)
     if (!copyId) return
     setNames((n) => ({ ...n, [copyId]: copyName(n[id] ?? 'Slot', Object.values(n)) }))
   }
 
-  const handleRemove = (id: string) => {
-    editor.removeSlot(id)
-    setNames((n) => Object.fromEntries(Object.entries(n).filter(([key]) => key !== id)))
+  // Ctrl/Cmd+V and Alt+drag: a copy of a snapshot, named after the slot it
+  // was copied from (which may since have been renamed or deleted).
+  const handlePaste = (snapshot: Slot, label: string | undefined, target: PasteTarget): string => {
+    const pastedId = pipeline.pasteSlotAndCommit(snapshot, target)
+    setNames((n) => {
+      // A copy needs a name of its own; a slot that was CUT has left its
+      // name behind, so it simply keeps it -- the same slot, put down
+      // somewhere else, not a copy of anything.
+      const wanted = label ?? 'Slot'
+      const taken = Object.values(n)
+      return { ...n, [pastedId]: taken.includes(wanted) ? copyName(wanted, taken) : wanted }
+    })
+    return pastedId
   }
 
-  const handleNext = () => {
-    void store.putLayout(currentLayout)
-    // Step 2 starts from what the user typed most recently in this session
-    // (including a field they cleared), else from what was loaded.
-    editor.replaceSlots(editor.slots.map((s) => ({ ...s, text: writtenRef.current[s.id] ?? values?.values[s.id] ?? '' })))
-    setStep('write')
+  // A slot's name is a column in a bulk-generation data file, so two
+  // slots on one file cannot share one -- the API refuses such a layout.
+  const nameTaken = (id: string, value: string) => {
+    const wanted = value.trim().toLowerCase()
+    if (wanted === '') return false
+    return Object.entries(names).some(([other, name]) => other !== id && name.trim().toLowerCase() === wanted)
   }
 
-  const handleBack = () => {
-    void store.putValues(currentValues)
-    // The full id -> text map, empty strings included, so a cleared field
-    // stays cleared when the user comes forward again.
-    writtenRef.current = Object.fromEntries(editor.slots.map((s) => [s.id, s.text]))
-    editor.replaceSlots(editor.slots)
-    setStep('layout')
-  }
+  const namingState: NamingState | null = naming
+    ? {
+        id: naming.id,
+        value: naming.value,
+        taken: nameTaken(naming.id, naming.value),
+        onChange: (value) => updateNaming({ ...naming, value }),
+        onCommit: () => {
+          const current = namingRef.current
+          if (!current) return
+          const trimmed = current.value.trim()
+          // Held open until it is changed: the overlay is already saying so.
+          if (nameTaken(current.id, trimmed)) return
+          updateNaming(null)
+          if (trimmed === '') {
+            // Nothing typed: a new slot is discarded, a rename is dropped.
+            if (current.isNew) handleRemove(current.id)
+            return
+          }
+          handleRename(current.id, trimmed)
+          // Named and ready to be written into: carry the caret over, and
+          // say which of the two things just happened -- naming a slot is
+          // not the same as filling it in, and that is exactly the step
+          // that is easy to stop at by mistake.
+          setFocusSlotId(current.id)
+          toast.success(current.isNew ? `Added "${trimmed}"` : `Renamed to "${trimmed}"`, {
+            description: current.isNew ? 'Now type the text that goes in it.' : undefined,
+          })
+        },
+        onCancel: () => {
+          const current = namingRef.current
+          if (!current) return
+          updateNaming(null)
+          if (current.isNew) handleRemove(current.id)
+        },
+      }
+    : null
+
+  /**
+   * Write what is on screen, now, and wait for it.
+   *
+   * The debounced writes above catch up a second after the last change;
+   * anything that reads this file back from the server sooner than that
+   * -- a generation job, which renders from the *saved* layout -- would
+   * otherwise render the state before the change.
+   */
+  const saveNow = () => Promise.all([store.putLayout(currentLayout), store.putValues(currentValues)])
 
   const handleSave = () => {
-    void store.putValues(currentValues).then(() => toast.success('Saved'))
+    void saveNow().then(() => toast.success('Saved'))
   }
 
   const handleStartOver = () => {
@@ -121,6 +292,10 @@ export function TemplateEditor({
       .finally(onStartOver)
   }
 
+  const selected = allSlots.find((s) => s.id === editor.selectedId) ?? null
+  const selectedTable = editor.selectedId ? tables.tableOf(editor.selectedId) : null
+  // The panel lists the hand-placed slots; a table is one group of its
+  // own (see TablePanel), not forty entries in this list.
   const panelSlots = editor.slots.map((s) => ({
     id: s.id,
     name: names[s.id] ?? 'Slot',
@@ -129,44 +304,115 @@ export function TemplateEditor({
     x: s.x,
     y: s.y,
   }))
+  /** A cell is named by its column and row; a hand-placed slot by its own name. */
+  const nameOf = (slot: Slot | null): string => {
+    if (!slot) return ''
+    const table = tables.tableOf(slot.id)
+    if (!table) return names[slot.id] ?? ''
+    const [, rest] = slot.id.split('#')
+    const [row, key] = (rest ?? '').split(':')
+    const column = table.columns.find((c) => c.key === key)
+    return column ? cellName(column, Number(row)) : ''
+  }
+
+  const handleDrawTableRow = (row: DrawnRow) => {
+    setDrawingTable(false)
+    if (row.width <= 0 || row.height <= 0) return
+    const style: TableStyle = selected
+      ? { fontId: selected.fontId, size: selected.size, color: selected.color, align: selected.align, lineHeight: selected.lineHeight }
+      : { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 }
+    const table = tables.create(row, style)
+    const first = tables.firstCellOfRow(table, 0)
+    if (first) editor.select(first)
+    toast.success('Table added', { description: 'Split it into columns, then add rows.' })
+  }
 
   return (
-    <div className="flex items-start gap-6">
-      <SlotPanel
-        step={step}
+    <div className="flex h-dvh w-full overflow-hidden bg-background" data-testid="template-editor">
+      <SlotsPanel
+        fileName={fileName}
         slots={panelSlots}
-        pageIndex={pageIndex}
-        onPageChange={setPageIndex}
         selectedId={editor.selectedId}
+        pageIndex={pageIndex}
+        pageCount={doc.pages.length}
+        locked={locked}
+        onLockedChange={setLocked}
+        onPageChange={setPageIndex}
         onSelect={editor.select}
-        onRename={(id) => setPending({ kind: 'rename', id })}
+        onRename={handleRename}
         onRemove={handleRemove}
         onDuplicate={handleDuplicate}
-        onNext={handleNext}
-        onBack={handleBack}
-        onChangeText={(id, text) => editor.updateSlot(id, { text })}
+        onChangeText={(id, text) => slotStore.updateSlot(id, { text })}
+        onStartOver={handleStartOver}
+        tables={tables.tables}
+        tableTexts={Object.fromEntries(tables.cells.map((cell) => [cell.id, cell.text]))}
+        drawingTable={drawingTable}
+        onDrawTable={() => setDrawingTable((armed) => !armed)}
+        onAddTableRow={tables.addRow}
+        onRemoveTableRow={tables.removeRow}
+        onRemoveTable={(id) => {
+          // Nothing may stay selected in a table that no longer exists.
+          if (tableIdOfCell(editor.selectedId ?? '') === id) editor.select(null)
+          tables.remove(id)
+        }}
+        onShowShortcuts={() => setShortcutsOpen(true)}
+        generate={apiUrl ? <GeneratePanel apiUrl={apiUrl} fileId={fileId} targets={fillTargets} filledIn={filledIn} onSaveNow={saveNow} onPreviewRecord={previewRecord} /> : undefined}
+      />
+      <main className="relative min-w-0 flex-1">
+        <Editor
+          doc={doc}
+          store={slotStore}
+          pipeline={pipeline}
+          pageIndex={pageIndex}
+          onPageChange={setPageIndex}
+          locked={locked}
+          names={names}
+          naming={namingState}
+          focusSlotId={focusSlotId}
+          onSlotFocused={() => setFocusSlotId(null)}
+          onPlaceSlot={handlePlaceSlot}
+          onDuplicateSlot={handleDuplicate}
+          onRemoveSlot={handleRemove}
+          onPasteSlot={handlePaste}
+          tables={tables.tables}
+          drawingTable={drawingTable}
+          onDrawTableRow={handleDrawTableRow}
+          onTableDrag={tables.applyDrag}
+          onTableCommit={pipeline.handleCommit}
+          onShowShortcuts={() => setShortcutsOpen(true)}
+        />
+      </main>
+      <InspectorPanel
+        selected={selected}
+        name={nameOf(selected)}
+        nameReadOnly={selectedTable !== null}
+        onRename={(name) => {
+          if (selected) handleRename(selected.id, name)
+        }}
+        applyPatch={(patch) => {
+          if (selected) pipeline.updateSlotAndCommit(selected.id, patch)
+        }}
+        // Each step of a held arrow: change what is on the page, but do
+        // not close an undo step or re-render the PDF for it. The whole
+        // hold is one change, settled by applyPatch when the key is let go.
+        previewPatch={(patch) => {
+          if (selected) slotStore.updateSlot(selected.id, patch)
+        }}
+        table={selectedTable}
+        onRenameTable={(name) => selectedTable && tables.rename(selectedTable.id, name)}
+        onRenameColumn={(key, name) => selectedTable && tables.renameColumn(selectedTable.id, key, name)}
+        onResizeColumn={(key, width) => selectedTable && tables.setColumnWidth(selectedTable.id, key, width)}
+        onAddColumn={() => selectedTable && tables.addColumn(selectedTable.id)}
+        onRemoveColumn={(key) => selectedTable && tables.removeColumn(selectedTable.id, key)}
+        locked={locked}
+        isRendering={pipeline.isRendering}
+        render={pipeline.render}
+        downloadBlockedReason={pipeline.downloadBlockedReason}
+        fileName={fileName}
+        emptySlots={allSlots.filter((s) => s.text.trim() === '').length}
         onSave={handleSave}
       />
-      <Editor
-        doc={doc}
-        store={editor}
-        locked={step === 'write'}
-        highlighted={step === 'write'}
-        readOnly={step === 'layout'}
-        onPlaceSlot={step === 'layout' ? handlePlaceSlot : undefined}
-        onDuplicateSlot={handleDuplicate}
-        slotLabels={names}
-        fileName={fileName}
-        pageIndex={pageIndex}
-        onPageChange={setPageIndex}
-        onStartOver={handleStartOver}
-      />
-      <NameSlotDialog
-        open={pending !== null}
-        initialName={pending?.kind === 'rename' ? names[pending.id] : ''}
-        onSubmit={handleNameSubmit}
-        onCancel={() => setPending(null)}
-      />
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   )
 }

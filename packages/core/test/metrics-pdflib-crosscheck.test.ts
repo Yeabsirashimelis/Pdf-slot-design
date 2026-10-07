@@ -17,20 +17,32 @@ const dir = fileURLToPath(new URL('../src/fonts/files/', import.meta.url))
  * aligned line, are computed from our number; the page is painted from
  * pdf-lib's. If they disagree, the export drifts from the preview.
  *
- * The word list deliberately mixes three cases:
+ * The word list deliberately mixes four cases:
  *  - ligature-forming words (`office`, `affluent`, `fluffy`, `waffle`) --
- *    PT Sans and PT Serif both ship a `liga` GSUB feature, and pdf-lib's
+ *    PT Serif ships a `liga` GSUB feature, and pdf-lib's
  *    `widthOfTextAtSize`/`encodeText` both go through `font.layout()`, which
  *    applies default features including `liga`. Measuring with
  *    `glyphsForString` (no shaping) is off by the ligature's saving.
- *  - kerning-sensitive pairs (`AV`, `To`, `WA`, `Yo`, `r.`) -- pdf-lib
- *    genuinely ignores GPOS kerning (it sums `glyphs[].advanceWidth`, never
- *    `positions[].xAdvance`), so these must still agree.
+ *  - contextual-alternate strings (`a->b`, `x-->y`) -- this is the shaping
+ *    the *sans* face actually does. Inter ships no `liga` at all, so the
+ *    words above exercise nothing in it; what it ships is a `calt` that
+ *    rewrites arrow-like runs into single glyphs. `->` collapses to one
+ *    `arrowright` and `-->` to one `uni27F6`, making those strings 7-9%
+ *    narrower than the sum of their characters' advances. `calt` is on by
+ *    default in fontkit's shaper *and* in every browser
+ *    (`font-variant-ligatures: contextual` is the CSS initial value), so all
+ *    three parties -- the layout engine, pdf-lib and the overlay -- substitute
+ *    alike. Without these samples the sans face's shaping would be untested,
+ *    exactly as PT Sans's ligatures once were.
+ *  - kerning-sensitive pairs (`AV`, `To`, `WA`, `Yo`, `r.`) -- Inter kerns
+ *    all five, and pdf-lib genuinely ignores GPOS kerning (it sums
+ *    `glyphs[].advanceWidth`, never `positions[].xAdvance`), so these must
+ *    still agree.
  *  - plain strings, as a control.
  *
- * The original characterization (spec §7, ruling R-8) used only the second
- * and third groups, which is why the shaping half went unnoticed: every
- * sample was ligature-free, so the delta was 0.00 every time.
+ * The original characterization (spec §7, ruling R-8) used only the last
+ * two groups, which is why the shaping half went unnoticed: every sample
+ * was ligature-free, so the delta was 0.00 every time.
  */
 const WORDS = [
   'office',
@@ -39,6 +51,8 @@ const WORDS = [
   'waffle',
   'flow',
   'difficult',
+  'a->b',
+  'x-->y',
   'AV',
   'To',
   'WA',

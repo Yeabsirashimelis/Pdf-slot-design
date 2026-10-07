@@ -1,0 +1,107 @@
+import { eq } from 'drizzle-orm'
+import { describe, expect, it, vi } from 'vitest'
+import { createApp } from '../src/app.js'
+import { testDeps } from './helpers/deps.js'
+import { FILE_ID, putTestFile, slot } from './helpers/fixtures.js'
+import { setJobStatus } from '../src/db/jobs.js'
+import { jobs } from '../src/db/schema.js'
+
+const auth = { Authorization: 'Bearer test-key', 'Content-Type': 'application/json' }
+const post = (body: unknown, headers: Record<string, string> = auth) => ({ method: 'POST', headers, body: JSON.stringify(body) })
+
+async function withLayout(app: ReturnType<typeof createApp>) {
+  await putTestFile(app)
+  await app.request(`/files/${FILE_ID}/layout`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileId: FILE_ID, updatedAt: '2026-09-19T00:00:00.000Z', slots: [slot()] }) })
+}
+
+describe('jobs routes', () => {
+  it('needs the API key', async () => {
+    const app = createApp(await testDeps())
+    const noAuth = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }, { 'Content-Type': 'application/json' }))
+    expect(noAuth.status).toBe(401)
+    expect(await noAuth.json()).toEqual({ error: { code: 'unauthorized', message: 'Invalid or missing API key' } })
+    expect((await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }, { ...auth, Authorization: 'Bearer wrong' }))).status).toBe(401)
+  })
+  it('a malformed Authorization header is refused in the error envelope, never as plain text', async () => {
+    const app = createApp(await testDeps())
+    const res = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }, { ...auth, Authorization: 'Basic xyz' }))
+    expect([400, 401]).toContain(res.status)
+    expect(res.headers.get('content-type')).toMatch(/application\/json/)
+    const body = await res.json()
+    expect(body).toEqual({ error: { code: expect.stringMatching(/^(unauthorized|invalid_request)$/), message: expect.any(String) } })
+  })
+  it('creates a job, starts the workflow, and reports status', async () => {
+    const startJob = vi.fn(async () => {})
+    const deps = await testDeps({ startJob })
+    const app = createApp(deps)
+    await withLayout(app)
+    const res = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }, { Name: 'B' }] }))
+    expect(res.status).toBe(202)
+    const { jobId } = await res.json()
+    expect(startJob).toHaveBeenCalledWith(jobId)
+    expect(await (await app.request(`/jobs/${jobId}`)).json()).toMatchObject({ id: jobId, fileId: FILE_ID, status: 'queued', total: 2, items: [{ index: 0, status: 'pending' }, { index: 1, status: 'pending' }] })
+  })
+  it('marks the job failed if the workflow cannot start; the client still gets a 500', async () => {
+    const startJob = vi.fn(async () => { throw new Error('boom') })
+    const deps = await testDeps({ startJob })
+    const app = createApp(deps)
+    await withLayout(app)
+    const res = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }))
+    expect(res.status).toBe(500)
+    const [row] = await deps.db.select({ id: jobs.id }).from(jobs).where(eq(jobs.fileId, FILE_ID)).limit(1)
+    expect(await (await app.request(`/jobs/${row!.id}`)).json()).toMatchObject({ status: 'failed', error: 'Could not start the generation job' })
+  })
+  it('400 without a layout or with no records; 404 for an unknown file or job', async () => {
+    const app = createApp(await testDeps())
+    expect((await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }))).status).toBe(404)
+    await putTestFile(app)
+    const noLayout = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }))
+    expect(noLayout.status).toBe(400)
+    expect((await noLayout.json()).error.code).toBe('no_layout')
+    expect((await app.request(`/files/${FILE_ID}/jobs`, post({ records: [] }))).status).toBe(400)
+    expect((await app.request('/jobs/nope')).status).toBe(404)
+  })
+
+  it('a file whose only content is a table still generates', async () => {
+    // The guard used to count plain slots alone, so a file laid out
+    // entirely as a table -- which has nothing in `slots` -- was refused
+    // although every one of its cells is a place a record fills.
+    const app = createApp(await testDeps())
+    await putTestFile(app)
+    const style = { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 }
+    const layout = await app.request(`/files/${FILE_ID}/layout`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileId: FILE_ID,
+        slots: [],
+        tables: [{
+          id: 't1', name: 'Change orders', page: 0, x: 40, y: 500,
+          columns: [{ key: 'c1', name: 'No', width: 40 }],
+          rowHeights: [22],
+          style,
+        }],
+        updatedAt: '2026-09-29T00:00:00.000Z',
+      }),
+    })
+    expect(layout.status).toBe(204)
+
+    const started = await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ 'Change orders': [{ No: '1' }] }] }))
+    expect(started.status).toBe(202)
+  })
+  it('the zip is only available once the job is done', async () => {
+    const deps = await testDeps()
+    const app = createApp(deps)
+    await withLayout(app)
+    const { jobId } = await (await app.request(`/files/${FILE_ID}/jobs`, post({ records: [{ Name: 'A' }] }))).json()
+    expect((await app.request(`/jobs/${jobId}/zip`)).status).toBe(409)
+    await deps.blobs.put(`jobs/${jobId}/all.zip`, new Uint8Array([80, 75]), 'application/zip')
+    await setJobStatus(deps.db, jobId, { status: 'done', zipPath: `jobs/${jobId}/all.zip`, finishedAt: new Date() })
+    const zip = await app.request(`/jobs/${jobId}/zip`)
+    expect(zip.status).toBe(200)
+    expect(zip.headers.get('content-type')).toBe('application/zip')
+    expect(zip.headers.get('content-disposition')).toBe(`attachment; filename="${jobId}.zip"`)
+    expect(Array.from(new Uint8Array(await zip.arrayBuffer()))).toEqual([80, 75])
+  })
+})

@@ -1,0 +1,43 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nitro dev",
+    "build": "nitro build",
+    "test": "vitest run",
+    "test:e2e": "vitest run -c vitest.e2e.config.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:migrate:http": "node scripts/migrate-http.mjs"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.9.1",
+    "@pdf-slot/contracts": "^0.0.0",
+    "@pdf-slot/core": "^0.0.0",
+    "@vercel/blob": "^2.8.0",
+    "drizzle-orm": "^0.45.2",
+    "fflate": "^0.8.2",
+    "hono": "^4.13.8",
+    "nitro": "^3.0.260903-beta",
+    "pg": "^8.23.0",
+    "rollup": "^4.63.3",
+    "workflow": "^4.8.9",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cantoo/pdf-lib": "^2.9.1",
+    "@electric-sql/pglite": "^0.5.8",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^10.11.0",
+    "typescript": "^5",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^4"
+  }
+}

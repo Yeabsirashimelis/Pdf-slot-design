@@ -1,0 +1,8 @@
+/.swc
+/.workflow-data
+
+# Skill files the Neon integration drops in; not part of the app.
+/.agents/
+/skills-lock.json
+.vercel
+.env*

@@ -1,9 +1,17 @@
 import type { FontMetrics } from './metrics'
+import type { Slot } from '../document/types'
 
 export type Align = 'left' | 'center' | 'right'
 
 /** A single laid-out line. `x` and `baselineY` are PDF points. */
 export type PositionedLine = { text: string; x: number; baselineY: number }
+
+/**
+ * A box is never inset so far that there is no room left to read.
+ * Narrower than this and a word breaks to one letter a line, which is
+ * not text any more.
+ */
+export const MIN_TEXT_WIDTH = 12
 
 export type LayoutInput = {
   text: string
@@ -16,8 +24,23 @@ export type LayoutInput = {
   originY: number
 }
 
-export function layoutHeight(lineCount: number, size: number, lineHeight: number): number {
-  return lineCount * size * lineHeight
+/**
+ * The height of the box that holds `lineCount` lines: the taller of the
+ * line boxes (`lineCount * size * lineHeight`, which leaves the usual
+ * leading under the last line) and the glyphs themselves -- from the
+ * first line's ascender, down `lineCount - 1` steps, to the last line's
+ * descender. The second term is what keeps a tight line height from
+ * drawing a box the text hangs out of: a face's ascender + descender can
+ * exceed one step of `size * lineHeight`, and for every face bundled here
+ * it does at the line heights people actually pick -- Inter (sans) spans
+ * 1.21 em, PT Serif 1.33, IBM Plex Mono 1.30. Preview-only: the export places
+ * text by baseline and never reads this.
+ */
+export function layoutHeight(lineCount: number, size: number, lineHeight: number, metrics: FontMetrics): number {
+  const lineBoxes = lineCount * size * lineHeight
+  // `descender` is negative (below the baseline), hence the subtraction.
+  const glyphs = metrics.ascender(size) + (lineCount - 1) * size * lineHeight - metrics.descender(size)
+  return Math.max(lineBoxes, glyphs)
 }
 
 /**
@@ -81,6 +104,57 @@ function breakParagraph(
 
   if (current !== '') lines.push(current)
   return lines.length === 0 ? [''] : lines
+}
+
+/**
+ * What to lay out for a slot, its padding already taken off.
+ *
+ * Both the overlay and the PDF writer go through here rather than
+ * building their own input, because the two must agree to the point:
+ * preview equals download is decided by whether these numbers match.
+ *
+ * `text` is passed in rather than read off the slot because the overlay
+ * also lays out a slot's *name*, as the placeholder in an empty box.
+ */
+export function slotLayout(slot: Slot, text: string, metrics?: FontMetrics): LayoutInput {
+  const inset = slotInset(slot, metrics)
+  return {
+    text,
+    size: slot.size,
+    width: slot.width - inset.left * 2,
+    align: slot.align,
+    lineHeight: slot.lineHeight,
+    originX: slot.x + inset.left,
+    // PDF y grows upward, so insetting from the top means going down.
+    originY: slot.y - inset.top,
+  }
+}
+
+/**
+ * The padding actually applied, each axis against what the box can spare.
+ *
+ * `left` is kept clear on the left *and* the right. Only the left edge is
+ * what a user is usually nudging text off, which is what it is called
+ * after -- but text can be right-aligned, and then it is the right edge
+ * that needs holding off the rule. One number for both is what lets a
+ * column of amounts sit inside its cell whichever way it is aligned.
+ *
+ * `top` is the top alone: there is nothing below the last line that a
+ * bottom padding would hold it off, since a box grows downward to fit.
+ *
+ * Both are clamped by what is left. Across, the text must stay wide
+ * enough to be a line rather than a column of single letters. Down, a box
+ * with a height of its own -- a table's cell, which owns its row -- must
+ * still hold one line below its padding, or the text would push the box
+ * past the row it belongs to and the table would come apart.
+ */
+export function slotInset(slot: Slot, metrics?: FontMetrics): { left: number; top: number } {
+  const wantedLeft = Math.max(0, slot.paddingLeft ?? slot.padding ?? 0)
+  const wantedTop = Math.max(0, slot.paddingTop ?? slot.padding ?? 0)
+  const across = Math.max(0, (slot.width - MIN_TEXT_WIDTH) / 2)
+  const line = metrics ? metrics.ascender(slot.size) - metrics.descender(slot.size) : 0
+  const down = slot.height === undefined ? Infinity : Math.max(0, slot.height - line)
+  return { left: Math.min(wantedLeft, across), top: Math.min(wantedTop, down) }
 }
 
 export function layoutText(input: LayoutInput, metrics: FontMetrics): PositionedLine[] {

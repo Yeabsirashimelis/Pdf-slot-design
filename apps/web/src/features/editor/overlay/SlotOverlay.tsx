@@ -1,59 +1,107 @@
 // Hand-rolled rather than shadcn: this is a canvas-editor interaction
 // primitive (pointer-captured drag and resize mapped into PDF coordinate
-// space), and shadcn has no equivalent component. See CLAUDE.md.
+// space), and shadcn has no equivalent component. See CLAUDE.md. The
+// name editor inside it and the size badge under it are shadcn's Input
+// and Badge.
 'use client'
 
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
 import {
   FONT_CSS_FAMILY,
   PDF_APPLIES_KERNING,
   rgbToCss,
-  layoutHeight,
-  layoutText,
+  slotInset,
   toScreenLength,
   toScreenPoint,
   type FontMetrics,
   type Slot,
   type Viewport,
 } from '@pdf-slot/core'
+import { Input } from '@/components/ui/input'
 import { SlotLines } from './SlotLines'
+import { layoutSlot } from './slotBox'
 import type { ResizeEdge } from './dragGeometry'
 import { useSlotGestures } from './useSlotGestures'
 
-/** Grab strips for the four resize edges; see the JSX below. */
-const RESIZE_EDGES: { edge: ResizeEdge; style: CSSProperties }[] = [
-  { edge: 'left', style: { left: -4, top: 0, bottom: 0, width: 8, cursor: 'ew-resize' } },
-  { edge: 'right', style: { right: -4, top: 0, bottom: 0, width: 8, cursor: 'ew-resize' } },
-  { edge: 'top', style: { top: -4, left: 0, right: 0, height: 8, cursor: 'ns-resize' } },
-  { edge: 'bottom', style: { bottom: -4, left: 0, right: 0, height: 8, cursor: 'ns-resize' } },
+/** Grab strips for the four resize edges, in screen px; see the JSX below. */
+const RESIZE_EDGES: { edge: ResizeEdge; cursor: string; place(px: number): CSSProperties }[] = [
+  { edge: 'left', cursor: 'ew-resize', place: (px) => ({ left: -px / 2, top: 0, bottom: 0, width: px }) },
+  { edge: 'right', cursor: 'ew-resize', place: (px) => ({ right: -px / 2, top: 0, bottom: 0, width: px }) },
+  { edge: 'top', cursor: 'ns-resize', place: (px) => ({ top: -px / 2, left: 0, right: 0, height: px }) },
+  { edge: 'bottom', cursor: 'ns-resize', place: (px) => ({ bottom: -px / 2, left: 0, right: 0, height: px }) },
 ]
+const RESIZE_STRIP_PX = 8
+const SELECTION_OUTLINE_PX = 2
+/**
+ * How the name shows through an empty box: faint enough that it cannot be
+ * taken for text that will be exported, solid enough to judge the fit.
+ */
+const PLACEHOLDER_COLOR = 'color-mix(in srgb, var(--slot-selection) 38%, transparent)'
+/** The name tag's own font size, in stage px. A chip, not a label. */
+/**
+ * How big the name chip is ON SCREEN: it tracks the page between these
+ * two, so it reads as this slot's tag rather than a pip beside a box
+ * that has outgrown it, and holds still outside them.
+ */
+const TAG_MIN_SCREEN_PX = 11
+const TAG_MAX_SCREEN_PX = 15
+/** What the chip would be at 100%, before the bounds bite. */
+const TAG_FONT_PX = 11
+
+/** The inline name editor a freshly placed (or renamed) slot shows; see `naming` below. */
+export type SlotNaming = {
+  value: string
+  onChange(value: string): void
+  /** Enter or blur: keep the name (the parent decides what an empty one means). */
+  onCommit(): void
+  /** Escape: give up on the edit. */
+  onCancel(): void
+  /**
+   * Another slot on this file already answers to this name. A slot's
+   * name is a column in a bulk-generation data file, so two of them
+   * cannot share one -- the API refuses such a layout outright.
+   */
+  taken?: boolean
+}
 
 export function SlotOverlay({
   slot,
+  name = '',
   viewport,
+  screenScale = 1,
   metrics,
   selected,
-  autoFocus,
+  autoFocus = false,
   onFocused,
   onSelect,
   onChange,
   onCommit,
   textCommitted = false,
   locked = false,
-  highlighted = false,
-  readOnly = false,
-  label,
+  naming = null,
+  onCloneStart,
 }: {
   slot: Slot
+  /** The slot's name: shown, in the slot's own typography, as a placeholder while it has no text. */
+  name?: string
+  /** The frame the stage is laid out in (zoom 1 on the infinite canvas). */
   viewport: Viewport
+  /**
+   * The CSS scale the stage is shown at on top of `viewport.zoom`. Pointer
+   * deltas arrive in screen px and are divided by it; the strips, outline
+   * and badge are sized against it so they stay the same size on screen
+   * at any zoom.
+   */
+  screenScale?: number
   metrics: FontMetrics
   selected: boolean
-  /** True for exactly one render right after this slot was created by a canvas click. */
-  autoFocus: boolean
-  /** Called once autoFocus has been acted on, so the caller can clear its one-shot flag. */
-  onFocused(): void
+  /** True for one render once this slot has been named: the caret moves into its text box. */
+  autoFocus?: boolean
+  /** Called once that focus has been given, so the caller can clear its one-shot flag. */
+  onFocused?(): void
   onSelect(): void
-  onChange(patch: Partial<Slot>): void
+  /** `targetId` is set only while Alt+dragging: the patch is for the copy being dragged, not this slot. */
+  onChange(patch: Partial<Slot>, targetId?: string): void
   /** Ends the current gesture (drag, resize, or text edit), closing its undo boundary. */
   onCommit(): void
   /**
@@ -65,55 +113,38 @@ export function SlotOverlay({
    * pixel-identical) copies of the same text.
    */
   textCommitted?: boolean
-  /** Step 2: position, size and style are fixed -- only the text can change. */
+  /** The layout is frozen (the panel's padlock): the box can be typed into but not moved or resized. */
   locked?: boolean
-  /** Step 2: every slot is tinted so the user can see where to write. */
-  highlighted?: boolean
+  /** When set, the box shows an inline editor for its name instead of its text -- how a slot is named at placement, with no dialog. */
+  naming?: SlotNaming | null
   /**
-   * Step 1: the box is about where, not what -- no text box is rendered,
-   * so nothing can be typed and the arrow keys are free to nudge. Text
-   * the slot already holds still shows (read-only) so its fit can be seen.
+   * Alt+drag (the Figma gesture): asked once, when the drag starts, for a
+   * copy of this slot placed over it; returns the copy's id. The copy then
+   * follows the pointer and this box stays put. Omitted: Alt+drag is a
+   * plain drag.
    */
-  readOnly?: boolean
-  /** The slot's name, shown as a small tag above the box so a box on a busy form is identifiable without the panel. */
-  label?: string
+  onCloneStart?(): string | null
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [focused, setFocused] = useState(false)
+  // Pointer enter/leave, not pointermove: this flips twice per visit to a
+  // slot, so revealing the tag costs two renders, not one per mouse
+  // movement. (CSS :hover would cost none, but the tag is an
+  // inline-styled canvas primitive with no class of its own, and hover
+  // state here is only half the story -- selection and naming also show
+  // it -- so one flag reads better than a class plus two overrides.)
+  const [hovered, setHovered] = useState(false)
 
+  // Naming a slot ends by handing it the caret, so what the user types
+  // next is the slot's text. (Without it they are left looking at the
+  // name-as-placeholder, which is not what gets exported.)
   useEffect(() => {
-    if (autoFocus) {
-      textareaRef.current?.focus()
-      onFocused()
-    }
-    // (With no textarea -- readOnly -- there is nothing to focus; the
-    // one-shot flag is still cleared above so the parent's state settles.)
-    // If the parent passes a fresh onFocused identity each render, this
-    // effect re-runs harmlessly (autoFocus is false on every render after
-    // the one-shot focus already happened, so the body above is a no-op).
+    if (!autoFocus) return
+    textareaRef.current?.focus()
+    onFocused?.()
   }, [autoFocus, onFocused])
 
-  const lines = layoutText(
-    {
-      text: slot.text,
-      size: slot.size,
-      width: slot.width,
-      align: slot.align,
-      lineHeight: slot.lineHeight,
-      originX: slot.x,
-      originY: slot.y,
-    },
-    metrics,
-  )
-
-  // An empty, freshly placed slot still needs a visible, clickable box to
-  // type into -- layoutText([]) returns zero lines, which would otherwise
-  // collapse the box to zero height.
-  const lineCount = Math.max(1, lines.length)
-  // The box is as tall as its text, or as tall as the user dragged it
-  // (slot.height, a minimum) -- whichever is more.
-  const textHeight = layoutHeight(lineCount, slot.size, slot.lineHeight)
-  const boxHeight = Math.max(textHeight, slot.height ?? 0)
+  const { lines, boxHeight, placeholder } = layoutSlot(slot, metrics, name)
 
   const screenOrigin = toScreenPoint({ x: slot.x, y: slot.y }, viewport)
   const screenWidth = toScreenLength(slot.width, viewport)
@@ -121,28 +152,87 @@ export function SlotOverlay({
 
   // While focused, the canvas is necessarily stale (it reflects the last
   // *committed* text, not each keystroke), so this slot's own DOM text stays
-  // the source of truth for live feedback until it commits again.
-  const hideDomText = textCommitted && !focused
+  // the source of truth for live feedback until it commits again. The
+  // placeholder is never on the canvas, so it is always drawn here.
+  const hideDomText = textCommitted && !focused && !placeholder
 
   const gestures = useSlotGestures({
     slot,
     boxHeight,
-    viewport,
+    // Pointer deltas are screen px; the stage is `screenScale` times
+    // larger on screen than in its own frame.
+    viewport: { zoom: viewport.zoom * screenScale, pageHeight: viewport.pageHeight },
     locked,
     textareaRef,
     onSelect,
     onChange,
     onCommit,
+    onCloneStart,
   })
 
   const handleTextChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     onChange({ text: event.target.value })
   }
 
+  const handleNameKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!naming) return
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      // A name already in use is not committed: Enter does nothing until
+      // it is changed, which is what the note under the box is saying.
+      if (!naming.taken) naming.onCommit()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      naming.onCancel()
+    }
+  }
+
+  // Everything that must look the same size on screen at any zoom is
+  // sized in stage px against the screen scale.
+  const px = (screen: number) => screen / screenScale
+  // The tag tracks the page between the two bounds, and holds still outside them.
+  // Sized rather than scaled. A `transform: scale()` rasterises the text
+  // at one size and stretches it to another, which is what left the chip
+  // looking pixelated at high zoom; setting the font size in stage px so
+  // that it *lands* on the wanted screen size lets the browser lay the
+  // glyphs out at their real size, sharp at any zoom.
+  const tagOnScreen = Math.min(TAG_MAX_SCREEN_PX, Math.max(TAG_MIN_SCREEN_PX, TAG_FONT_PX * screenScale))
+  const tag = (screenPx: number) => (screenPx * (tagOnScreen / TAG_FONT_PX)) / screenScale
+  // The tag is chrome, not content: it stays out of the way until the
+  // pointer is on this slot. Selected or being named, it stays up
+  // regardless -- otherwise the user loses track of which box is which,
+  // and of where the handle is on the box they are working on.
+  const tagShown = hovered || selected || naming !== null
+  const typography: CSSProperties = {
+    fontFamily: FONT_CSS_FAMILY[slot.fontId],
+    fontSize: toScreenLength(slot.size, viewport),
+    lineHeight: slot.lineHeight,
+    fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
+  }
+  // The same inset layoutText was given, in screen px. The textarea is
+  // invisible, but its caret is not, and its caret sits against *its* text
+  // -- so if it starts at the box edge while the glyphs start a padding in,
+  // the caret stands a padding away from the letters it belongs to. Padding
+  // also narrows its content box to the width the lines were wrapped at, so
+  // the row the caret lands on is the row the reader sees.
+  const inset = slotInset(slot, metrics)
+  const insetPx = {
+    left: toScreenLength(inset.left, viewport),
+    top: toScreenLength(inset.top, viewport),
+  }
+
   return (
     <div
       data-slot-id={slot.id}
-      {...gestures.body}
+      // No drag handlers here: a press inside the box belongs to the text
+      // (selecting it, placing the caret). The name tag above is what
+      // moves the slot -- see the tag below.
+      //
+      // Enter/leave (not over/out) so that crossing onto the tag, which is
+      // a child of this box, is not read as leaving the slot: the tag is
+      // what the user is reaching for once it appears.
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
       style={{
         position: 'absolute',
         left: screenOrigin.x,
@@ -150,14 +240,13 @@ export function SlotOverlay({
         width: screenWidth,
         height: screenHeight,
         pointerEvents: 'auto',
-        cursor: locked ? 'text' : 'move',
+        cursor: 'text',
         // Theme tokens (globals.css) so the overlay follows the app's palette.
         // Every slot is visibly a box: a light wash and a hairline in the
-        // theme's ink, so a user can find the slots on a busy form without
-        // the box competing with the document. Step 2 (`highlighted`) uses
-        // a slightly deeper wash. Both are paint-only (no layout).
-        backgroundColor: highlighted ? 'var(--slot-highlight-strong)' : 'var(--slot-highlight)',
-        boxShadow: 'inset 0 0 0 1px var(--slot-highlight-edge)',
+        // accent, so a user can find the slots on a busy form without the
+        // box competing with the document. Both are paint-only (no layout).
+        backgroundColor: 'var(--slot-highlight)',
+        boxShadow: `inset 0 0 0 ${px(1)}px var(--slot-highlight-edge)`,
         // An outline (drawn inward), NOT a border. Absolutely positioned
         // children -- the textarea at `inset: 0` and SlotLines' spans --
         // are placed against this box's *padding* box, and a border (even
@@ -169,35 +258,69 @@ export function SlotOverlay({
         // glyph 1px right and down from the slot's true origin. An outline
         // paints over the box without taking part in layout, so all three
         // (box, textarea, spans) keep exactly the same rectangle.
-        outline: selected ? '2px solid var(--slot-selection)' : 'none',
-        outlineOffset: -2,
+        outline: selected ? `${px(SELECTION_OUTLINE_PX)}px solid var(--slot-selection)` : 'none',
+        outlineOffset: -px(SELECTION_OUTLINE_PX),
       }}
     >
-      {label && (
+      {name && (
         <span
           data-testid="slot-label"
+          {...gestures.body}
+          onPointerDown={(event) => {
+            onSelect()
+            gestures.body.onPointerDown(event)
+          }}
           style={{
             position: 'absolute',
             left: 0,
             bottom: '100%',
-            marginBottom: 2,
-            padding: '0 4px',
-            fontSize: 10,
-            lineHeight: '14px',
+            // 2 screen px clear of the box at every zoom, like the size
+            // badge below it: a gap measured in stage px would open up
+            // into a gulf at 400% while the chip itself held still.
+            marginBottom: px(2),
+            padding: `0 ${tag(4)}px`,
+            fontSize: px(tagOnScreen),
+            lineHeight: `${tag(14)}px`,
             fontFamily: 'var(--font-sans)',
             color: 'var(--slot-selection)',
             background: 'var(--card)',
-            border: '1px solid var(--slot-highlight-edge)',
-            borderRadius: 3,
+            border: `${px(1)}px solid var(--slot-highlight-edge)`,
+            borderRadius: tag(3),
             whiteSpace: 'nowrap',
-            pointerEvents: 'none',
+            opacity: tagShown ? 1 : 0,
+            transition: 'opacity 120ms ease',
+            // The tag is the handle: dragging happens here, which leaves
+            // the box itself free for selecting text character by
+            // character without a drag being read into it. Hidden, it
+            // still takes the pointer -- its strip above the box is part
+            // of what "hovering this slot" means, so reaching straight for
+            // the handle reveals it rather than passing through a tag that
+            // is there but cannot be felt.
+            pointerEvents: locked ? 'none' : 'auto',
+            cursor: locked ? 'default' : 'move',
+            touchAction: 'none',
             userSelect: 'none',
           }}
         >
-          {label}
+          {name}
         </span>
       )}
-      {!hideDomText && <SlotLines slot={slot} lines={lines} viewport={viewport} metrics={metrics} />}
+      {!hideDomText && !naming && (
+        <SlotLines
+          slot={slot}
+          lines={lines}
+          viewport={viewport}
+          metrics={metrics}
+          // The placeholder is a hint in the slot's typography, but NEVER in
+          // its ink: it is drawn faintly, in the box's own accent -- the
+          // colour of the chrome around it -- because anything close to
+          // real text is read as real text. A user took their slot's name
+          // for their content, saved, and found the download "missing"
+          // text they had never typed.
+          color={placeholder ? PLACEHOLDER_COLOR : undefined}
+          placeholder={placeholder}
+        />
+      )}
       {/*
         Invisible input surface layered over the rendered lines: its own
         text is transparent (only the caret is visible), so the glyphs the
@@ -221,15 +344,16 @@ export function SlotOverlay({
         `@font-face` bytes, not the page's inherited Geist Sans),
         fontSize, fontKerning (must match PDF_APPLIES_KERNING for the same
         reason `layoutText`'s width measurement does -- see
-        packages/core/src/layout/metrics.ts; ligature substitution is
-        deliberately left at its default, because pdf-lib applies GSUB and
-        so must the browser), and
+        packages/core/src/layout/metrics.ts; GSUB substitution --
+        `calt` for Inter, `liga` for the serif face -- is deliberately left
+        at its CSS default, because pdf-lib applies it and so must the
+        browser), and
         lineHeight as a unitless multiplier (`slot.lineHeight`), which -- since
         fontSize here is already toScreenLength(slot.size, viewport) --
         yields exactly toScreenLength(slot.size * slot.lineHeight, viewport)
         px per row, the same per-line step `layoutText` uses for baselineY.
       */}
-      {!readOnly && (
+      {!naming && (
         <textarea
           ref={textareaRef}
           value={slot.text}
@@ -258,34 +382,76 @@ export function SlotOverlay({
             resize: 'none',
             border: 'none',
             outline: 'none',
-            padding: 0,
+            boxSizing: 'border-box',
+            paddingLeft: insetPx.left,
+            paddingRight: insetPx.left,
+            paddingTop: insetPx.top,
+            paddingBottom: 0,
             margin: 0,
             background: 'transparent',
             color: 'transparent',
+            // Said twice on purpose. `color` alone leaves the glyphs to
+            // `-webkit-text-fill-color`, which defaults to currentColor
+            // but is a separate property a browser or an extension can
+            // set on a form control -- and if anything does, this
+            // textarea paints its own text over the rendered lines and
+            // the same words appear twice, a pixel apart.
+            WebkitTextFillColor: 'transparent',
             caretColor: rgbToCss(slot.color),
-            fontFamily: FONT_CSS_FAMILY[slot.fontId],
-            fontSize: toScreenLength(slot.size, viewport),
-            lineHeight: slot.lineHeight,
-            fontKerning: PDF_APPLIES_KERNING ? 'normal' : 'none',
+            ...typography,
             overflow: 'hidden',
             whiteSpace: 'pre-wrap',
+            // The stage is user-select: none; the one place text is selectable is here.
+            userSelect: 'text',
           }}
         />
       )}
       {/*
-        One 8px-wide invisible grab strip along each edge (step 1 only):
+        Naming, Figma-style: the box itself is the editor. shadcn's Input
+        with its chrome stripped, so what is typed sits exactly where the
+        name will show and in the same typography. Enter keeps it, Escape
+        gives up, and leaving the field keeps it too.
+      */}
+      {naming && (
+        <Input
+          autoFocus
+          data-testid="slot-name-inline"
+          aria-label="Slot name"
+          placeholder="Name this slot"
+          value={naming.value}
+          onChange={(e) => naming.onChange(e.target.value)}
+          onKeyDown={handleNameKeyDown}
+          onBlur={() => { if (!naming.taken) naming.onCommit() }}
+          aria-invalid={naming.taken || undefined}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute inset-0 h-full w-full rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+          style={{ ...typography, color: rgbToCss(slot.color), caretColor: rgbToCss(slot.color) }}
+        />
+      )}
+      {naming?.taken && (
+        <span
+          data-testid="slot-name-taken"
+          role="status"
+          className="pointer-events-none absolute left-0 top-full select-none whitespace-nowrap rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground"
+          style={{ fontSize: px(11), lineHeight: `${px(15)}px`, marginTop: px(3) }}
+        >
+          That name is already taken
+        </span>
+      )}
+      {/*
+        One invisible grab strip along each edge, 8 screen px wide:
         left/right change the width (text re-wraps), top/bottom the box's
         minimum height. Each is centred on its edge so half of it sits
         outside the box, which keeps the strip grabbable on a one-line slot.
       */}
       {selected &&
         !locked &&
-        RESIZE_EDGES.map(({ edge, style }) => (
+        RESIZE_EDGES.map(({ edge, cursor, place }) => (
           <div
             key={edge}
             data-resize-edge={edge}
             {...gestures.resize(edge)}
-            style={{ position: 'absolute', pointerEvents: 'auto', ...style }}
+            style={{ position: 'absolute', pointerEvents: 'auto', cursor, ...place(px(RESIZE_STRIP_PX)) }}
           />
         ))}
     </div>

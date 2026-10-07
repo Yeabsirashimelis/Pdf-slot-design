@@ -1,11 +1,12 @@
 import { createElement, useMemo, useState } from 'react'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorDocument, Slot } from '@pdf-slot/core'
+import { TooltipProvider } from '../src/components/ui/tooltip'
 
 /**
  * End-to-end (within jsdom, at the seam) check of the download pipeline
- * through the real hook and the real Toolbar: Download performs exactly
+ * through the real hook and the real DownloadButton: Download performs exactly
  * one render of the current slots (from scratch the first time, an
  * increment on top of the last output after that), saves exactly those
  * bytes, and never falls back to the source once the user has edited.
@@ -92,7 +93,7 @@ describe('commit -> preview -> download pipeline', () => {
 
   it('a first download renders once from scratch; a second one after an edit appends an increment', async () => {
     const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
-    const { Toolbar } = await import('../src/features/editor/toolbar/Toolbar')
+    const { DownloadButton } = await import('../src/features/editor/toolbar/DownloadButton')
 
     const output = new Uint8Array([42, 43])
     const outputPlus = new Uint8Array([42, 43, 44])
@@ -108,22 +109,11 @@ describe('commit -> preview -> download pipeline', () => {
         'div',
         null,
         createElement('button', { onClick: () => setText('edited'), 'data-testid': 'edit-button' }, 'Edit'),
-        createElement(Toolbar, {
-          isRendering,
-          render,
-          downloadBlockedReason: null,
-          slots: [],
-          selectedId: null,
-          updateSlotAndCommit: vi.fn(),
-          removeSlotAndCommit: vi.fn(),
-          duplicateSlotAndCommit: vi.fn(() => null),
-          zoom: 1,
-          onZoomChange: vi.fn(),
-          onFitWidth: vi.fn(),
-          pageIndex: 0,
-          pageCount: doc.pages.length,
-          onPageChange: vi.fn(),
-        }),
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(DownloadButton, { isRendering, render, downloadBlockedReason: null }),
+        ),
       )
     }
 
@@ -170,7 +160,7 @@ describe('commit -> preview -> download pipeline', () => {
     // the click genuinely happens mid-render rather than by luck of
     // microtask ordering.
     const { useCommitRender } = await import('../src/features/editor/pipeline/useCommitRender')
-    const { Toolbar } = await import('../src/features/editor/toolbar/Toolbar')
+    const { DownloadButton } = await import('../src/features/editor/toolbar/DownloadButton')
 
     const edited = new Uint8Array([7, 7, 7])
     const releaseRender: { current: (() => void) | null } = { current: null }
@@ -197,22 +187,11 @@ describe('commit -> preview -> download pipeline', () => {
           // Blur is the commit boundary, exactly as SlotOverlay wires it.
           onBlur: commit,
         }),
-        createElement(Toolbar, {
-          isRendering,
-          render,
-          downloadBlockedReason: null,
-          slots: [],
-          selectedId: null,
-          updateSlotAndCommit: vi.fn(),
-          removeSlotAndCommit: vi.fn(),
-          duplicateSlotAndCommit: vi.fn(() => null),
-          zoom: 1,
-          onZoomChange: vi.fn(),
-          onFitWidth: vi.fn(),
-          pageIndex: 0,
-          pageCount: doc.pages.length,
-          onPageChange: vi.fn(),
-        }),
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(DownloadButton, { isRendering, render, downloadBlockedReason: null }),
+        ),
       )
     }
 
@@ -241,5 +220,44 @@ describe('commit -> preview -> download pipeline', () => {
     expect((capturedBlobParts as unknown[])[0]).not.toBe(doc.source)
     expect(renderPdfMock).toHaveBeenCalledTimes(1)
     expect(renderPdfIncrementalMock).not.toHaveBeenCalled()
+  })
+
+  it('the picture is dropped the moment it stops matching the slots', async () => {
+    // A render bakes every slot's text into the canvas, and the overlay
+    // hides its own copy so the words are not drawn twice. That only holds
+    // while the slots are the ones that were rendered. Change any of them
+    // -- move one, type in one, put a row of a data file on the page --
+    // and the picture keeps the old text while the overlay draws the new,
+    // which is two copies of the words a few points apart.
+    const { useEditorPipeline } = await import('../src/features/editor/useEditorPipeline')
+
+    renderPdfMock.mockResolvedValue(new Uint8Array([42, 43]))
+    const doc = makeDoc()
+    let pipeline!: ReturnType<typeof useEditorPipeline>
+    let setText!: (text: string) => void
+
+    function Harness() {
+      const [text, state] = useState('hi')
+      setText = state
+      const slots = useMemo(() => [{ ...makeSlot(), text }], [text])
+      const store = useMemo(() => ({ slots }), [slots]) as never
+      pipeline = useEditorPipeline(doc, store)
+      return createElement('span', { 'data-testid': 'showing' }, pipeline.bytes ? 'rendered' : 'document')
+    }
+
+    const { getByTestId } = render(createElement(Harness))
+    expect(getByTestId('showing').textContent).toBe('document')
+
+    // Render, and report the paint: now the picture is of these slots.
+    await act(async () => { await pipeline.render() })
+    // The canvas reports the bytes it painted; the pipeline looks up the
+    // slots those bytes came from.
+    act(() => { pipeline.handlePainted(pipeline.bytes!) })
+    await waitFor(() => expect(getByTestId('showing').textContent).toBe('rendered'))
+    expect(pipeline.isSlotCommitted({ ...makeSlot(), text: 'hi' })).toBe(false)
+
+    // Change the text: the picture is now of something else.
+    await act(async () => { setText('a different row') })
+    expect(getByTestId('showing').textContent).toBe('document')
   })
 })

@@ -1,0 +1,573 @@
+import { createElement } from 'react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { installFontFixtures } from './helpers/editorFixtures'
+import type { EditorDocument, Slot, TemplateLayout, TemplateValues } from '@pdf-slot/core'
+import type { OpenSession, SessionStore, TemplateStore } from '@/lib/persistence/templateStore'
+import type { OpenedFile } from '@/features/template/openFile'
+
+/**
+ * Table row slots, end to end through the real editor: draw the first
+ * row, split it into columns, add rows, type into the cells, and export.
+ *
+ * The point of a table is that nothing is recorded per cell -- so what
+ * these check is that the cells follow the table (a column resize moves
+ * them all), that the text stays with its cell through it, and that the
+ * export draws exactly the cells that were filled in.
+ */
+
+const renderPdfMock = vi.fn<(doc: EditorDocument, slots: Slot[], fonts: unknown) => Promise<Uint8Array>>()
+vi.mock('@pdf-slot/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pdf-slot/core')>()
+  return { ...actual, renderPdf: (...args: Parameters<typeof renderPdfMock>) => renderPdfMock(...args) }
+})
+
+vi.mock('pdfjs-dist', async () => {
+  const { fakePdfjsDocument } = await import('./helpers/editorFixtures')
+  return { GlobalWorkerOptions: {}, getDocument: () => fakePdfjsDocument() }
+})
+
+HTMLElement.prototype.setPointerCapture ??= () => {}
+
+function memoryStore() {
+  const layouts = new Map<string, TemplateLayout>()
+  const values = new Map<string, TemplateValues>()
+  let session: OpenSession | null = null
+  const store: TemplateStore & SessionStore & { layouts: typeof layouts; values: typeof values } = {
+    layouts, values,
+    getFile: async () => null,
+    putFile: async () => {},
+    getLayout: async (id) => layouts.get(id) ?? null,
+    putLayout: async (l) => { layouts.set(l.fileId, l) },
+    getValues: async (id) => values.get(id) ?? null,
+    putValues: async (v) => { values.set(v.fileId, v) },
+    listFiles: async () => [],
+    deleteFile: async () => {},
+    get: async () => session,
+    put: async (s) => { session = s },
+    clear: async () => { session = null },
+  }
+  return store
+}
+
+const doc: EditorDocument = { id: 'file-1', source: new Uint8Array([1, 2, 3]), pages: [{ width: 612, height: 792 }] }
+const newFile: OpenedFile = { doc, name: 'log.pdf', fileId: 'file-1', layout: null, values: null }
+
+/** Draws the first row of a table with the table tool, over the page. */
+async function drawTable(container: HTMLElement, top = 100) {
+  // Counted rather than assumed to be the first: a second table drawn on
+  // the same page has to wait for one more cell, not for exactly one.
+  const before = container.querySelectorAll('[data-slot-id]').length
+  fireEvent.click(screen.getByTestId('table-tool'))
+  const layer = await waitFor(() => screen.getByTestId('table-draw-layer'))
+  // jsdom reports a zero-sized box, so client px are stage px (points).
+  fireEvent.pointerDown(layer, { pointerId: 1, clientX: 40, clientY: top })
+  fireEvent.pointerMove(layer, { pointerId: 1, clientX: 240, clientY: top + 16 })
+  fireEvent.pointerUp(layer, { pointerId: 1 })
+  await waitFor(() => expect(container.querySelectorAll('[data-slot-id]').length).toBe(before + 1))
+}
+
+/** The draggable boundaries on the frame -- not the panel's column fields. */
+const dividersOf = (container: HTMLElement) =>
+  Array.from(
+    container.querySelectorAll('[data-testid^="table-tbl"] [data-testid^="table-column-"]'),
+  ) as HTMLElement[]
+
+const cellBoxes = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll('[data-slot-id]')).filter((el) =>
+    (el as HTMLElement).dataset.slotId!.includes('#'),
+  ) as HTMLElement[]
+
+describe('table row slots', () => {
+  beforeEach(() => {
+    installFontFixtures()
+    renderPdfMock.mockReset()
+    renderPdfMock.mockResolvedValue(new Uint8Array([9, 9, 9]))
+  })
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('drawing a row makes a one-column table; splitting it adds columns that share the width', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+
+    // One row, one column, sized as drawn: 200pt wide, 16pt tall.
+    let cells = cellBoxes(container)
+    expect(cells).toHaveLength(1)
+    expect(cells[0]!.style.left).toBe('40px')
+    expect(cells[0]!.style.width).toBe('200px')
+
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    cells = cellBoxes(container)
+    // The last column was split in two, so the row is still 200pt wide.
+    expect(cells[0]!.style.width).toBe('100px')
+    expect(cells[1]!.style.left).toBe('140px')
+  })
+
+  it('adding rows repeats the columns down the page at the row gap', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(6))
+
+    // Three rows of two, each 16pt below the last (the gap starts as the
+    // row's own height, until the second row is dragged onto its line).
+    // `top` is screen y from the page's top edge, so it counts downward.
+    const tops = cellBoxes(container).map((box) => box.style.top)
+    expect(tops).toEqual(['100px', '100px', '116px', '116px', '132px', '132px'])
+  })
+
+  it('every row has a handle on the line beneath it, the last one on the table\'s own edge', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    const edges = () => container.querySelectorAll(`[data-testid$="-edge"]`).length
+
+    expect(edges()).toBe(1)
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
+    // One per row, not one per boundary between rows: the last row is
+    // sized from the table's bottom edge like any other.
+    expect(edges()).toBe(3)
+    expect(screen.queryByTestId(`table-row-${tableId}-2-edge`)).not.toBeNull()
+  })
+
+  it('the row holding the selection is picked out across the whole table', async () => {
+    // Choosing a row in the panel selects one cell of it. One highlighted
+    // cell among forty is not something a person can find.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(6))
+
+    fireEvent.click(screen.getByTestId(`table-row-${tableId}-2`))
+    const band = await waitFor(() => screen.getByTestId(`table-selected-row-${tableId}`))
+    // Row three of three 16pt rows: 32pt down, 16pt tall, right across.
+    expect(band.style.top).toBe('32px')
+    expect(band.style.height).toBe('16px')
+    expect(band.style.left).toBe('0px')
+    expect(band.style.right).toBe('0px')
+  })
+
+  it('a table of many rows stops growing the panel and scrolls instead', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    // The cap sits on the scrolling box itself -- the element carrying the
+    // test id -- not on anything nested inside it. Put it on an inner
+    // element and the outer one is sized by its container while the inner
+    // one grows with the list, which is how the list came to paint over
+    // the panel below it.
+    const rows = () => screen.getByTestId(`table-rows-${tableId}`)
+
+    // Six rows still fit, so nothing is capped.
+    for (let i = 0; i < 5; i++) fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(6))
+    expect(rows().style.maxHeight).toBe('')
+    expect(rows().className).not.toContain('border')
+
+    // The seventh is where it starts to take the panel over. The cap is
+    // an exact six rows and their gaps plus the hairline, never a round
+    // number that would slice the sixth row across the middle.
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(7))
+    expect(rows().style.maxHeight).toBe(`${6 * 28 + 5 * 2 + 2}px`)
+    // And it says it is its own pane, so which list the wheel will move is visible.
+    expect(rows().className).toContain('border')
+    // Every row is still listed -- capped, not cut.
+    expect(screen.getByTestId(`table-row-${tableId}-6`)).not.toBeNull()
+  })
+
+  it('a column resize moves every cell under it, and the text stays where it was typed', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(4))
+
+    // Type into the second row's second column.
+    const target = cellBoxes(container)[3]!
+    fireEvent.change(target.querySelector('textarea')!, { target: { value: '1,200.00' } })
+
+    // Widen the first column by 40pt through the inspector.
+    const widthField = await waitFor(() => container.querySelector('[data-testid^="table-column-width-"]') as HTMLInputElement)
+    fireEvent.change(widthField, { target: { value: '140' } })
+    fireEvent.keyDown(widthField, { key: 'Enter' })
+
+    await waitFor(() => expect(cellBoxes(container)[1]!.style.left).toBe('180px'))
+    // Same cell, same text, new place.
+    const moved = cellBoxes(container)[3]!
+    expect(moved.style.left).toBe('180px')
+    expect((moved.querySelector('textarea') as HTMLTextAreaElement).value).toBe('1,200.00')
+  })
+
+  it('a selected table offers handles for its whole width and height', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+
+    // Drawing a table selects it, so its handles are there to be grabbed.
+    await waitFor(() => expect(screen.queryByTestId('table-width')).not.toBeNull())
+    expect(screen.queryByTestId('table-size')).not.toBeNull()
+
+    // Deselected they go away: handles on every table would cover the page.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByTestId('table-width')).toBeNull())
+    expect(screen.queryByTestId('table-size')).toBeNull()
+    // A one-column table has no boundary between columns, so no divider:
+    // its only edge is the one that sizes the whole table.
+    expect(dividersOf(container)).toHaveLength(0)
+  })
+
+  it('a divider appears between columns, but never on the right edge', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const dividers = () => dividersOf(container).length
+
+    // One column: nothing to trade with, so nothing to drag.
+    expect(dividers()).toBe(0)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    // Two columns, one boundary between them -- not two.
+    expect(dividers()).toBe(1)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
+    expect(dividers()).toBe(2)
+  })
+
+  it('dragging a boundary trades with the next column and leaves the table the same width', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
+    // 200pt drawn, split twice: 100 | 50 | 50, starting at x=40.
+    const widths = () => cellBoxes(container).map((box) => parseFloat(box.style.width))
+    const total = () => widths().reduce((a, b) => a + b, 0)
+    expect(widths()).toEqual([100, 50, 50])
+    const before = total()
+
+    const divider = dividersOf(container)[0]!
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 140, clientY: 108 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 170, clientY: 108 })
+    fireEvent.pointerUp(divider, { pointerId: 1 })
+
+    // The first column took 30pt from the second; the third never moved,
+    // and the table is the width it always was.
+    await waitFor(() => expect(widths()).toEqual([130, 20, 50]))
+    expect(total()).toBe(before)
+    expect(cellBoxes(container)[2]!.style.left).toBe('190px')
+  })
+
+  it('dragging the right edge sizes every column at once, each keeping its share', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    // Drawn 200pt wide, split in two: 100 and 100, the second starting at 140.
+    expect(cellBoxes(container)[1]!.style.left).toBe('140px')
+
+    const edge = await waitFor(() => screen.getByTestId('table-width'))
+    fireEvent.pointerDown(edge, { pointerId: 1, clientX: 240, clientY: 108 })
+    fireEvent.pointerMove(edge, { pointerId: 1, clientX: 340, clientY: 108 })
+    fireEvent.pointerUp(edge, { pointerId: 1 })
+
+    // Half again as wide: both columns grew by half, neither took it all.
+    await waitFor(() => expect(cellBoxes(container)[0]!.style.width).toBe('150px'))
+    expect(cellBoxes(container)[1]!.style.width).toBe('150px')
+    expect(cellBoxes(container)[1]!.style.left).toBe('190px')
+  })
+
+  it('a press on a row\'s line that never moved is a click, not a resize', async () => {
+    // A row's handle runs the width of the table, straight over the
+    // boxes people type into. If it kept every click, the bottom of
+    // every cell would be dead to the pointer.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    const heights = () => cellBoxes(container).map((box) => box.style.height)
+    expect(heights()).toEqual(['16px', '16px'])
+
+    const edge = screen.getByTestId(`table-row-${tableId}-0-edge`)
+    fireEvent.pointerDown(edge, { pointerId: 1, clientX: 140, clientY: 116 })
+    fireEvent.pointerUp(edge, { pointerId: 1, clientX: 140, clientY: 116 })
+    await waitFor(() => expect(heights()).toEqual(['16px', '16px']))
+
+    // A pointer that barely trembled is still a click, not a drag.
+    fireEvent.pointerDown(edge, { pointerId: 2, clientX: 140, clientY: 116 })
+    fireEvent.pointerMove(edge, { pointerId: 2, clientX: 141, clientY: 118 })
+    fireEvent.pointerUp(edge, { pointerId: 2, clientX: 141, clientY: 118 })
+    await waitFor(() => expect(heights()).toEqual(['16px', '16px']))
+  })
+
+  it('dragging the line under a row resizes that row and pushes the rest down', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
+    // Three rows of 16pt, stacked: tops at 100, 116, 132.
+    expect(cellBoxes(container).map((box) => box.style.top)).toEqual(['100px', '116px', '132px'])
+
+    // Drag the line under the FIRST row down by 20pt.
+    const edge = screen.getByTestId(`table-row-${tableId}-0-edge`)
+    fireEvent.pointerDown(edge, { pointerId: 1, clientX: 140, clientY: 116 })
+    fireEvent.pointerMove(edge, { pointerId: 1, clientX: 140, clientY: 136 })
+    fireEvent.pointerUp(edge, { pointerId: 1 })
+
+    // Row 1 is 36pt tall; the rows below moved down and kept their own height.
+    await waitFor(() => expect(cellBoxes(container)[0]!.style.height).toBe('36px'))
+    expect(cellBoxes(container).map((box) => box.style.top)).toEqual(['100px', '136px', '152px'])
+    expect(cellBoxes(container)[1]!.style.height).toBe('16px')
+  })
+
+  it('removing a row drops a line: the rows below move up and keep their text', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(3))
+
+    const texts = ['first', 'second', 'third']
+    cellBoxes(container).forEach((box, i) => {
+      fireEvent.change(box.querySelector('textarea')!, { target: { value: texts[i]! } })
+    })
+    await waitFor(() => expect(screen.getByTestId(`table-row-preview-${tableId}-2`).textContent).toBe('third'))
+
+    fireEvent.click(screen.getByTestId(`table-remove-row-${tableId}-1`))
+
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    expect(cellBoxes(container).map((b) => (b.querySelector('textarea') as HTMLTextAreaElement).value)).toEqual([
+      'first',
+      'third',
+    ])
+  })
+
+  it('removing the last row removes the table: one row is all a table is', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(4))
+
+    // Two rows: the bin on a row takes just that row.
+    fireEvent.click(screen.getByTestId(`table-remove-row-${tableId}-1`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    expect(screen.queryByTestId(`table-panel-${tableId}`)).not.toBeNull()
+
+    // One row left: the same bin offers to take the table, rather than
+    // doing nothing. It asks first -- this cannot be undone.
+    fireEvent.click(screen.getByTestId(`table-remove-row-${tableId}-0`))
+    await waitFor(() => expect(screen.queryByTestId('confirm-remove-table-dialog')).not.toBeNull())
+    expect(cellBoxes(container)).toHaveLength(2)
+    fireEvent.click(screen.getByTestId('confirm-remove-table'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(0))
+    expect(screen.queryByTestId(`table-panel-${tableId}`)).toBeNull()
+  })
+
+  it('the table can be thrown away from its own header', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+
+    fireEvent.click(screen.getByTestId(`table-remove-${tableId}`))
+    await waitFor(() => expect(screen.queryByTestId('confirm-remove-table-dialog')).not.toBeNull())
+    fireEvent.click(screen.getByTestId('confirm-remove-table'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(0))
+    expect(screen.queryByTestId(`table-panel-${tableId}`)).toBeNull()
+  })
+
+  it('backing out of the confirmation leaves the table and its text alone', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    const box = cellBoxes(container)[0]!.querySelector('textarea')!
+    fireEvent.change(box, { target: { value: 'Extra doors' } })
+    await waitFor(() => expect(box.value).toBe('Extra doors'))
+
+    fireEvent.click(screen.getByTestId(`table-remove-${tableId}`))
+    await waitFor(() => expect(screen.queryByTestId('confirm-remove-table-dialog')).not.toBeNull())
+    fireEvent.click(screen.getByTestId('cancel-remove-table'))
+
+    await waitFor(() => expect(screen.queryByTestId('confirm-remove-table-dialog')).toBeNull())
+    expect(cellBoxes(container)).toHaveLength(1)
+    expect(cellBoxes(container)[0]!.querySelector('textarea')!.value).toBe('Extra doors')
+  })
+
+  it('the panel lists a table under the page it sits on', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+
+    // Not floating above the list with nothing saying where it is: a
+    // table belongs to a page, so it is listed inside that page's group.
+    const group = screen.getByTestId('page-group-0')
+    expect(group.querySelector(`[data-testid="table-panel-${tableId}"]`)).not.toBeNull()
+  })
+
+  it('a cell\'s geometry never leaks into the style every cell shares', async () => {
+    // A cell is a slot, so an update aimed at one can carry where it is
+    // and how wide it is. Those must not reach the table's typography:
+    // the style is spread over every cell, so an `x` in there would put
+    // all four columns on top of the first.
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = memoryStore()
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store, onStartOver: vi.fn() }))
+    await drawTable(container)
+    fireEvent.click(screen.getByTestId('table-add-column'))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    const lefts = () => cellBoxes(container).map((box) => box.style.left)
+    expect(lefts()).toEqual(['40px', '140px'])
+
+    // Restyle through the inspector: typography goes through, and only it.
+    const size = screen.getByTestId('size-input') as HTMLInputElement
+    fireEvent.change(size, { target: { value: '14' } })
+    fireEvent.keyDown(size, { key: 'Enter' })
+    await waitFor(() => expect(cellBoxes(container)[0]!.querySelector('textarea')!.style.fontSize).toBe('14px'))
+
+    // The columns are still where they were, and the saved style is clean.
+    expect(lefts()).toEqual(['40px', '140px'])
+    fireEvent.click(screen.getByTestId('panel-save'))
+    await waitFor(() => expect(store.layouts.get('file-1')?.tables).toHaveLength(1))
+    const style = store.layouts.get('file-1')!.tables![0]!.style as Record<string, unknown>
+    expect(Object.keys(style).sort()).toEqual(['align', 'color', 'fontId', 'lineHeight', 'size'])
+  })
+
+  it('saves the table rather than its cells, and opens again with both', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    const store = memoryStore()
+    const { container, unmount } = render(createElement(TemplateEditor, { opened: newFile, store, onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    fireEvent.change(cellBoxes(container)[1]!.querySelector('textarea')!, { target: { value: 'kept' } })
+
+    fireEvent.click(screen.getByTestId('panel-save'))
+    await waitFor(() => expect(store.layouts.get('file-1')?.tables).toHaveLength(1))
+
+    const saved = store.layouts.get('file-1')!
+    // The cells are derived, so they are not written down as slots.
+    expect(saved.slots).toEqual([])
+    expect(saved.tables![0]).toMatchObject({ rowHeights: [16, 16], x: 40 })
+    expect(Object.values(store.values.get('file-1')!.values)).toEqual(['kept'])
+
+    unmount()
+    const reopened: OpenedFile = { ...newFile, layout: saved, values: store.values.get('file-1')! }
+    const second = render(createElement(TemplateEditor, { opened: reopened, store, onStartOver: vi.fn() }))
+    await waitFor(() => expect(cellBoxes(second.container)).toHaveLength(2))
+    expect((cellBoxes(second.container)[1]!.querySelector('textarea') as HTMLTextAreaElement).value).toBe('kept')
+  })
+
+  it('the export draws the cells that were filled in, and nothing for the empty ones', async () => {
+    const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+    class FakeURL extends URL {
+      static createObjectURL = vi.fn(() => 'blob:fake')
+      static revokeObjectURL = vi.fn()
+    }
+    vi.stubGlobal('URL', FakeURL)
+    vi.stubGlobal('Blob', class { constructor(public parts: unknown[]) {} })
+    const originalCreateElement = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = originalCreateElement(tag)
+      if (tag === 'a') el.click = vi.fn()
+      return el
+    })
+
+    const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+    await drawTable(container)
+    const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+    fireEvent.click(screen.getByTestId(`table-add-row-${tableId}`))
+    await waitFor(() => expect(cellBoxes(container)).toHaveLength(2))
+    fireEvent.change(cellBoxes(container)[0]!.querySelector('textarea')!, { target: { value: 'Row one' } })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    fireEvent.click(screen.getByTestId('download-button'))
+    await waitFor(() => expect(renderPdfMock).toHaveBeenCalledTimes(1))
+
+    const drawn = renderPdfMock.mock.calls[0]![1]
+    expect(drawn).toHaveLength(2)
+    expect(drawn.map((s) => s.text)).toEqual(['Row one', ''])
+    // Both cells are ordinary slots on the page, at the table's geometry.
+    expect(drawn[0]).toMatchObject({ page: 0, x: 40, y: 692, width: 200 })
+  })
+
+  describe('a table has a name, and a data file addresses it by that name', () => {
+    it('is named by position to begin with, shown in the panel, and renamed from the inspector', async () => {
+      const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+      const store = memoryStore()
+      const { container } = render(createElement(TemplateEditor, { opened: newFile, store, onStartOver: vi.fn() }))
+      await drawTable(container)
+      const tableId = cellBoxes(container)[0]!.dataset.slotId!.split('#')[0]!
+
+      // Addressable from the moment it exists, without anyone naming it.
+      expect(screen.getByTestId(`table-name-${tableId}`).textContent).toContain('Table 1')
+      const field = screen.getByTestId('table-name') as HTMLInputElement
+      expect(field.value).toBe('Table 1')
+
+      fireEvent.change(field, { target: { value: 'Change orders' } })
+      fireEvent.blur(field)
+      await waitFor(() => expect(screen.getByTestId(`table-name-${tableId}`).textContent).toContain('Change orders'))
+
+      // And it is the saved name, which is what the generator matches on.
+      fireEvent.click(screen.getByTestId('panel-save'))
+      await waitFor(() => expect(store.layouts.get(newFile.fileId)?.tables?.[0]?.name).toBe('Change orders'))
+    })
+
+    it('will not let a second table take the first one\'s name', async () => {
+      const { TemplateEditor } = await import('../src/features/template/TemplateEditor')
+      const { container } = render(createElement(TemplateEditor, { opened: newFile, store: memoryStore(), onStartOver: vi.fn() }))
+      await drawTable(container)
+      const field = screen.getByTestId('table-name') as HTMLInputElement
+      fireEvent.change(field, { target: { value: 'Change orders' } })
+      fireEvent.blur(field)
+      await waitFor(() => expect((screen.getByTestId('table-name') as HTMLInputElement).value).toBe('Change orders'))
+
+      await drawTable(container, 300)
+      const second = screen.getByTestId('table-name') as HTMLInputElement
+      fireEvent.change(second, { target: { value: 'Change orders' } })
+      fireEvent.blur(second)
+      // Two tables of one name could not both be addressed, so the clash is
+      // settled here rather than left for the data file to fall over on.
+      await waitFor(() => expect((screen.getByTestId('table-name') as HTMLInputElement).value).toBe('Change orders 2'))
+    })
+  })
+})

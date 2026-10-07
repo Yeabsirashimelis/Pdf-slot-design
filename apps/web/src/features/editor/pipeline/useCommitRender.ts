@@ -45,6 +45,17 @@ export function useCommitRender(
    */
   renderedSlots: Slot[] | null
   /**
+   * The slots a given set of bytes was rendered from, or null if those
+   * bytes are not the latest output.
+   *
+   * Recorded as the render finishes rather than afterwards, so it is
+   * already right by the time anything can report having painted them --
+   * and keyed by the bytes, so a paint that finishes late, for output
+   * that has since been replaced, matches nothing instead of being taken
+   * for the current one.
+   */
+  slotsFor(bytes: Uint8Array): Slot[] | null
+  /**
    * Set when the most recent commit's render failed; cleared at the start
    * of the next commit. Bytes/renderedSlots deliberately keep their last
    * *successful* values on failure (see the catch branch below) so a
@@ -224,5 +235,12 @@ export function useCommitRender(
     return start()
   }, [start])
 
-  return { bytes, isRendering, renderedSlots, error, commit, render }
+  // Stable: it only reads a ref, so it never re-runs the effect in
+  // PageCanvas that holds it.
+  const slotsFor = useCallback(
+    (painted: Uint8Array) => (lastOutput.current?.bytes === painted ? lastOutput.current.slots : null),
+    [],
+  )
+
+  return { bytes, isRendering, renderedSlots, error, commit, render, slotsFor }
 }

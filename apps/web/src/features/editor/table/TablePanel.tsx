@@ -1,0 +1,176 @@
+'use client'
+
+import { Plus, Rows3, Trash2 } from 'lucide-react'
+import { cellId, type TemplateTable } from '@pdf-slot/core'
+import { HintButton } from '@/components/hint'
+import { ScrollFade } from '@/components/scroll-fade'
+import { cn } from '@/lib/utils'
+
+/**
+ * A table in the slots panel: one group, one line per row -- not forty
+ * fields. The line previews what is written across that row, so a
+ * half-filled log can be read at a glance; the cells themselves are typed
+ * into on the page, where they sit on the printed lines they belong to.
+ */
+/**
+ * Rows shown before the group scrolls on its own. Past this, a long
+ * table would push the file's own slots off the bottom of the panel.
+ * Six is enough to see a table is a table without taking the panel over.
+ */
+const ROWS_BEFORE_SCROLL = 6
+
+/**
+ * A row's height, and the gap between two, in pixels -- `h-7` and
+ * `gap-0.5` below, written here as numbers so the cap can be worked out
+ * from them.
+ *
+ * The cap has to be an exact number of rows. Left as a round figure it
+ * lands mid-row, and a row sliced across the middle reads as a drawing
+ * fault rather than as "there is more below" -- which is the one thing
+ * the cap exists to say.
+ */
+const ROW_HEIGHT_PX = 28
+const ROW_GAP_PX = 2
+const SCROLL_CAP_PX = ROWS_BEFORE_SCROLL * ROW_HEIGHT_PX + (ROWS_BEFORE_SCROLL - 1) * ROW_GAP_PX
+
+export function TablePanel({
+  table,
+  texts,
+  selectedId,
+  locked,
+  onSelectCell,
+  onAddRow,
+  onRemoveRow,
+  onRemoveTable,
+}: {
+  table: TemplateTable
+  /** What is currently written in each cell, by slot id. */
+  texts: Record<string, string>
+  selectedId: string | null
+  locked: boolean
+  /** Jump to a row: selects its first cell, which is what the page and the inspector follow. */
+  onSelectCell(id: string): void
+  onAddRow(): void
+  onRemoveRow(row: number): void
+  /** The whole table goes: its rows, its columns, and everything typed into them. */
+  onRemoveTable(): void
+}) {
+  const rows = table.rowHeights.map((_, row) => row)
+  const scrolls = rows.length > ROWS_BEFORE_SCROLL
+  const idsOf = (row: number) => table.columns.map((column) => cellId(table.id, row, column.key))
+
+  return (
+    <div className="flex flex-col gap-0.5" data-testid={`table-panel-${table.id}`}>
+      <div className="flex items-center gap-1.5 px-2 pt-2 pb-1">
+        <Rows3 className="size-3.5 shrink-0 opacity-70" aria-hidden />
+        {/* The name, not the word "Table": it is what a data file has to
+            say to fill this table, so it belongs where it can be read
+            without selecting anything. */}
+        <span
+          className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground"
+          data-testid={`table-name-${table.id}`}
+          title={`${table.name} · ${table.columns.length} column${table.columns.length === 1 ? '' : 's'}`}
+        >
+          {table.name} · {table.columns.length} column{table.columns.length === 1 ? '' : 's'}
+        </span>
+        <HintButton
+          hint="Add a row below the last one, at the same spacing"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Add row"
+          data-testid={`table-add-row-${table.id}`}
+          disabled={locked}
+          onClick={onAddRow}
+        >
+          <Plus />
+        </HintButton>
+        <HintButton
+          hint="Remove the table, its rows and everything typed into them"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Remove table"
+          data-testid={`table-remove-${table.id}`}
+          disabled={locked}
+          onClick={onRemoveTable}
+        >
+          <Trash2 />
+        </HintButton>
+      </div>
+
+      {/* While it scrolls it is a pane of its own, and says so with a
+          hairline and an inset: without one, a list that scrolls inside a
+          list that also scrolls gives no clue which of the two the wheel
+          is about to move. */}
+      <ScrollFade
+        className={cn(scrolls && 'rounded-md border border-border')}
+        // +2 for the hairline top and bottom, so the cap stays an exact
+        // number of rows rather than six rows minus the border.
+        style={scrolls ? { maxHeight: SCROLL_CAP_PX + 2 } : undefined}
+        data-testid={`table-rows-${table.id}`}
+      >
+        <div className="flex flex-col gap-0.5">
+      {rows.map((row) => {
+        const ids = idsOf(row)
+        const isSelected = selectedId !== null && ids.includes(selectedId)
+        // A table is its rows: take the last one away and there is no table left.
+        const last = table.rowHeights.length <= 1
+        const preview = ids.map((id) => texts[id] ?? '').filter((text) => text !== '').join(' · ')
+        return (
+          <div
+            key={row}
+            role="button"
+            tabIndex={0}
+            aria-pressed={isSelected}
+            data-testid={`table-row-${table.id}-${row}`}
+            onClick={() => onSelectCell(ids[0]!)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onSelectCell(ids[0]!)
+              }
+            }}
+            className={cn(
+              // A fixed height, because the cap above is worked out from it.
+              'group/row flex h-7 items-center gap-1.5 rounded-md px-2 text-sm outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring',
+              isSelected && 'bg-accent text-accent-foreground hover:bg-accent',
+            )}
+          >
+            {/* Wide enough for three digits and told not to wrap: at the
+                old width "Row 10" broke over two lines the moment a table
+                reached ten rows, and every row after it was double height. */}
+            <span className="w-14 shrink-0 whitespace-nowrap text-xs text-muted-foreground tabular-nums">Row {row + 1}</span>
+            <span
+              className={cn('min-w-0 flex-1 truncate text-xs', preview === '' && 'italic opacity-60')}
+              data-testid={`table-row-preview-${table.id}-${row}`}
+            >
+              {preview === '' ? 'empty' : preview}
+            </span>
+            <HintButton
+              hint={
+                last
+                  ? 'Remove the table -- this is its last row'
+                  : 'Remove this row; everything below it moves up a line'
+              }
+              variant="ghost"
+              size="icon-xs"
+              aria-label={last ? 'Remove table' : `Remove row ${row + 1}`}
+              data-testid={`table-remove-row-${table.id}-${row}`}
+              disabled={locked}
+              className={cn('shrink-0 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100', isSelected && 'opacity-100')}
+              onClick={(event) => {
+                event.stopPropagation()
+                if (last) onRemoveTable()
+                else onRemoveRow(row)
+              }}
+            >
+              <Trash2 />
+            </HintButton>
+          </div>
+        )
+      })}
+        </div>
+      </ScrollFade>
+    </div>
+  )
+}

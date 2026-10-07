@@ -6,7 +6,10 @@ import { renderPdf } from '../src/render/pdf.js'
 import { normalizePdf } from '../src/document/normalize.js'
 import { FONT_FILES, FONT_IDS, type FontBytes } from '../src/fonts/registry.js'
 import { createFontMetrics } from '../src/layout/metrics.js'
-import { layoutText } from '../src/layout/wrap.js'
+import { MIN_TEXT_WIDTH, layoutText, slotInset, slotLayout } from '../src/layout/wrap.js'
+import { recordToValues } from '../src/document/records.js'
+import { toSlots } from '../src/document/template.js'
+import { tableCells, tableFromStored, type TemplateTable } from '../src/document/table.js'
 import type { Slot } from '../src/document/types.js'
 import { requireContentStreamText } from './helpers/content-stream.js'
 
@@ -136,4 +139,230 @@ test("the exported PDF's line breaks match what the layout engine predicted", as
     expect(drawnPositions[i]?.x).toBeCloseTo(line.x, 3)
     expect(drawnPositions[i]?.y).toBeCloseTo(line.baselineY, 3)
   })
+})
+
+/**
+ * The sans face shapes, and the export has to shape identically.
+ *
+ * Inter ships no `liga`, so the ligature words that used to stand for
+ * "shaping happens" exercise nothing in it. What it ships is a `calt` that
+ * rewrites `->` into a single arrow glyph, which makes the run measurably
+ * narrower than its characters. That is a real divergence risk and it is
+ * specific to this typeface: if the layout engine shaped and the writer did
+ * not (or the reverse), a right-aligned line would be computed at one width
+ * and drawn at another, and the text would sit visibly off its edge.
+ *
+ * Right-aligned deliberately, for the reason the wrap test above explains:
+ * it makes each line's drawn x a function of what that line measures as, so
+ * the comparison is a fingerprint of the shaping and not just of the count.
+ * Both weights, because both are new.
+ */
+test.each(['sans', 'sans-bold'] as const)(
+  "%s: text the face shapes prints exactly where the layout engine put it",
+  async (fontId) => {
+    const slot: Slot = {
+      // 140pt wraps this into two lines that each *end* in an arrow, so
+      // every line's right-aligned x depends on a collapsed glyph.
+      id: 'shaped', page: 0, x: 40, y: 760, width: 140,
+      text: 'draft -> review -> approved -> filed',
+      fontId, size: 13, color: { r: 0, g: 0, b: 0 },
+      align: 'right', lineHeight: 1.2,
+    }
+
+    const metrics = createFontMetrics(fonts[slot.fontId])
+
+    // The shaping is really happening: measured whole, the text is narrower
+    // than the sum of its characters, because each `->` collapses to one
+    // glyph. Without this the test below would still pass on a face that
+    // shaped nothing, and would be proving nothing about Inter.
+    const whole = metrics.widthOfText(slot.text, slot.size)
+    const perCharacter = [...slot.text].reduce((t, c) => t + metrics.widthOfText(c, slot.size), 0)
+    expect(whole).toBeLessThan(perCharacter)
+
+    const predicted = layoutText(slotLayout(slot, slot.text, metrics), metrics)
+    expect(predicted.length).toBeGreaterThanOrEqual(2)
+
+    const out = await renderPdf(await doc(), [slot], fonts)
+    const drawn = extractDrawnPositions(requireContentStreamText(out))
+
+    expect(drawn).toHaveLength(predicted.length)
+    predicted.forEach((line, i) => {
+      expect(drawn[i]?.x).toBeCloseTo(line.x, 3)
+      expect(drawn[i]?.y).toBeCloseTo(line.baselineY, 3)
+    })
+  },
+)
+
+/**
+ * A change-order log's first three rows: four columns lined up with a
+ * printed form, padded so the text is held off the rules.
+ */
+function paddedTable(padding: number): TemplateTable {
+  return {
+    id: 'tbl1',
+    name: 'Change orders',
+    page: 0,
+    x: 50,
+    y: 668,
+    columns: [
+      { key: 'no', name: 'No.', width: 40 },
+      { key: 'date', name: 'Date', width: 70 },
+      { key: 'desc', name: 'Description', width: 300 },
+      { key: 'amount', name: 'Amount', width: 102 },
+    ],
+    rowHeights: [22, 22, 22],
+    style: { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2, padding },
+  }
+}
+
+const ROWS = [
+  ['1', '03/14', 'Additional lobby doors and hardware', '1,240.00'],
+  ['2', '03/28', 'Ceiling grid rework, levels 2-3', '3,450.00'],
+  ['3', '04/09', 'Electrical rough-in revisions', '2,180.00'],
+]
+
+/** The table's cells with the log's text in them, in reading order. */
+function filledCells(padding: number): Slot[] {
+  return tableCells(paddedTable(padding)).map((cell, i) => ({
+    ...cell,
+    text: ROWS[Math.floor(i / 4)]![i % 4]!,
+  }))
+}
+
+/**
+ * The guarantee this branch has to keep: a table's cells are ordinary
+ * slots, and padding is taken off the box in one place, so what the
+ * overlay draws and what the writer prints are the same numbers.
+ *
+ * This is the one to run after a merge. The overlay computes its lines
+ * through `slotLayout`; so does `renderPdf`. If anything ever moves the
+ * padding, the row geometry or the cell layout into one of them and not
+ * the other, the positions below stop matching and this fails -- which is
+ * the whole point, because on screen the drift would just look like text
+ * sitting slightly wrong.
+ */
+test('a padded table prints exactly where the preview lays it out', async () => {
+  const padding = 4
+  const cells = filledCells(padding)
+  expect(cells).toHaveLength(12)
+
+  const metrics = createFontMetrics(fonts.sans)
+  // Exactly what the overlay does for each cell (see slotBox.ts).
+  const predicted = cells.flatMap((cell) => layoutText(slotLayout(cell, cell.text, metrics), metrics))
+  expect(predicted.length).toBeGreaterThanOrEqual(12)
+
+  const out = await renderPdf(await doc(), cells, fonts)
+  const drawn = extractDrawnPositions(requireContentStreamText(out))
+
+  expect(drawn).toHaveLength(predicted.length)
+  predicted.forEach((line, i) => {
+    expect(drawn[i]?.x).toBeCloseTo(line.x, 3)
+    expect(drawn[i]?.y).toBeCloseTo(line.baselineY, 3)
+  })
+})
+
+test('the padding is really in the exported page, not just in the preview', async () => {
+  // The test above would pass just as well if padding were ignored by
+  // both sides. This one proves it reached the page: the same table,
+  // printed twice, lands its glyphs further in when it is padded.
+  const metrics = createFontMetrics(fonts.sans)
+  const positions = async (padding: number) => {
+    const cells = filledCells(padding)
+    const out = await renderPdf(await doc(), cells, fonts)
+    return extractDrawnPositions(requireContentStreamText(out))
+  }
+
+  const plain = await positions(0)
+  const padded = await positions(6)
+  expect(padded).toHaveLength(plain.length)
+
+  // How far in the cell can actually afford to go. A 22pt row holding
+  // 10pt text has only so much to give, and `slotInset` is what decides
+  // -- the same function the overlay measures with.
+  const inset = slotInset(filledCells(6)[0]!, metrics)
+  expect(inset.left).toBeGreaterThan(0)
+  expect(inset.top).toBeGreaterThan(0)
+
+  // Left-aligned text: every line starts one inset further right, and one
+  // inset lower down the page (PDF y grows upward).
+  plain.forEach((line, i) => {
+    expect(padded[i]!.x - line.x).toBeCloseTo(inset.left, 3)
+    expect(line.y - padded[i]!.y).toBeCloseTo(inset.top, 3)
+  })
+  // Left and top are the same number here (filledCells passes one
+  // `padding`), which is exactly what a file saved before the two were
+  // set apart carries.
+  expect(inset.left).toBeCloseTo(inset.top, 6)
+
+  // And asking for more than the cell can spare gives what it can spare,
+  // each way against its own edge: the column's width across, the row's
+  // height down. Neither grows the box out of the table.
+  const greedy = slotInset(filledCells(50)[0]!, metrics)
+  expect(greedy.left).toBeCloseTo((filledCells(50)[0]!.width - MIN_TEXT_WIDTH) / 2, 6)
+  expect(metrics.ascender(10) - metrics.descender(10) + greedy.top).toBeLessThanOrEqual(22.001)
+})
+
+test('a table saved in the old shape still prints where it always did', async () => {
+  // Rows used to be one height plus a pitch and a count. A merge that
+  // loses the translation would not crash -- it would quietly draw the
+  // rows in the wrong places, which is worse.
+  const legacy = {
+    ...paddedTable(0),
+    rowHeights: undefined,
+    rowHeight: 16,
+    rowPitch: 22,
+    rowCount: 3,
+  }
+  const restored = tableFromStored(legacy as never)
+  expect(restored.rowHeights).toEqual([22, 22, 22])
+
+  const tops = tableCells(restored).filter((_, i) => i % 4 === 0).map((cell) => cell.y)
+  expect(tops).toEqual([668, 646, 624])
+})
+
+test('the row put on the page is the row that gets generated', async () => {
+  // The editor previews a record by running it through recordToValues and
+  // writing the result into the boxes; the job renders a record by running
+  // it through the same function. One function, so the two cannot drift --
+  // and drift here means the page shows one thing and the zip holds
+  // another, which is the same promise as preview equals download.
+  const table = paddedTable(3)
+  const layout = {
+    fileId: 'f'.repeat(64),
+    updatedAt: '2026-09-29T00:00:00.000Z',
+    slots: [{
+      id: 's1', name: 'Client', order: 0, page: 0, x: 60, y: 720, width: 200,
+      fontId: 'sans' as const, size: 11, color: { r: 0, g: 0, b: 0 },
+      align: 'left' as const, lineHeight: 1.2,
+    }],
+    tables: [table],
+  }
+  const record = {
+    Client: 'Abel',
+    [table.name]: [
+      { 'No.': '1', Date: '03/14', Description: 'Doors', Amount: '10.00' },
+      { 'No.': '2', Date: '03/28', Description: 'Grid', Amount: '20.00' },
+    ],
+  }
+
+  const values = recordToValues(layout, record)
+  const slots = toSlots(layout, { fileId: layout.fileId, updatedAt: layout.updatedAt, values })
+
+  // What the overlay would draw for those boxes...
+  const metrics = createFontMetrics(fonts.sans)
+  const shown = slots.flatMap((slot) => layoutText(slotLayout(slot, slot.text, metrics), metrics))
+  // ...against what the writer actually puts on the page.
+  const out = await renderPdf(await doc(), slots, fonts)
+  const drawn = extractDrawnPositions(requireContentStreamText(out))
+
+  expect(shown.length).toBeGreaterThan(0)
+  expect(drawn).toHaveLength(shown.length)
+  shown.forEach((line, i) => {
+    expect(drawn[i]?.x).toBeCloseTo(line.x, 3)
+    expect(drawn[i]?.y).toBeCloseTo(line.baselineY, 3)
+  })
+
+  // And the record really reached both: the words are the record's own.
+  expect(shown.map((l) => l.text)).toContain('Abel')
+  expect(shown.map((l) => l.text)).toContain('10.00')
 })

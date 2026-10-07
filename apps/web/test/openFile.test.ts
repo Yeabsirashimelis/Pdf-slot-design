@@ -44,38 +44,24 @@ async function blankPdf(): Promise<Uint8Array> {
 describe('openFile', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('an unknown PDF lands in the layout step, is stored, and its id is the content hash', async () => {
+  it('an unknown PDF has no layout, is stored, and its id is the content hash', async () => {
     const store = memoryStore()
     const bytes = await blankPdf()
     const opened = await openFile(bytes, 'form.pdf', store)
-    expect(opened.step).toBe('layout')
     expect(opened.layout).toBeNull()
     expect(opened.fileId).toMatch(/^[0-9a-f]{64}$/)
     expect(opened.doc.id).toBe(opened.fileId)
     expect(store.files).toEqual([opened.fileId])
   })
 
-  it('the same bytes again land in the write step with the saved layout', async () => {
+  it('the same bytes again open with the saved layout', async () => {
     const store = memoryStore()
     const bytes = await blankPdf()
     const first = await openFile(bytes, 'form.pdf', store)
     store.layouts.set(first.fileId, oneSlotLayout(first.fileId))
     const again = await openFile(bytes.slice(), 'renamed.pdf', store)
     expect(again.fileId).toBe(first.fileId)
-    expect(again.step).toBe('write')
     expect(again.layout).not.toBeNull()
-  })
-
-  it('a saved layout with no slots is not a known file: it lands in the layout step', async () => {
-    // Nothing to write into, so step 2 would be a locked page with an empty
-    // form. (A layout like this could only come from a safety-net write that
-    // never should have happened; see useDebouncedWrite.)
-    const store = memoryStore()
-    const bytes = await blankPdf()
-    const first = await openFile(bytes, 'form.pdf', store)
-    store.layouts.set(first.fileId, { fileId: first.fileId, slots: [], updatedAt: 't' })
-    const again = await openFile(bytes.slice(), 'form.pdf', store)
-    expect(again.step).toBe('layout')
   })
 
   it('a copy this tool exported is recognised by its stamp, not its (different) bytes', async () => {
@@ -86,7 +72,7 @@ describe('openFile', () => {
     const exported = await renderPdf(first.doc, [], fonts)
     const reopened = await openFile(exported, 'edited.pdf', store)
     expect(reopened.fileId).toBe(first.fileId)
-    expect(reopened.step).toBe('write')
+    expect(reopened.layout).not.toBeNull()
   })
 
   it('a re-uploaded export opens the stored original, not the filled copy, so its text is not drawn twice', async () => {
@@ -118,7 +104,7 @@ describe('openFile', () => {
     const opened = await openFile(bytes, 'tampered.pdf', memoryStore())
     expect(opened.fileId).not.toBe('not-a-hash')
     expect(opened.fileId).toMatch(/^[0-9a-f]{64}$/)
-    expect(opened.step).toBe('layout')
+    expect(opened.layout).toBeNull()
   })
 
   it('without SubtleCrypto the file still opens (as new, with a random id)', async () => {
@@ -129,7 +115,7 @@ describe('openFile', () => {
     vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
     const opened = await openFile(await blankPdf(), 'form.pdf', memoryStore())
     expect(opened.fileId).toMatch(/^[0-9a-f]{32}$/)
-    expect(opened.step).toBe('layout')
+    expect(opened.layout).toBeNull()
   })
 })
 
@@ -140,7 +126,34 @@ it('carries the file name -- the stored one when the file is already known', asy
   expect(first.name).toBe('original.pdf')
   // A re-upload under another name (or a downloaded copy named "edited.pdf")
   // keeps the name it was first saved under.
-  store.stored.set(first.fileId, { fileId: first.fileId, name: 'original.pdf', source: bytes, pages: first.doc.pages, createdAt: 't' })
+  store.stored.set(first.fileId, { fileId: first.fileId, name: 'original.pdf', source: bytes, pages: first.doc.pages, createdAt: '2026-09-19T00:00:00.000Z' })
   const again = await openFile(bytes.slice(), 'renamed.pdf', store)
   expect(again.name).toBe('original.pdf')
+})
+
+it('reads a table saved before rows had their own heights', async () => {
+  // What is sitting in people's browsers: one row height, a pitch to the
+  // next row, and a count of them.
+  const store = memoryStore()
+  const bytes = await blankPdf()
+  const opened = await openFile(bytes, 'log.pdf', store)
+  await store.putLayout({
+    fileId: opened.fileId,
+    updatedAt: 't',
+    slots: [],
+    tables: [{
+      id: 'tbl1', page: 0, x: 50, y: 658,
+      columns: [{ key: 'c1', name: 'No.', width: 50 }],
+      rowHeight: 16, rowPitch: 22, rowCount: 4,
+      style: { fontId: 'sans', size: 10, color: { r: 0, g: 0, b: 0 }, align: 'left', lineHeight: 1.2 },
+    }] as never,
+  })
+
+  const again = await openFile(bytes.slice(), 'log.pdf', store)
+  const table = again.layout!.tables![0]!
+  // Each row takes the old pitch, so the rows close up but every row's
+  // top -- and so everything typed into it -- stays where it was.
+  expect(table.rowHeights).toEqual([22, 22, 22, 22])
+  expect('rowPitch' in table).toBe(false)
+  expect('rowCount' in table).toBe(false)
 })

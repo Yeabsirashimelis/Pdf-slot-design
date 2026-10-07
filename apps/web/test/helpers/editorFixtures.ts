@@ -30,8 +30,8 @@ export const FONT_DIR = path.resolve(__dirname, '../../public/fonts')
 // Mirrors packages/core/src/fonts/registry.ts's FONT_FILES -- a literal
 // here so this fixture never depends on the (possibly mocked) core module.
 export const FONT_FILES = [
-  'PT_Sans-Web-Regular.ttf',
-  'PT_Sans-Web-Bold.ttf',
+  'Inter-Regular.ttf',
+  'Inter-Bold.ttf',
   'PT_Serif-Web-Regular.ttf',
   'PT_Serif-Web-Bold.ttf',
   'IBMPlexMono-Regular.ttf',

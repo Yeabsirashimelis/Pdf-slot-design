@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ADD COLUMN IF NOT EXISTS "fill_from_template" boolean DEFAULT false NOT NULL;

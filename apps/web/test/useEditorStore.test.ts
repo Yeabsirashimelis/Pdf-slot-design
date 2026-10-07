@@ -123,3 +123,35 @@ describe('useEditorStore: nudgeSlot', () => {
     expect(result.current.slots[0]).toMatchObject({ x: 101, y: 700 })
   })
 })
+
+describe('useEditorStore: pasteSlot', () => {
+  afterEach(() => localStorage.clear())
+
+  it('creates a slot from a snapshot at the given page and position, with a new id, and selects it', () => {
+    const { result } = renderHook(() => useEditorStore())
+    act(() => result.current.addSlot({ x: 100, y: 700 }, 0))
+    const source = result.current.slots[0]!
+    act(() => result.current.updateSlot(source.id, { text: 'sample', size: 18, width: 240, height: 60, align: 'center' }))
+    const snapshot = { ...result.current.slots[0]! }
+    act(() => result.current.removeSlot(source.id))
+    let pastedId = ''
+    act(() => {
+      pastedId = result.current.pasteSlot(snapshot, { page: 2, x: 30, y: 500 })
+    })
+    expect(pastedId).not.toBe(source.id)
+    expect(result.current.selectedId).toBe(pastedId)
+    expect(result.current.slots).toEqual([
+      expect.objectContaining({ id: pastedId, page: 2, x: 30, y: 500, text: 'sample', size: 18, width: 240, height: 60, align: 'center' }),
+    ])
+  })
+
+  it('is one undo step', () => {
+    const { result } = renderHook(() => useEditorStore())
+    act(() => result.current.addSlot({ x: 10, y: 700 }, 0))
+    const snapshot = { ...result.current.slots[0]! }
+    act(() => { result.current.pasteSlot(snapshot, { page: 0, x: 10, y: 600 }) })
+    expect(result.current.slots).toHaveLength(2)
+    act(() => result.current.undo())
+    expect(result.current.slots).toHaveLength(1)
+  })
+})
